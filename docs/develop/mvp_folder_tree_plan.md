@@ -56,11 +56,11 @@ FoldSnap e' un plugin WordPress per la gestione di cartelle nella Media Library.
 
 Ogni step include codice + test relativi. I test si scrivono e si eseguono nello stesso step.
 
-### Step 0 — Preparazione
+### Step 0 — Preparazione ✅
 
 - Rimuovere `disable-model-invocation: true` da `.claude/skills/test-coverage/SKILL.md` per permettere l'invocazione automatica della skill `/test-coverage`
 
-### Step 1 — TaxonomyService + Bootstrap + test
+### Step 1 — TaxonomyService + Bootstrap + test ✅
 
 **Crea `src/Services/TaxonomyService.php`:**
 - Classe `final` con costanti `TAXONOMY_NAME = 'foldsnap_folder'` e `POST_TYPE = 'attachment'`
@@ -74,7 +74,7 @@ Ogni step include codice + test relativi. I test si scrivono e si eseguono nello
 
 **Verifica:** `/test-coverage` sui file sorgente dello step, poi `composer fullcheck`
 
-### Step 2 — FolderModel + test
+### Step 2 — FolderModel + test ✅
 
 **Crea `src/Models/FolderModel.php`:**
 - Proprieta' private: `id`, `name`, `slug`, `parentId`, `mediaCount`, `color`, `position`, `children[]`
