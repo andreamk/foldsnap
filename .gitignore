@@ -25,7 +25,6 @@
 # LOCK FILES
 # ====================================
 composer.lock
-package-lock.json
 
 # ====================================
 # IDE & EDITOR
