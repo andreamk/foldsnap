@@ -1,6 +1,5 @@
 {
     "name": "amk/foldsnap",
-    "version": "0.1.0",
     "description": "WordPress plugin that adds folder management capabilities to the admin media library.",
     "type": "wordpress-plugin",
     "license": "GPL-2.0-or-later",
