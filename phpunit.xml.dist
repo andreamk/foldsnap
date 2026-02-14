@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<phpunit
+    bootstrap="tests/bootstrap.php"
+    backupGlobals="false"
+    colors="true"
+    convertErrorsToExceptions="true"
+    convertNoticesToExceptions="true"
+    convertWarningsToExceptions="true"
+>
+    <php>
+        <const name="WP_TESTS_PHPUNIT_POLYFILLS_PATH" value="tools/extra-composer/phpunit/vendor/yoast/phpunit-polyfills"/>
+        <ini name="display_errors" value="On"/>
+        <ini name="display_startup_errors" value="On"/>
+    </php>
+    <testsuites>
+        <testsuite name="default">
+            <directory prefix="" suffix="Tests.php">./tests/</directory>
+            <exclude>./tests/TestsUtils</exclude>
+        </testsuite>
+    </testsuites>
+</phpunit>

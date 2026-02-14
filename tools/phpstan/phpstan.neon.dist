@@ -1,0 +1,16 @@
+parameters:
+    level: max
+    phpVersion: 80400 # PHP 8.4
+    treatPhpDocTypesAsCertain: false
+    checkUninitializedProperties: true
+    reportUnmatchedIgnoredErrors: true
+    bootstrapFiles:
+        - constants.php
+    paths:
+        - ../..
+    excludePaths:
+        analyseAndScan:
+            - ../../vendor/ (?)
+            - ../../tests/ (?)
+            - ../../tools/
+            - ../../node_modules/ (?)

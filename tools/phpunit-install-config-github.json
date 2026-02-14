@@ -1,0 +1,8 @@
+{
+    "testPath": "/tmp",
+    "dbHost": "127.0.0.1",
+    "dbName": "foldsnap_phpunit_tests",
+    "dbUser": "root",
+    "dbPassword": "root",
+    "wpVersion": "latest"
+}

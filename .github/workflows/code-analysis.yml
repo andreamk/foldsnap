@@ -1,0 +1,36 @@
+name: Code Analysis
+on: [push, pull_request]
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    - uses: shivammathur/setup-php@v2
+      with:
+          php-version: 8.4
+
+    - name: Validate composer.json and composer.lock
+      run: composer validate --strict
+
+    - name: Cache Composer packages
+      id: composer-cache
+      uses: actions/cache@v3
+      with:
+        path: tools/extra-composer/code-analysis/vendor
+        key: ${{ runner.os }}-code-analysis-${{ hashFiles('tools/extra-composer/code-analysis/composer.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-code-analysis-
+
+    - name: Install dependencies
+      run: composer update --working-dir=./tools/extra-composer/code-analysis --prefer-dist --no-progress
+
+    - name: PSR12 Code Standards
+      run: composer run-script phpcs .
+
+    - name: WordPress Plugin Compliance
+      run: composer run-script plugin-check .
+
+    - name: PHPStan Static Analysis
+      run: composer run-script phpstan

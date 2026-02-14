@@ -1,0 +1,8 @@
+{
+    "testPath": "",
+    "dbHost": "localhost",
+    "dbName": "foldsnap_phpunit_tests",
+    "dbUser": "",
+    "dbPassword": "",
+    "wpVersion": "latest"
+}

@@ -1,0 +1,46 @@
+{
+    "name": "amk/foldsnap",
+    "version": "0.1.0",
+    "description": "WordPress plugin that adds folder management capabilities to the admin media library.",
+    "type": "wordpress-plugin",
+    "license": "GPL-2.0-or-later",
+    "autoload": {
+        "psr-4": {
+            "FoldSnap\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "FoldSnap\\Tests\\": "tests/"
+        }
+    },
+    "config": {
+        "process-timeout": 0,
+        "platform": {
+            "php": "7.4"
+        }
+    },
+    "minimum-stability": "stable",
+    "require": {
+        "php": ">=7.4"
+    },
+    "scripts": {
+        "phpcs": "./tools/extra-composer/code-analysis/vendor/bin/phpcs --parallel=4 --standard=./tools/ruleset.xml --cache=./tools/tmp/phpcs -s ",
+        "phpcbf": "./tools/extra-composer/code-analysis/vendor/bin/phpcbf --parallel=4 --standard=./tools/ruleset.xml --runtime-set ignore_errors_on_exit 1 --runtime-set ignore_warnings_on_exit 1 -w ",
+        "plugin-check": "./tools/extra-composer/code-analysis/vendor/bin/phpcs --parallel=4 --standard=./tools/ruleset_plugin_check.xml --cache=./tools/tmp/phpcs_plugin -s ",
+        "phpstan": "./tools/extra-composer/code-analysis/vendor/bin/phpstan analyse -c tools/phpstan/phpstan.neon.dist --memory-limit=1G",
+        "phpunit-install": "php ./tools/phpunit-install.php",
+        "phpunit": [
+            "Composer\\Config::disableProcessTimeout",
+            "./tools/extra-composer/phpunit/vendor/bin/phpunit --testdox"
+        ],
+        "deploy": "php ./tools/deploy.php",
+        "fullcheck": [
+            "@phpcbf .",
+            "@phpcs .",
+            "@plugin-check .",
+            "@phpstan",
+            "@phpunit"
+        ]
+    }
+}

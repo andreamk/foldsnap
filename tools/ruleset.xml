@@ -1,0 +1,69 @@
+<?xml version="1.0"?>
+<ruleset name="FoldSnapPSR12">
+
+    <arg name="extensions" value="php"/>
+
+    <exclude-pattern>/.git/*</exclude-pattern>
+    <exclude-pattern>*/node_modules/*</exclude-pattern>
+    <exclude-pattern>/tools/extra-composer/*</exclude-pattern>
+    <exclude-pattern>/tools/phpstan/*</exclude-pattern>
+    <exclude-pattern>/tools/tmp/*</exclude-pattern>
+    <exclude-pattern>/vendor/*</exclude-pattern>
+
+    <description>FoldSnap PSR12 coding standard.</description>
+
+    <rule ref="PSR12">
+        <exclude name="PSR12.Properties.ConstantVisibility.NotFound"/>
+    </rule>
+
+    <rule ref="Generic.Files.LineEndings">
+        <properties>
+            <property name="eolChar" value="\n"/>
+        </properties>
+    </rule>
+
+    <rule ref="Generic.Files.LineLength">
+        <properties>
+            <property name="lineLimit" value="160"/>
+            <property name="absoluteLineLimit" value="0"/>
+        </properties>
+    </rule>
+
+    <rule ref="Generic.Formatting.MultipleStatementAlignment">
+        <properties>
+            <property name="maxPadding" value="30"/>
+        </properties>
+    </rule>
+
+    <rule ref="PSR1.Files.SideEffects.FoundWithSymbols">
+        <exclude-pattern>/foldsnap.php</exclude-pattern>
+        <exclude-pattern>/foldsnap-main.php</exclude-pattern>
+        <exclude-pattern>/uninstall.php</exclude-pattern>
+        <exclude-pattern>/tests/bootstrap.php</exclude-pattern>
+        <exclude-pattern>/tools/phpunit-install.php</exclude-pattern>
+        <exclude-pattern>/tools/deploy.php</exclude-pattern>
+    </rule>
+
+    <rule ref="PSR1.Methods.CamelCapsMethodName.NotCamelCaps">
+        <exclude-pattern>/tests/*</exclude-pattern>
+    </rule>
+
+    <rule ref="Generic.Commenting.DocComment">
+        <exclude name="Generic.Commenting.DocComment.ContentBeforeClose"/>
+        <exclude name="Generic.Commenting.DocComment.ContentAfterOpen"/>
+        <exclude name="Generic.Commenting.DocComment.MissingShort"/>
+        <exclude name="Generic.Commenting.DocComment.ParamNotFirst"/>
+        <exclude name="Generic.Commenting.DocComment.ShortNotCapital"/>
+        <exclude name="Generic.Commenting.DocComment.LongNotCapital"/>
+    </rule>
+
+    <rule ref="PEAR.Commenting.FunctionComment"/>
+
+    <rule ref="Squiz.Arrays.ArrayDeclaration">
+        <exclude name="Squiz.Arrays.ArrayDeclaration.KeyNotAligned"/>
+        <exclude name="Squiz.Arrays.ArrayDeclaration.ValueNotAligned"/>
+        <exclude name="Squiz.Arrays.ArrayDeclaration.CloseBraceNotAligned"/>
+        <exclude name="Squiz.Arrays.ArrayDeclaration.CloseBraceNewLine"/>
+    </rule>
+    <rule ref="Generic.Arrays.ArrayIndent"/>
+</ruleset>
