@@ -102,6 +102,15 @@ step "Running quality checks"
 
 cd "$PLUGIN_ROOT"
 
+info "npm build..."
+npm run build
+
+info "npm lint (ESLint)..."
+npm run lint
+
+info "npm test (Jest)..."
+npm test
+
 info "phpcs (PSR-12)..."
 composer run-script phpcs .
 

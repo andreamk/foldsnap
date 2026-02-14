@@ -1,0 +1,24 @@
+{
+    "name": "foldsnap",
+    "version": "0.1.0",
+    "private": true,
+    "scripts": {
+        "build": "wp-scripts build",
+        "start": "wp-scripts start",
+        "lint": "wp-scripts lint-js template/js/",
+        "lint:fix": "wp-scripts lint-js --fix template/js/",
+        "format": "wp-scripts format template/js/",
+        "test": "wp-scripts test-unit-js --passWithNoTests",
+        "check": "npm run lint && npm run test"
+    },
+    "devDependencies": {
+        "@testing-library/jest-dom": "^6.9.1",
+        "@testing-library/react": "^16.3.2",
+        "@wordpress/scripts": "^30.0.0"
+    },
+    "dependencies": {
+        "@wordpress/components": "^28.0.0",
+        "@wordpress/element": "^6.0.0",
+        "@wordpress/i18n": "^5.0.0"
+    }
+}

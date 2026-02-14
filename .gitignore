@@ -8,6 +8,7 @@
 # ====================================
 # BUILD ARTIFACTS & TEMPORARY
 # ====================================
+/assets/js/
 .phpunit.result.cache
 /tools/tmp/*
 !/tools/tmp/.gitkeep

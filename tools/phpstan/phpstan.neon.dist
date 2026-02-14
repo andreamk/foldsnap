@@ -10,6 +10,7 @@ parameters:
         - ../..
     excludePaths:
         analyseAndScan:
+            - ../../assets/ (?)
             - ../../vendor/ (?)
             - ../../tests/ (?)
             - ../../tools/

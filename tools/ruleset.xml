@@ -8,6 +8,7 @@
     <exclude-pattern>/tools/extra-composer/*</exclude-pattern>
     <exclude-pattern>/tools/phpstan/*</exclude-pattern>
     <exclude-pattern>/tools/tmp/*</exclude-pattern>
+    <exclude-pattern>/assets/*</exclude-pattern>
     <exclude-pattern>/vendor/*</exclude-pattern>
 
     <description>FoldSnap PSR12 coding standard.</description>

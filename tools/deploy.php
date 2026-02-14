@@ -20,8 +20,9 @@ $pluginSlug = 'foldsnap';
 
 $destination = rtrim($argv[1] ?? $pluginRoot . '/tools/tmp', '/\\') . '/' . $pluginSlug;
 
-// --- Exclusions (relative to plugin root) ---------------------------------
+// --- Exclusions -----------------------------------------------------------
 
+// Top-level entries to skip
 $exclude = [
     '.git',
     '.github',
@@ -36,12 +37,22 @@ $exclude = [
     'node_modules',
     'package.json',
     'package-lock.json',
+    'webpack.config.js',
+    '.eslintrc.js',
+    '.eslintignore',
+    'jest.config.js',
+    'jest.setup.js',
     'phpunit.xml.dist',
     'phpunit.xml',
     'docs',
     'tests',
     'tools',
     'vendor',
+];
+
+// Directory names to skip at any depth
+$excludeDeep = [
+    '__tests__',
 ];
 
 // --- Helpers --------------------------------------------------------------
@@ -76,15 +87,16 @@ function removeDir(string $path): void
 }
 
 /**
- * Recursively copy a directory, skipping excluded top-level entries.
+ * Recursively copy a directory, skipping excluded entries.
  *
- * @param string   $source  Source directory path.
- * @param string   $dest    Destination directory path.
- * @param string[] $exclude List of top-level names to skip.
+ * @param string   $source      Source directory path.
+ * @param string   $dest        Destination directory path.
+ * @param string[] $exclude     List of top-level names to skip.
+ * @param string[] $excludeDeep Directory names to skip at any depth.
  *
  * @return void
  */
-function copyDir(string $source, string $dest, array $exclude): void
+function copyDir(string $source, string $dest, array $exclude, array $excludeDeep = []): void
 {
     $iterator = new RecursiveIteratorIterator(
         new RecursiveDirectoryIterator($source, RecursiveDirectoryIterator::SKIP_DOTS),
@@ -93,9 +105,21 @@ function copyDir(string $source, string $dest, array $exclude): void
 
     foreach ($iterator as $item) {
         $relative     = substr($item->getPathname(), strlen($source) + 1);
-        $firstSegment = explode(DIRECTORY_SEPARATOR, $relative)[0];
+        $segments     = explode(DIRECTORY_SEPARATOR, $relative);
+        $firstSegment = $segments[0];
 
         if (in_array($firstSegment, $exclude, true)) {
+            continue;
+        }
+
+        $skipDeep = false;
+        foreach ($segments as $segment) {
+            if (in_array($segment, $excludeDeep, true)) {
+                $skipDeep = true;
+                break;
+            }
+        }
+        if ($skipDeep) {
             continue;
         }
 
@@ -116,6 +140,18 @@ function copyDir(string $source, string $dest, array $exclude): void
 echo "FoldSnap — Deploy\n";
 echo str_repeat('-', 40) . "\n";
 
+// Build React assets
+echo "Building React assets...\n";
+$npmBuildReturn = 0;
+$npmBuildOutput = [];
+exec('npm run build --prefix ' . escapeshellarg($pluginRoot) . ' 2>&1', $npmBuildOutput, $npmBuildReturn);
+echo implode("\n", $npmBuildOutput) . "\n";
+if ($npmBuildReturn !== 0) {
+    echo "ERROR: npm run build failed with exit code {$npmBuildReturn}\n";
+    exit(1);
+}
+echo "React assets built successfully.\n\n";
+
 // Clean previous build
 if (is_dir($destination)) {
     echo "Cleaning previous build...\n";
@@ -128,6 +164,6 @@ echo "Source:      {$pluginRoot}\n";
 echo "Destination: {$destination}\n";
 echo "Excluding:   " . implode(', ', $exclude) . "\n\n";
 
-copyDir($pluginRoot, $destination, $exclude);
+copyDir($pluginRoot, $destination, $exclude, $excludeDeep);
 
 echo "Done. Plugin files copied to:\n  {$destination}\n";
