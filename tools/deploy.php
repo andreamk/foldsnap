@@ -51,9 +51,7 @@ $exclude = [
 ];
 
 // Directory names to skip at any depth
-$excludeDeep = [
-    '__tests__',
-];
+$excludeDeep = ['__tests__'];
 
 // --- Helpers --------------------------------------------------------------
 
