@@ -11,6 +11,7 @@ declare(strict_types=1);
 namespace FoldSnap\Tests\Unit\Core;
 
 use FoldSnap\Core\Bootstrap;
+use FoldSnap\Services\TaxonomyService;
 use WP_UnitTestCase;
 
 class BootstrapTests extends WP_UnitTestCase
@@ -26,6 +27,18 @@ class BootstrapTests extends WP_UnitTestCase
             0,
             has_action('init', [Bootstrap::class, 'onInit'])
         );
+    }
+
+    /**
+     * Test onInit registers taxonomy
+     *
+     * @return void
+     */
+    public function test_onInit_registers_taxonomy(): void
+    {
+        Bootstrap::onInit();
+
+        $this->assertTrue(taxonomy_exists(TaxonomyService::TAXONOMY_NAME));
     }
 
     /**

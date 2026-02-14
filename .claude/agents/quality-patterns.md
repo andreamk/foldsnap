@@ -46,10 +46,11 @@ Verify that code changes follow WordPress and plugin best practices and establis
 - Security practices (input sanitization, output escaping)
 
 **React/WordPress Frontend:**
-- Use `@wordpress/element` (not direct React imports)
+- Use `@wordpress/element` (not direct `react` or `react-dom` imports)
 - Use `@wordpress/components` for UI elements when available
-- Use `@wordpress/api-fetch` for REST API calls (includes nonce handling)
+- Use `@wordpress/api-fetch` for REST API calls — never raw `fetch()` or `axios` (api-fetch handles nonce authentication automatically)
 - Use `@wordpress/data` for state management when appropriate
+- Use `@wordpress/i18n` (`__()`, `_n()`, `_x()`) for all user-facing strings — no hardcoded text in JSX
 - Follow WordPress React coding standards
 
 **Key principle:** Verify code leverages existing patterns properly and doesn't fight the framework or reinvent existing functionality.

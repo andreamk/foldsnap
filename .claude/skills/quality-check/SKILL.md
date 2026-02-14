@@ -35,7 +35,8 @@ Perform automated quality assurance by analyzing code changes and invoking appro
    - Typo/comment/PHPDoc fixes
    - Pure renames (no behavior change)
    - Translation updates (POT files)
-   - Asset changes (CSS/JS/images without logic changes)
+   - Asset changes (CSS/images without logic changes)
+   - NOTE: JS/JSX files in `template/js/` are React source code, NOT asset changes — always evaluate them
 
    **Invoke agents based on these criteria:**
 

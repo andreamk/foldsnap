@@ -24,7 +24,7 @@ use Exception;
 final class SanitizeInput
 {
     /** @var int Custom constant for handling both GET and POST */
-    const INPUT_REQUEST = 10000;
+    public const INPUT_REQUEST = 10000;
 
     /**
      * Sanitize string from input superglobals, strips control characters.

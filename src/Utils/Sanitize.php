@@ -21,16 +21,16 @@ namespace FoldSnap\Utils;
 final class Sanitize
 {
     /** @var int Strip newlines (\r\n) */
-    const STRIP_NEWLINES = 1;
+    public const STRIP_NEWLINES = 1;
 
     /** @var int Strip all whitespace (spaces, tabs, newlines) */
-    const STRIP_WHITESPACE = 2;
+    public const STRIP_WHITESPACE = 2;
 
     /** @var int Trim leading/trailing whitespace after stripping */
-    const STRIP_TRIM = 4;
+    public const STRIP_TRIM = 4;
 
     /** @var int HTML-escape the result (XSS protection) */
-    const STRIP_HTML_ESCAPE = 8;
+    public const STRIP_HTML_ESCAPE = 8;
 
     /**
      * Remove control characters from string, with optional flags for additional stripping.

@@ -11,6 +11,7 @@ declare(strict_types=1);
 namespace FoldSnap\Core;
 
 use FoldSnap\Core\Controllers\ControllersManager;
+use FoldSnap\Services\TaxonomyService;
 
 final class Bootstrap
 {
@@ -31,6 +32,8 @@ final class Bootstrap
      */
     public static function onInit(): void
     {
+        TaxonomyService::register();
+
         if (is_admin()) {
             ControllersManager::getInstance();
 
