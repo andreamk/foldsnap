@@ -15,7 +15,7 @@ namespace FoldSnap\Utils;
 
 final class ExpireOptions
 {
-    const OPTION_PREFIX = 'foldsnap_opt_expire_';
+    public const OPTION_PREFIX = 'foldsnap_opt_expire_';
 
     /** @var array<string, array{expire: int, value: mixed}> */
     private static $cacheOptions = [];

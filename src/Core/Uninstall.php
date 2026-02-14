@@ -14,8 +14,8 @@ namespace FoldSnap\Core;
 
 final class Uninstall
 {
-    const OPTIONS_PREFIX    = 'foldsnap_opt_';
-    const TRANSIENTS_PREFIX = 'foldsnap_';
+    public const OPTIONS_PREFIX    = 'foldsnap_opt_';
+    public const TRANSIENTS_PREFIX = 'foldsnap_';
 
     /**
      * Run the uninstall process, handling multisite if needed.

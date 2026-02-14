@@ -19,12 +19,12 @@ use FoldSnap\Utils\SanitizeInput;
  */
 final class ControllersManager
 {
-    const MAIN_MENU_SLUG               = 'foldsnap';
-    const QUERY_STRING_MENU_KEY_L1     = 'page';
-    const QUERY_STRING_MENU_KEY_L2     = 'tab';
-    const QUERY_STRING_MENU_KEY_L3     = 'subtab';
-    const QUERY_STRING_MENU_KEY_ACTION = 'action';
-    const QUERY_STRING_INNER_PAGE      = 'inner_page';
+    public const MAIN_MENU_SLUG               = 'foldsnap';
+    public const QUERY_STRING_MENU_KEY_L1     = 'page';
+    public const QUERY_STRING_MENU_KEY_L2     = 'tab';
+    public const QUERY_STRING_MENU_KEY_L3     = 'subtab';
+    public const QUERY_STRING_MENU_KEY_ACTION = 'action';
+    public const QUERY_STRING_INNER_PAGE      = 'inner_page';
 
     /** @var ?self */
     private static ?self $instance = null;

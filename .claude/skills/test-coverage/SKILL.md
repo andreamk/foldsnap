@@ -2,7 +2,6 @@
 description: Analyze test coverage for specific files or directories
 argument-hint: [path1] [path2] [path3] ...
 allowed-tools: Bash, Task, Read, Grep, Glob
-disable-model-invocation: true
 ---
 
 Analyze test coverage for specified code to identify missing or inadequate tests.
