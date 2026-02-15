@@ -832,6 +832,101 @@ class FolderRepositoryTests extends WP_UnitTestCase
     }
 
     /**
+     * Test removeMedia partial removal updates count correctly
+     *
+     * Assigns 3 media to a folder, removes 1, verifies count drops
+     * from 3 to 2 and the remaining 2 are still assigned.
+     *
+     * @return void
+     */
+    public function test_remove_media_partial_updates_count(): void
+    {
+        $folderId = $this->createTerm('Photos');
+        $media1   = $this->factory()->attachment->create();
+        $media2   = $this->factory()->attachment->create();
+        $media3   = $this->factory()->attachment->create();
+
+        $this->repository->assignMedia($folderId, [$media1, $media2, $media3]);
+
+        $folder = $this->repository->getById($folderId);
+        $this->assertSame(3, $folder->getMediaCount());
+
+        $this->repository->removeMedia($folderId, [$media2]);
+
+        $folderAfter = $this->repository->getById($folderId);
+        $this->assertSame(2, $folderAfter->getMediaCount());
+
+        $terms1 = wp_get_object_terms($media1, TaxonomyService::TAXONOMY_NAME);
+        $terms3 = wp_get_object_terms($media3, TaxonomyService::TAXONOMY_NAME);
+        $this->assertCount(1, $terms1);
+        $this->assertCount(1, $terms3);
+        $this->assertSame($folderId, $terms1[0]->term_id);
+        $this->assertSame($folderId, $terms3[0]->term_id);
+
+        $terms2 = wp_get_object_terms($media2, TaxonomyService::TAXONOMY_NAME);
+        $this->assertCount(0, $terms2);
+    }
+
+    /**
+     * Test deleting a parent folder orphans children to root
+     *
+     * Setup: Parent(media1,media2) > Child(media3,media4,media5)
+     * Delete Parent → Child becomes root-level, keeps its 3 media.
+     * Parent's 2 media become unassigned (root).
+     *
+     * @return void
+     */
+    public function test_delete_parent_orphans_children_and_releases_media(): void
+    {
+        $parentId = $this->createTerm('Parent');
+        $childId  = $this->createTerm('Child', ['parent' => $parentId]);
+
+        $media1 = $this->factory()->attachment->create();
+        $media2 = $this->factory()->attachment->create();
+        $media3 = $this->factory()->attachment->create();
+        $media4 = $this->factory()->attachment->create();
+        $media5 = $this->factory()->attachment->create();
+
+        $this->repository->assignMedia($parentId, [$media1, $media2]);
+        $this->repository->assignMedia($childId, [$media3, $media4, $media5]);
+
+        // Before: parent total=5, child total=3, root unassigned=0
+        $treeBefore = $this->repository->getTree();
+        $this->assertCount(1, $treeBefore);
+        $this->assertSame(5, $treeBefore[0]->getTotalMediaCount());
+        $this->assertSame(0, $this->repository->getRootMediaCount());
+
+        $this->repository->delete($parentId);
+
+        // After: parent gone, child is root-level with 3 media, 2 media unassigned
+        $this->assertNull($this->repository->getById($parentId));
+
+        $child = $this->repository->getById($childId);
+        $this->assertNotNull($child);
+        $this->assertSame(3, $child->getMediaCount());
+        $this->assertSame(0, $child->getParentId());
+
+        $this->assertSame(2, $this->repository->getRootMediaCount());
+
+        $treeAfter = $this->repository->getTree();
+        $this->assertCount(1, $treeAfter);
+        $this->assertSame('Child', $treeAfter[0]->getName());
+        $this->assertSame(3, $treeAfter[0]->getTotalMediaCount());
+    }
+
+    /**
+     * Test create throws when parent ID does not exist
+     *
+     * @return void
+     */
+    public function test_create_throws_on_nonexistent_parent(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+
+        $this->repository->create('Orphan', 999999);
+    }
+
+    /**
      * Create a taxonomy term and return its ID
      *
      * @param string               $name Term name

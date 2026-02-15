@@ -139,6 +139,28 @@ class TaxonomyServiceTests extends WP_UnitTestCase
     }
 
     /**
+     * Test taxonomy uses generic term count callback for attachments
+     *
+     * Attachments have post_status='inherit', so the default callback
+     * _update_post_term_count (which only counts 'publish') would always
+     * return 0. The taxonomy must use _update_generic_term_count instead.
+     *
+     * @return void
+     */
+    public function test_taxonomy_uses_generic_term_count_callback(): void
+    {
+        TaxonomyService::register();
+
+        $taxonomy = get_taxonomy(TaxonomyService::TAXONOMY_NAME);
+        $this->assertNotFalse($taxonomy);
+
+        global $wp_taxonomies;
+        $args = $wp_taxonomies[TaxonomyService::TAXONOMY_NAME];
+
+        $this->assertSame('_update_generic_term_count', $args->update_count_callback);
+    }
+
+    /**
      * Test register does not fail when called multiple times
      *
      * @return void

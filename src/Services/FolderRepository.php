@@ -18,6 +18,7 @@ use Exception;
 use FoldSnap\Models\FolderModel;
 use FoldSnap\Utils\Sanitize;
 use InvalidArgumentException;
+use WP_Error;
 use WP_Term;
 
 class FolderRepository
@@ -31,6 +32,9 @@ class FolderRepository
     /** @var string Cache group for all FoldSnap cache entries */
     private const CACHE_GROUP = 'foldsnap';
 
+    /** @var int Sanitize max folder length */
+    private const MAX_FOLDER_LENGTH = 200;
+
     /**
      * Retrieve all folders as a flat list
      *
@@ -38,6 +42,7 @@ class FolderRepository
      */
     public function getAll(): array
     {
+        /** @var WP_Term[]|WP_Error */
         $terms = get_terms(
             [
                 'taxonomy'   => TaxonomyService::TAXONOMY_NAME,
@@ -45,16 +50,16 @@ class FolderRepository
             ]
         );
 
-        if (! is_array($terms)) {
+        if (is_wp_error($terms)) {
             return [];
         }
 
-        $termIds = [];
-        foreach ($terms as $term) {
-            if ($term instanceof WP_Term) {
-                $termIds[] = $term->term_id;
-            }
-        }
+        $termIds = array_map(
+            static function (WP_Term $term): int {
+                return $term->term_id;
+            },
+            $terms
+        );
 
         if (! empty($termIds)) {
             update_termmeta_cache($termIds);
@@ -62,9 +67,7 @@ class FolderRepository
 
         $models = [];
         foreach ($terms as $term) {
-            if ($term instanceof WP_Term) {
-                $models[] = FolderModel::fromTerm($term);
-            }
+            $models[] = FolderModel::fromTerm($term);
         }
 
         return $models;
@@ -350,7 +353,7 @@ class FolderRepository
      *
      * Applies sanitize_text_field, removes dangerous leading characters
      * (Excel injection prevention), strips control characters, trims
-     * whitespace, and enforces a 200-character limit (wp_terms.name column).
+     * whitespace, and enforces a MAX_FOLDER_LENGTH character limit (wp_terms.name column).
      *
      * @param string $name Raw folder name
      *
@@ -365,8 +368,8 @@ class FolderRepository
         $name = (string) preg_replace('/[\x00-\x1F\x7F]/u', '', $name);
         $name = trim($name);
 
-        if (mb_strlen($name) > 200) {
-            $name = mb_substr($name, 0, 200);
+        if (mb_strlen($name) > self::MAX_FOLDER_LENGTH) {
+            $name = mb_substr($name, 0, self::MAX_FOLDER_LENGTH);
         }
 
         if ('' === $name) {
