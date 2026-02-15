@@ -151,6 +151,100 @@ class FolderModelTests extends WP_UnitTestCase
     }
 
     /**
+     * Test directSize defaults to zero
+     *
+     * @return void
+     */
+    public function test_direct_size_defaults_to_zero(): void
+    {
+        $model = new FolderModel(1, 'Folder', 'folder', 0, 0, '', 0);
+
+        $this->assertSame(0, $model->getDirectSize());
+    }
+
+    /**
+     * Test setDirectSize and getDirectSize
+     *
+     * @return void
+     */
+    public function test_set_and_get_direct_size(): void
+    {
+        $model = new FolderModel(1, 'Folder', 'folder', 0, 0, '', 0);
+
+        $model->setDirectSize(1048576);
+
+        $this->assertSame(1048576, $model->getDirectSize());
+    }
+
+    /**
+     * Test getTotalMediaCount without children returns own count
+     *
+     * @return void
+     */
+    public function test_total_media_count_without_children(): void
+    {
+        $model = new FolderModel(1, 'Folder', 'folder', 0, 10, '', 0);
+
+        $this->assertSame(10, $model->getTotalMediaCount());
+    }
+
+    /**
+     * Test getTotalMediaCount with nested children sums recursively
+     *
+     * @return void
+     */
+    public function test_total_media_count_with_nested_children(): void
+    {
+        $grandchild = new FolderModel(3, 'GC', 'gc', 2, 3, '', 0);
+        $child      = new FolderModel(2, 'Child', 'child', 1, 5, '', 0);
+        $parent     = new FolderModel(1, 'Parent', 'parent', 0, 2, '', 0);
+
+        $child->addChild($grandchild);
+        $parent->addChild($child);
+
+        $this->assertSame(10, $parent->getTotalMediaCount());
+        $this->assertSame(8, $child->getTotalMediaCount());
+        $this->assertSame(3, $grandchild->getTotalMediaCount());
+    }
+
+    /**
+     * Test getTotalSize without children returns own directSize
+     *
+     * @return void
+     */
+    public function test_total_size_without_children(): void
+    {
+        $model = new FolderModel(1, 'Folder', 'folder', 0, 0, '', 0);
+        $model->setDirectSize(5000);
+
+        $this->assertSame(5000, $model->getTotalSize());
+    }
+
+    /**
+     * Test getTotalSize with nested children sums recursively
+     *
+     * @return void
+     */
+    public function test_total_size_with_nested_children(): void
+    {
+        $grandchild = new FolderModel(3, 'GC', 'gc', 2, 0, '', 0);
+        $grandchild->setDirectSize(1000);
+
+        $child = new FolderModel(2, 'Child', 'child', 1, 0, '', 0);
+        $child->setDirectSize(2000);
+
+        $parent = new FolderModel(1, 'Parent', 'parent', 0, 0, '', 0);
+        $parent->setDirectSize(3000);
+
+        $child->addChild($grandchild);
+        $parent->addChild($child);
+
+        $this->assertSame(6000, $parent->getTotalSize());
+        $this->assertSame(3000, $child->getTotalSize());
+        $this->assertSame(1000, $grandchild->getTotalSize());
+    }
+
+    /**
      * Test toArray returns correct structure without children
      *
      * @return void
@@ -160,21 +254,24 @@ class FolderModelTests extends WP_UnitTestCase
         $model = new FolderModel(5, 'Music', 'music', 0, 10, '#0000ff', 1);
 
         $expected = [
-            'id'          => 5,
-            'name'        => 'Music',
-            'slug'        => 'music',
-            'parent_id'   => 0,
-            'media_count' => 10,
-            'color'       => '#0000ff',
-            'position'    => 1,
-            'children'    => [],
+            'id'                => 5,
+            'name'              => 'Music',
+            'slug'              => 'music',
+            'parent_id'         => 0,
+            'media_count'       => 10,
+            'total_media_count' => 10,
+            'color'             => '#0000ff',
+            'position'          => 1,
+            'direct_size'       => 0,
+            'total_size'        => 0,
+            'children'          => [],
         ];
 
         $this->assertSame($expected, $model->toArray());
     }
 
     /**
-     * Test toArray includes children recursively
+     * Test toArray includes children recursively with totals
      *
      * @return void
      */
@@ -189,14 +286,36 @@ class FolderModelTests extends WP_UnitTestCase
 
         $result = $parent->toArray();
 
+        $this->assertSame(8, $result['total_media_count']);
         $this->assertCount(1, $result['children']);
         $this->assertSame(2, $result['children'][0]['id']);
-        $this->assertSame('Sub', $result['children'][0]['name']);
+        $this->assertSame(3, $result['children'][0]['total_media_count']);
 
         $this->assertCount(1, $result['children'][0]['children']);
         $this->assertSame(3, $result['children'][0]['children'][0]['id']);
-        $this->assertSame('Sub-sub', $result['children'][0]['children'][0]['name']);
         $this->assertSame([], $result['children'][0]['children'][0]['children']);
+    }
+
+    /**
+     * Test toArray includes size fields
+     *
+     * @return void
+     */
+    public function test_to_array_includes_size_fields(): void
+    {
+        $child = new FolderModel(2, 'Child', 'child', 1, 0, '', 0);
+        $child->setDirectSize(500);
+
+        $parent = new FolderModel(1, 'Parent', 'parent', 0, 0, '', 0);
+        $parent->setDirectSize(1000);
+        $parent->addChild($child);
+
+        $result = $parent->toArray();
+
+        $this->assertSame(1000, $result['direct_size']);
+        $this->assertSame(1500, $result['total_size']);
+        $this->assertSame(500, $result['children'][0]['direct_size']);
+        $this->assertSame(500, $result['children'][0]['total_size']);
     }
 
     /**

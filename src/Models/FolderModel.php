@@ -28,6 +28,7 @@ final class FolderModel
     private int $mediaCount;
     private string $color;
     private int $position;
+    private int $directSize = 0;
 
     /** @var FolderModel[] */
     private array $children = [];
@@ -132,6 +133,60 @@ final class FolderModel
     }
 
     /**
+     * Get direct size in bytes (media directly assigned to this folder)
+     *
+     * @return int
+     */
+    public function getDirectSize(): int
+    {
+        return $this->directSize;
+    }
+
+    /**
+     * Set direct size in bytes
+     *
+     * @param int $bytes Size in bytes
+     *
+     * @return void
+     */
+    public function setDirectSize(int $bytes): void
+    {
+        $this->directSize = $bytes;
+    }
+
+    /**
+     * Get total media count (recursive: this folder + all descendants)
+     *
+     * @return int
+     */
+    public function getTotalMediaCount(): int
+    {
+        $total = $this->mediaCount;
+
+        foreach ($this->children as $child) {
+            $total += $child->getTotalMediaCount();
+        }
+
+        return $total;
+    }
+
+    /**
+     * Get total size in bytes (recursive: this folder + all descendants)
+     *
+     * @return int
+     */
+    public function getTotalSize(): int
+    {
+        $total = $this->directSize;
+
+        foreach ($this->children as $child) {
+            $total += $child->getTotalSize();
+        }
+
+        return $total;
+    }
+
+    /**
      * Get children folders
      *
      * @return FolderModel[]
@@ -189,14 +244,17 @@ final class FolderModel
     public function toArray(): array
     {
         return [
-            'id'          => $this->id,
-            'name'        => $this->name,
-            'slug'        => $this->slug,
-            'parent_id'   => $this->parentId,
-            'media_count' => $this->mediaCount,
-            'color'       => $this->color,
-            'position'    => $this->position,
-            'children'    => array_map(
+            'id'                => $this->id,
+            'name'              => $this->name,
+            'slug'              => $this->slug,
+            'parent_id'         => $this->parentId,
+            'media_count'       => $this->mediaCount,
+            'total_media_count' => $this->getTotalMediaCount(),
+            'color'             => $this->color,
+            'position'          => $this->position,
+            'direct_size'       => $this->directSize,
+            'total_size'        => $this->getTotalSize(),
+            'children'          => array_map(
                 static function (FolderModel $child): array {
                     return $child->toArray();
                 },

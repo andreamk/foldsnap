@@ -51,11 +51,25 @@ class FolderRepository
     /**
      * Retrieve all folders as a nested tree, sorted by position
      *
+     * Injects direct sizes into each folder before building the tree.
+     * Recursive totals (getTotalMediaCount, getTotalSize) are computed
+     * automatically by FolderModel's recursive getters after tree assembly.
+     *
      * @return FolderModel[]
      */
     public function getTree(): array
     {
-        return $this->buildTree($this->getAll());
+        $folders = $this->getAll();
+        $sizeMap = $this->computeFolderSizes();
+
+        foreach ($folders as $folder) {
+            $folderId = $folder->getId();
+            if (isset($sizeMap[$folderId])) {
+                $folder->setDirectSize($sizeMap[$folderId]);
+            }
+        }
+
+        return $this->buildTree($folders);
     }
 
     /**
@@ -90,6 +104,9 @@ class FolderRepository
      */
     public function create(string $name, int $parentId = 0, string $color = '', int $position = 0): FolderModel
     {
+        $name = $this->sanitizeName($name);
+        $name = $this->ensureUniqueName($name, $parentId);
+
         $args = [];
         if (0 < $parentId) {
             $args['parent'] = $parentId;
@@ -141,7 +158,10 @@ class FolderRepository
 
         $args = [];
         if ('' !== $name) {
-            $args['name'] = $name;
+            $name              = $this->sanitizeName($name);
+            $effectiveParentId = -1 !== $parentId ? $parentId : $this->getByIdOrFail($termId)->getParentId();
+            $name              = $this->ensureUniqueName($name, $effectiveParentId, $termId);
+            $args['name']      = $name;
         }
 
         if (-1 !== $parentId) {
@@ -235,22 +255,184 @@ class FolderRepository
      */
     public function getRootMediaCount(): int
     {
-        $query = new \WP_Query(
-            [
-                'post_type'      => TaxonomyService::POST_TYPE,
-                'post_status'    => 'inherit',
-                'posts_per_page' => -1,
-                'fields'         => 'ids',
-                'tax_query'      => [ // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_tax_query
-                    [
-                        'taxonomy' => TaxonomyService::TAXONOMY_NAME,
-                        'operator' => 'NOT EXISTS',
-                    ],
-                ],
-            ]
+        return Database::countUnassignedMedia(
+            TaxonomyService::TAXONOMY_NAME,
+            TaxonomyService::POST_TYPE
+        );
+    }
+
+    /**
+     * Get total size in bytes of media not assigned to any folder
+     *
+     * @return int Total size in bytes
+     */
+    public function getRootTotalSize(): int
+    {
+        $cached = wp_cache_get('root_total_size', 'foldsnap');
+        if (is_int($cached)) {
+            return $cached;
+        }
+
+        $results = Database::getUnassignedAttachmentMeta(
+            TaxonomyService::TAXONOMY_NAME,
+            TaxonomyService::POST_TYPE
         );
 
-        return $query->found_posts;
+        $total = $this->sumFileSizesFromMeta($results);
+
+        wp_cache_set('root_total_size', $total, 'foldsnap');
+
+        return $total;
+    }
+
+    /**
+     * Sanitize a folder name
+     *
+     * Applies sanitize_text_field, removes dangerous leading characters
+     * (Excel injection prevention), strips control characters, trims
+     * whitespace, and enforces a 200-character limit (wp_terms.name column).
+     *
+     * @param string $name Raw folder name
+     *
+     * @return string Sanitized name
+     *
+     * @throws InvalidArgumentException If name is empty after sanitization.
+     */
+    private function sanitizeName(string $name): string
+    {
+        $name = sanitize_text_field($name);
+        $name = ltrim($name, '=+@|');
+        $name = (string) preg_replace('/[\x00-\x1F\x7F]/u', '', $name);
+        $name = trim($name);
+
+        if (mb_strlen($name) > 200) {
+            $name = mb_substr($name, 0, 200);
+        }
+
+        if ('' === $name) {
+            throw new InvalidArgumentException(
+                esc_html__('Folder name cannot be empty.', 'foldsnap')
+            );
+        }
+
+        return $name;
+    }
+
+    /**
+     * Ensure a folder name is unique among siblings
+     *
+     * Queries only for the exact name and "name (N)" variants via LIKE,
+     * then finds the highest existing suffix and returns the next number.
+     * For example, if "Photos" and "Photos (3)" exist, returns "Photos (4)".
+     *
+     * @param string $name      Sanitized folder name
+     * @param int    $parentId  Parent term ID (0 for root)
+     * @param int    $excludeId Term ID to exclude from check (for updates)
+     *
+     * @return string Unique name
+     */
+    private function ensureUniqueName(string $name, int $parentId, int $excludeId = 0): string
+    {
+        $matches = Database::getSiblingNameMatches(
+            TaxonomyService::TAXONOMY_NAME,
+            $name,
+            $parentId,
+            $excludeId
+        );
+
+        if (empty($matches)) {
+            return $name;
+        }
+
+        $nameLower     = mb_strtolower($name);
+        $exactConflict = false;
+
+        foreach ($matches as $match) {
+            if (mb_strtolower($match) === $nameLower) {
+                $exactConflict = true;
+                break;
+            }
+        }
+
+        if (! $exactConflict) {
+            return $name;
+        }
+
+        $maxSuffix = 1;
+        $pattern   = '/^' . preg_quote($name, '/') . ' \((\d+)\)$/i';
+
+        foreach ($matches as $match) {
+            if (1 === preg_match($pattern, $match, $m)) {
+                $maxSuffix = max($maxSuffix, (int) $m[1]);
+            }
+        }
+
+        return sprintf('%s (%d)', $name, $maxSuffix + 1);
+    }
+
+    /**
+     * Compute direct size in bytes for each folder
+     *
+     * Queries attachment metadata for all media assigned to folders,
+     * extracts the filesize from serialized _wp_attachment_metadata,
+     * and groups totals by folder term ID.
+     *
+     * @return array<int, int> Map of folder term ID => total bytes
+     */
+    private function computeFolderSizes(): array
+    {
+        $cached = wp_cache_get('folder_sizes', 'foldsnap');
+        if (is_array($cached)) {
+            /** @var array<int, int> $cached */
+            return $cached;
+        }
+
+        $rows = Database::getFolderAttachmentMeta(TaxonomyService::TAXONOMY_NAME);
+
+        /** @var array<int, int> $sizeMap */
+        $sizeMap = [];
+
+        foreach ($rows as $row) {
+            $folderId = $row['folder_id'];
+            $meta     = maybe_unserialize($row['meta_value']);
+            $fileSize = 0;
+
+            if (is_array($meta) && isset($meta['filesize']) && is_numeric($meta['filesize'])) {
+                $fileSize = (int) $meta['filesize'];
+            }
+
+            if (! isset($sizeMap[$folderId])) {
+                $sizeMap[$folderId] = 0;
+            }
+
+            $sizeMap[$folderId] += $fileSize;
+        }
+
+        wp_cache_set('folder_sizes', $sizeMap, 'foldsnap');
+
+        return $sizeMap;
+    }
+
+    /**
+     * Sum file sizes from an array of serialized attachment metadata values
+     *
+     * @param string[] $metaValues Array of serialized _wp_attachment_metadata values
+     *
+     * @return int Total size in bytes
+     */
+    private function sumFileSizesFromMeta(array $metaValues): int
+    {
+        $total = 0;
+
+        foreach ($metaValues as $metaValue) {
+            $meta = maybe_unserialize($metaValue);
+
+            if (is_array($meta) && isset($meta['filesize']) && is_numeric($meta['filesize'])) {
+                $total += (int) $meta['filesize'];
+            }
+        }
+
+        return $total;
     }
 
     /**

@@ -180,17 +180,86 @@ class FolderRepositoryTests extends WP_UnitTestCase
     }
 
     /**
-     * Test create throws on duplicate name under same parent
+     * Test create auto-renames on duplicate name under same parent
      *
      * @return void
      */
-    public function test_create_throws_on_duplicate_name(): void
+    public function test_create_auto_renames_on_duplicate_name(): void
+    {
+        $first  = $this->repository->create('Photos');
+        $second = $this->repository->create('Photos');
+
+        $this->assertSame('Photos', $first->getName());
+        $this->assertSame('Photos (2)', $second->getName());
+    }
+
+    /**
+     * Test create auto-renames increments correctly
+     *
+     * @return void
+     */
+    public function test_create_auto_renames_increments(): void
     {
         $this->repository->create('Photos');
+        $this->repository->create('Photos');
+        $third = $this->repository->create('Photos');
 
+        $this->assertSame('Photos (3)', $third->getName());
+    }
+
+    /**
+     * Test create allows duplicate names under different parents
+     *
+     * @return void
+     */
+    public function test_create_allows_duplicate_name_under_different_parent(): void
+    {
+        $parent1 = $this->repository->create('Parent A');
+        $parent2 = $this->repository->create('Parent B');
+
+        $child1 = $this->repository->create('Photos', $parent1->getId());
+        $child2 = $this->repository->create('Photos', $parent2->getId());
+
+        $this->assertSame('Photos', $child1->getName());
+        $this->assertSame('Photos', $child2->getName());
+    }
+
+    /**
+     * Test create sanitizes dangerous leading characters
+     *
+     * @return void
+     */
+    public function test_create_sanitizes_dangerous_leading_chars(): void
+    {
+        $model = $this->repository->create('=SUM(A1)');
+
+        $this->assertSame('SUM(A1)', $model->getName());
+    }
+
+    /**
+     * Test create throws on empty name after sanitization
+     *
+     * @return void
+     */
+    public function test_create_throws_on_empty_name(): void
+    {
         $this->expectException(InvalidArgumentException::class);
 
-        $this->repository->create('Photos');
+        $this->repository->create('');
+    }
+
+    /**
+     * Test create truncates long names to 200 characters
+     *
+     * @return void
+     */
+    public function test_create_truncates_long_name(): void
+    {
+        $longName = str_repeat('a', 300);
+
+        $model = $this->repository->create($longName);
+
+        $this->assertSame(200, mb_strlen($model->getName()));
     }
 
     /**
@@ -475,6 +544,142 @@ class FolderRepositoryTests extends WP_UnitTestCase
     }
 
     /**
+     * Test update sanitizes name
+     *
+     * @return void
+     */
+    public function test_update_sanitizes_name(): void
+    {
+        $model = $this->repository->create('Original');
+
+        $updated = $this->repository->update($model->getId(), '+Dangerous');
+
+        $this->assertSame('Dangerous', $updated->getName());
+    }
+
+    /**
+     * Test update auto-renames on conflict with sibling
+     *
+     * @return void
+     */
+    public function test_update_auto_renames_on_sibling_conflict(): void
+    {
+        $this->repository->create('Existing');
+        $model = $this->repository->create('Other');
+
+        $updated = $this->repository->update($model->getId(), 'Existing');
+
+        $this->assertSame('Existing (2)', $updated->getName());
+    }
+
+    /**
+     * Test update allows keeping the same name
+     *
+     * @return void
+     */
+    public function test_update_allows_keeping_same_name(): void
+    {
+        $model = $this->repository->create('Photos');
+
+        $updated = $this->repository->update($model->getId(), 'Photos');
+
+        $this->assertSame('Photos', $updated->getName());
+    }
+
+    /**
+     * Test getTree injects direct sizes
+     *
+     * @return void
+     */
+    public function test_get_tree_injects_direct_sizes(): void
+    {
+        $folderId     = $this->createTerm('Photos');
+        $attachmentId = $this->createAttachmentWithSize(2048);
+
+        $this->repository->assignMedia($folderId, [$attachmentId]);
+
+        $tree = $this->repository->getTree();
+
+        $this->assertCount(1, $tree);
+        $this->assertSame(2048, $tree[0]->getDirectSize());
+        $this->assertSame(2048, $tree[0]->getTotalSize());
+    }
+
+    /**
+     * Test getTree computes recursive total size
+     *
+     * @return void
+     */
+    public function test_get_tree_computes_recursive_total_size(): void
+    {
+        $parentId = $this->createTerm('Parent');
+        $childId  = $this->createTerm('Child', ['parent' => $parentId]);
+
+        $attachment1 = $this->createAttachmentWithSize(1000);
+        $attachment2 = $this->createAttachmentWithSize(2000);
+
+        $this->repository->assignMedia($parentId, [$attachment1]);
+        $this->repository->assignMedia($childId, [$attachment2]);
+
+        $tree = $this->repository->getTree();
+
+        $this->assertSame(1000, $tree[0]->getDirectSize());
+        $this->assertSame(3000, $tree[0]->getTotalSize());
+        $this->assertSame(2000, $tree[0]->getChildren()[0]->getDirectSize());
+        $this->assertSame(2000, $tree[0]->getChildren()[0]->getTotalSize());
+    }
+
+    /**
+     * Test getRootTotalSize returns size of unassigned media
+     *
+     * @return void
+     */
+    public function test_get_root_total_size_returns_unassigned_size(): void
+    {
+        $this->createAttachmentWithSize(1500);
+        $this->createAttachmentWithSize(2500);
+
+        $size = $this->repository->getRootTotalSize();
+
+        $this->assertSame(4000, $size);
+    }
+
+    /**
+     * Test getRootTotalSize excludes assigned media
+     *
+     * @return void
+     */
+    public function test_get_root_total_size_excludes_assigned(): void
+    {
+        $folderId = $this->createTerm('Photos');
+        $assigned = $this->createAttachmentWithSize(3000);
+        $this->createAttachmentWithSize(1000);
+
+        $this->repository->assignMedia($folderId, [$assigned]);
+
+        $size = $this->repository->getRootTotalSize();
+
+        $this->assertSame(1000, $size);
+    }
+
+    /**
+     * Test getRootTotalSize returns zero when no unassigned media
+     *
+     * @return void
+     */
+    public function test_get_root_total_size_returns_zero_when_all_assigned(): void
+    {
+        $folderId     = $this->createTerm('Photos');
+        $attachmentId = $this->createAttachmentWithSize(5000);
+
+        $this->repository->assignMedia($folderId, [$attachmentId]);
+
+        $size = $this->repository->getRootTotalSize();
+
+        $this->assertSame(0, $size);
+    }
+
+    /**
      * Create a taxonomy term and return its ID
      *
      * @param string               $name Term name
@@ -487,5 +692,25 @@ class FolderRepositoryTests extends WP_UnitTestCase
         $result = wp_insert_term($name, TaxonomyService::TAXONOMY_NAME, $args);
 
         return (int) $result['term_id'];
+    }
+
+    /**
+     * Create an attachment with filesize in its metadata
+     *
+     * @param int $fileSize File size in bytes
+     *
+     * @return int Attachment post ID
+     */
+    private function createAttachmentWithSize(int $fileSize): int
+    {
+        $attachmentId = $this->factory()->attachment->create();
+
+        update_post_meta(
+            $attachmentId,
+            '_wp_attachment_metadata',
+            ['filesize' => $fileSize]
+        );
+
+        return $attachmentId;
     }
 }
