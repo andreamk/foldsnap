@@ -14,6 +14,7 @@ declare(strict_types=1);
 
 namespace FoldSnap\Services;
 
+use Exception;
 use FoldSnap\Models\FolderModel;
 use FoldSnap\Utils\Sanitize;
 use InvalidArgumentException;
@@ -21,6 +22,15 @@ use WP_Term;
 
 class FolderRepository
 {
+    /** @var string Cache key for per-folder size map */
+    private const CACHE_FOLDER_SIZES = 'folder_sizes';
+
+    /** @var string Cache key for root (unassigned) total size */
+    private const CACHE_ROOT_TOTAL_SIZE = 'root_total_size';
+
+    /** @var string Cache group for all FoldSnap cache entries */
+    private const CACHE_GROUP = 'foldsnap';
+
     /**
      * Retrieve all folders as a flat list
      *
@@ -37,6 +47,17 @@ class FolderRepository
 
         if (! is_array($terms)) {
             return [];
+        }
+
+        $termIds = [];
+        foreach ($terms as $term) {
+            if ($term instanceof WP_Term) {
+                $termIds[] = $term->term_id;
+            }
+        }
+
+        if (! empty($termIds)) {
+            update_termmeta_cache($termIds);
         }
 
         $models = [];
@@ -101,7 +122,8 @@ class FolderRepository
      *
      * @return FolderModel
      *
-     * @throws InvalidArgumentException If folder creation fails.
+     * @throws InvalidArgumentException If name is invalid or parent does not exist.
+     * @throws Exception If WordPress fails to insert the term.
      */
     public function create(string $name, int $parentId = 0, string $color = '', int $position = 0): FolderModel
     {
@@ -110,13 +132,14 @@ class FolderRepository
 
         $args = [];
         if (0 < $parentId) {
+            $this->getByIdOrFail($parentId);
             $args['parent'] = $parentId;
         }
 
         $result = wp_insert_term($name, TaxonomyService::TAXONOMY_NAME, $args);
 
         if (is_wp_error($result)) {
-            throw new InvalidArgumentException(esc_html($result->get_error_message()));
+            throw new Exception(esc_html($result->get_error_message()));
         }
 
         $termId = (int) $result['term_id'];
@@ -147,7 +170,8 @@ class FolderRepository
      *
      * @return FolderModel
      *
-     * @throws InvalidArgumentException If term does not exist or update fails.
+     * @throws InvalidArgumentException If term does not exist, name is invalid, or parent does not exist.
+     * @throws Exception If WordPress fails to update the term.
      */
     public function update(
         int $termId,
@@ -156,17 +180,20 @@ class FolderRepository
         string $color = '',
         int $position = -1
     ): FolderModel {
-        $this->validateTermId($termId);
+        $folder = $this->getByIdOrFail($termId);
 
         $args = [];
         if ('' !== $name) {
             $name              = $this->sanitizeName($name);
-            $effectiveParentId = -1 !== $parentId ? $parentId : $this->getByIdOrFail($termId)->getParentId();
+            $effectiveParentId = -1 !== $parentId ? $parentId : $folder->getParentId();
             $name              = $this->ensureUniqueName($name, $effectiveParentId, $termId);
             $args['name']      = $name;
         }
 
         if (-1 !== $parentId) {
+            if (0 < $parentId) {
+                $this->getByIdOrFail($parentId);
+            }
             $args['parent'] = $parentId;
         }
 
@@ -174,7 +201,7 @@ class FolderRepository
             $result = wp_update_term($termId, TaxonomyService::TAXONOMY_NAME, $args);
 
             if (is_wp_error($result)) {
-                throw new InvalidArgumentException(esc_html($result->get_error_message()));
+                throw new Exception(esc_html($result->get_error_message()));
             }
         }
 
@@ -204,9 +231,13 @@ class FolderRepository
      */
     public function delete(int $termId): bool
     {
-        $this->validateTermId($termId);
+        $this->getByIdOrFail($termId);
 
         $result = wp_delete_term($termId, TaxonomyService::TAXONOMY_NAME);
+
+        if (true === $result) {
+            $this->invalidateSizeCache();
+        }
 
         return true === $result;
     }
@@ -225,8 +256,12 @@ class FolderRepository
      */
     public function assignMedia(int $folderId, array $mediaIds): void
     {
-        $this->validateTermId($folderId);
+        $this->getByIdOrFail($folderId);
         $this->validateAttachmentIds($mediaIds);
+
+        if (empty($mediaIds)) {
+            return;
+        }
 
         wp_defer_term_counting(true);
 
@@ -235,6 +270,7 @@ class FolderRepository
         }
 
         wp_defer_term_counting(false);
+        $this->invalidateSizeCache();
     }
 
     /**
@@ -249,7 +285,7 @@ class FolderRepository
      */
     public function removeMedia(int $folderId, array $mediaIds): void
     {
-        $this->validateTermId($folderId);
+        $this->getByIdOrFail($folderId);
 
         wp_defer_term_counting(true);
 
@@ -258,6 +294,7 @@ class FolderRepository
         }
 
         wp_defer_term_counting(false);
+        $this->invalidateSizeCache();
     }
 
     /**
@@ -280,7 +317,7 @@ class FolderRepository
      */
     public function getRootTotalSize(): int
     {
-        $cached = wp_cache_get('root_total_size', 'foldsnap');
+        $cached = wp_cache_get(self::CACHE_ROOT_TOTAL_SIZE, self::CACHE_GROUP);
         if (is_int($cached)) {
             return $cached;
         }
@@ -292,9 +329,20 @@ class FolderRepository
 
         $total = $this->sumFileSizesFromMeta($results);
 
-        wp_cache_set('root_total_size', $total, 'foldsnap');
+        wp_cache_set(self::CACHE_ROOT_TOTAL_SIZE, $total, self::CACHE_GROUP);
 
         return $total;
+    }
+
+    /**
+     * Invalidate cached folder size data
+     *
+     * @return void
+     */
+    private function invalidateSizeCache(): void
+    {
+        wp_cache_delete(self::CACHE_FOLDER_SIZES, self::CACHE_GROUP);
+        wp_cache_delete(self::CACHE_ROOT_TOTAL_SIZE, self::CACHE_GROUP);
     }
 
     /**
@@ -393,7 +441,7 @@ class FolderRepository
      */
     private function computeFolderSizes(): array
     {
-        $cached = wp_cache_get('folder_sizes', 'foldsnap');
+        $cached = wp_cache_get(self::CACHE_FOLDER_SIZES, self::CACHE_GROUP);
         if (is_array($cached)) {
             /** @var array<int, int> $cached */
             return $cached;
@@ -406,12 +454,7 @@ class FolderRepository
 
         foreach ($rows as $row) {
             $folderId = $row['folder_id'];
-            $meta     = maybe_unserialize($row['meta_value']);
-            $fileSize = 0;
-
-            if (is_array($meta) && isset($meta['filesize']) && is_numeric($meta['filesize'])) {
-                $fileSize = (int) $meta['filesize'];
-            }
+            $fileSize = $this->extractFileSize($row['meta_value']);
 
             if (! isset($sizeMap[$folderId])) {
                 $sizeMap[$folderId] = 0;
@@ -420,7 +463,7 @@ class FolderRepository
             $sizeMap[$folderId] += $fileSize;
         }
 
-        wp_cache_set('folder_sizes', $sizeMap, 'foldsnap');
+        wp_cache_set(self::CACHE_FOLDER_SIZES, $sizeMap, self::CACHE_GROUP);
 
         return $sizeMap;
     }
@@ -437,14 +480,28 @@ class FolderRepository
         $total = 0;
 
         foreach ($metaValues as $metaValue) {
-            $meta = maybe_unserialize($metaValue);
-
-            if (is_array($meta) && isset($meta['filesize']) && is_numeric($meta['filesize'])) {
-                $total += (int) $meta['filesize'];
-            }
+            $total += $this->extractFileSize($metaValue);
         }
 
         return $total;
+    }
+
+    /**
+     * Extract filesize from a serialized attachment metadata value
+     *
+     * @param string $serializedMeta Serialized _wp_attachment_metadata value
+     *
+     * @return int File size in bytes, or 0 if not available
+     */
+    private function extractFileSize(string $serializedMeta): int
+    {
+        $meta = maybe_unserialize($serializedMeta);
+
+        if (is_array($meta) && isset($meta['filesize']) && is_numeric($meta['filesize'])) {
+            return (int) $meta['filesize'];
+        }
+
+        return 0;
     }
 
     /**
@@ -537,26 +594,6 @@ class FolderRepository
                         implode(', ', $invalidIds)
                     )
                 )
-            );
-        }
-    }
-
-    /**
-     * Validate that a term ID exists in the folder taxonomy
-     *
-     * @param int $termId Term ID to validate
-     *
-     * @return void
-     *
-     * @throws InvalidArgumentException If term does not exist.
-     */
-    private function validateTermId(int $termId): void
-    {
-        $term = get_term($termId, TaxonomyService::TAXONOMY_NAME);
-
-        if (! $term instanceof WP_Term) {
-            throw new InvalidArgumentException(
-                esc_html(sprintf('Folder with ID %d does not exist.', $termId))
             );
         }
     }

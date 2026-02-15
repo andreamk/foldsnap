@@ -292,6 +292,62 @@ class FolderRepositoryTests extends WP_UnitTestCase
     }
 
     /**
+     * Test moving a subtree updates recursive media counts
+     *
+     * Setup: A(media1,media2) > B(media3,media4), C(media5)
+     * Move B under C: A(media1,media2), C(media5) > B(media3,media4)
+     * Verify: A total=2, C total=3, B total=2
+     *
+     * @return void
+     */
+    public function test_update_parent_updates_recursive_media_counts(): void
+    {
+        $folderA = $this->createTerm('A');
+        $folderB = $this->createTerm('B', ['parent' => $folderA]);
+        $folderC = $this->createTerm('C');
+
+        $media1 = $this->factory()->attachment->create();
+        $media2 = $this->factory()->attachment->create();
+        $media3 = $this->factory()->attachment->create();
+        $media4 = $this->factory()->attachment->create();
+        $media5 = $this->factory()->attachment->create();
+
+        $this->repository->assignMedia($folderA, [$media1, $media2]);
+        $this->repository->assignMedia($folderB, [$media3, $media4]);
+        $this->repository->assignMedia($folderC, [$media5]);
+
+        // Before move: A total=4 (2 direct + B's 2), B total=2, C total=1
+        $treeBefore = $this->repository->getTree();
+        $aBefore    = $this->findInTree($treeBefore, $folderA);
+        $cBefore    = $this->findInTree($treeBefore, $folderC);
+
+        $this->assertSame(2, $aBefore->getMediaCount());
+        $this->assertSame(4, $aBefore->getTotalMediaCount());
+        $this->assertSame(1, $cBefore->getMediaCount());
+        $this->assertSame(1, $cBefore->getTotalMediaCount());
+
+        // Move B under C
+        $this->repository->update($folderB, '', $folderC);
+
+        // After move: A total=2, C total=3 (1 direct + B's 2), B total=2
+        $treeAfter = $this->repository->getTree();
+        $aAfter    = $this->findInTree($treeAfter, $folderA);
+        $cAfter    = $this->findInTree($treeAfter, $folderC);
+        $bAfter    = $this->findInTree($cAfter->getChildren(), $folderB);
+
+        $this->assertSame(2, $aAfter->getMediaCount());
+        $this->assertSame(2, $aAfter->getTotalMediaCount());
+        $this->assertSame(0, count($aAfter->getChildren()));
+
+        $this->assertSame(1, $cAfter->getMediaCount());
+        $this->assertSame(3, $cAfter->getTotalMediaCount());
+
+        $this->assertNotNull($bAfter);
+        $this->assertSame(2, $bAfter->getMediaCount());
+        $this->assertSame(2, $bAfter->getTotalMediaCount());
+    }
+
+    /**
      * Test update changes color
      *
      * @return void
@@ -390,6 +446,9 @@ class FolderRepositoryTests extends WP_UnitTestCase
         $terms = wp_get_object_terms($attachmentId, TaxonomyService::TAXONOMY_NAME);
         $this->assertCount(1, $terms);
         $this->assertSame($folderId, $terms[0]->term_id);
+
+        $folder = $this->repository->getById($folderId);
+        $this->assertSame(1, $folder->getMediaCount());
     }
 
     /**
@@ -409,6 +468,11 @@ class FolderRepositoryTests extends WP_UnitTestCase
         $terms = wp_get_object_terms($attachmentId, TaxonomyService::TAXONOMY_NAME);
         $this->assertCount(1, $terms);
         $this->assertSame($folder2Id, $terms[0]->term_id);
+
+        $folder1 = $this->repository->getById($folder1Id);
+        $folder2 = $this->repository->getById($folder2Id);
+        $this->assertSame(0, $folder1->getMediaCount());
+        $this->assertSame(1, $folder2->getMediaCount());
     }
 
     /**
@@ -431,6 +495,9 @@ class FolderRepositoryTests extends WP_UnitTestCase
         $this->assertSame($folderId, $terms1[0]->term_id);
         $this->assertCount(1, $terms2);
         $this->assertSame($folderId, $terms2[0]->term_id);
+
+        $folder = $this->repository->getById($folderId);
+        $this->assertSame(2, $folder->getMediaCount());
     }
 
     /**
@@ -456,10 +523,17 @@ class FolderRepositoryTests extends WP_UnitTestCase
         $attachmentId = $this->factory()->attachment->create();
 
         $this->repository->assignMedia($folderId, [$attachmentId]);
+
+        $folderAfterAssign = $this->repository->getById($folderId);
+        $this->assertSame(1, $folderAfterAssign->getMediaCount());
+
         $this->repository->removeMedia($folderId, [$attachmentId]);
 
         $terms = wp_get_object_terms($attachmentId, TaxonomyService::TAXONOMY_NAME);
         $this->assertCount(0, $terms);
+
+        $folderAfterRemove = $this->repository->getById($folderId);
+        $this->assertSame(0, $folderAfterRemove->getMediaCount());
     }
 
     /**
@@ -502,9 +576,10 @@ class FolderRepositoryTests extends WP_UnitTestCase
 
         $this->repository->assignMedia($folderId, [$assigned]);
 
-        $count = $this->repository->getRootMediaCount();
+        $this->assertSame(1, $this->repository->getRootMediaCount());
 
-        $this->assertSame(1, $count);
+        $folder = $this->repository->getById($folderId);
+        $this->assertSame(1, $folder->getMediaCount());
     }
 
     /**
@@ -519,9 +594,10 @@ class FolderRepositoryTests extends WP_UnitTestCase
 
         $this->repository->assignMedia($folderId, [$attachmentId]);
 
-        $count = $this->repository->getRootMediaCount();
+        $this->assertSame(0, $this->repository->getRootMediaCount());
 
-        $this->assertSame(0, $count);
+        $folder = $this->repository->getById($folderId);
+        $this->assertSame(1, $folder->getMediaCount());
     }
 
     /**
@@ -536,6 +612,8 @@ class FolderRepositoryTests extends WP_UnitTestCase
 
         $this->repository->assignMedia($folderId, [$attachmentId]);
 
+        $folder = $this->repository->getById($folderId);
+        $this->assertSame(1, $folder->getMediaCount());
         $this->assertSame(0, $this->repository->getRootMediaCount());
 
         $this->repository->delete($folderId);
@@ -743,11 +821,14 @@ class FolderRepositoryTests extends WP_UnitTestCase
      */
     public function test_assign_media_accepts_empty_array(): void
     {
-        $folderId = $this->createTerm('Photos');
+        $folderId     = $this->createTerm('Photos');
+        $attachmentId = $this->factory()->attachment->create();
 
+        $this->repository->assignMedia($folderId, [$attachmentId]);
         $this->repository->assignMedia($folderId, []);
 
-        $this->assertSame(0, $this->repository->getRootMediaCount());
+        $folder = $this->repository->getById($folderId);
+        $this->assertSame(1, $folder->getMediaCount());
     }
 
     /**
@@ -783,5 +864,23 @@ class FolderRepositoryTests extends WP_UnitTestCase
         );
 
         return $attachmentId;
+    }
+
+    /**
+     * Find a folder by ID in a tree (searches root level only)
+     *
+     * @param FolderModel[] $tree     Array of folder models
+     * @param int           $folderId Folder ID to find
+     *
+     * @return FolderModel|null
+     */
+    private function findInTree(array $tree, int $folderId): ?FolderModel
+    {
+        foreach ($tree as $folder) {
+            if ($folder->getId() === $folderId) {
+                return $folder;
+            }
+        }
+        return null;
     }
 }
