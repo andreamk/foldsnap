@@ -30,13 +30,14 @@ final class TaxonomyService
             self::TAXONOMY_NAME,
             self::POST_TYPE,
             [
-                'labels'            => self::getLabels(),
-                'hierarchical'      => true,
-                'public'            => false,
-                'show_ui'           => false,
-                'show_in_rest'      => false,
-                'show_admin_column' => false,
-                'rewrite'           => false,
+                'labels'                => self::getLabels(),
+                'hierarchical'          => true,
+                'public'                => false,
+                'show_ui'               => false,
+                'show_in_rest'          => false,
+                'show_admin_column'     => false,
+                'rewrite'               => false,
+                'update_count_callback' => '_update_generic_term_count',
             ]
         );
     }

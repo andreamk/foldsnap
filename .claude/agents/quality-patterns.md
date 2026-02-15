@@ -86,6 +86,10 @@ Verify that code changes follow WordPress and plugin best practices and establis
 **Should Fix** - Not optimal pattern, inconsistent with project, maintainability issues
 **Nice to Have** - Minor improvements, style preferences
 
+## Known Exceptions (Do NOT Report)
+
+- **`esc_html()` / `esc_html__()` in exception messages:** The plugin-check ruleset (`WordPress.Security`) requires all strings passed to constructors to be escaped, including exception messages. While exception messages are not HTML output, this is a plugin-check compliance requirement. Do NOT flag `esc_html()` or `esc_html__()` wrapping exception messages as a violation.
+
 ## Critical Rules
 
 1. **Framework-first** - If WordPress/React provides it, use it
