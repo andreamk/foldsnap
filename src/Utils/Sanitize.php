@@ -1,7 +1,7 @@
 <?php
 
 /**
- * Pure value sanitization utility class.
+ * Value sanitization utility class.
  *
  * Provides sanitization functions for values (strings, integers, booleans, arrays).
  * Does NOT access superglobals — for input reading use SanitizeInput.
@@ -12,6 +12,8 @@
 declare(strict_types=1);
 
 namespace FoldSnap\Utils;
+
+use InvalidArgumentException;
 
 /**
  * Sanitize utility class
@@ -69,6 +71,28 @@ final class Sanitize
         }
 
         return $result;
+    }
+
+    /**
+     * Validate and sanitize a hex color code
+     *
+     * Accepts 3 or 6 digit hex colors with # prefix (e.g., #fff, #ff0000).
+     *
+     * @param string $color Hex color string
+     *
+     * @return string Validated hex color
+     *
+     * @throws InvalidArgumentException If color is not a valid hex color.
+     */
+    public static function hexColor(string $color): string
+    {
+        if (1 !== preg_match('/^#([A-Fa-f0-9]{3}){1,2}$/', $color)) {
+            throw new InvalidArgumentException(
+                esc_html(sprintf('Invalid hex color: %s', $color))
+            );
+        }
+
+        return $color;
     }
 
     /**

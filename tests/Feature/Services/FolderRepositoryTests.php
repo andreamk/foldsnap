@@ -680,6 +680,77 @@ class FolderRepositoryTests extends WP_UnitTestCase
     }
 
     /**
+     * Test create throws on invalid color
+     *
+     * @return void
+     */
+    public function test_create_throws_on_invalid_color(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+
+        $this->repository->create('Folder', 0, 'not-a-color');
+    }
+
+    /**
+     * Test update throws on invalid color
+     *
+     * @return void
+     */
+    public function test_update_throws_on_invalid_color(): void
+    {
+        $model = $this->repository->create('Folder');
+
+        $this->expectException(InvalidArgumentException::class);
+
+        $this->repository->update($model->getId(), '', -1, 'invalid');
+    }
+
+    /**
+     * Test assignMedia throws on non-attachment post IDs
+     *
+     * @return void
+     */
+    public function test_assign_media_throws_on_non_attachment_ids(): void
+    {
+        $folderId = $this->createTerm('Photos');
+        $pageId   = $this->factory()->post->create(['post_type' => 'page']);
+
+        $this->expectException(InvalidArgumentException::class);
+
+        $this->repository->assignMedia($folderId, [$pageId]);
+    }
+
+    /**
+     * Test assignMedia throws when mixing valid and invalid IDs
+     *
+     * @return void
+     */
+    public function test_assign_media_throws_on_mixed_valid_and_invalid_ids(): void
+    {
+        $folderId     = $this->createTerm('Photos');
+        $attachmentId = $this->factory()->attachment->create();
+        $pageId       = $this->factory()->post->create(['post_type' => 'page']);
+
+        $this->expectException(InvalidArgumentException::class);
+
+        $this->repository->assignMedia($folderId, [$attachmentId, $pageId]);
+    }
+
+    /**
+     * Test assignMedia accepts empty array without error
+     *
+     * @return void
+     */
+    public function test_assign_media_accepts_empty_array(): void
+    {
+        $folderId = $this->createTerm('Photos');
+
+        $this->repository->assignMedia($folderId, []);
+
+        $this->assertSame(0, $this->repository->getRootMediaCount());
+    }
+
+    /**
      * Create a taxonomy term and return its ID
      *
      * @param string               $name Term name

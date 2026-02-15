@@ -15,6 +15,7 @@ declare(strict_types=1);
 namespace FoldSnap\Services;
 
 use FoldSnap\Models\FolderModel;
+use FoldSnap\Utils\Sanitize;
 use InvalidArgumentException;
 use WP_Term;
 
@@ -121,6 +122,7 @@ class FolderRepository
         $termId = (int) $result['term_id'];
 
         if ('' !== $color) {
+            $color = Sanitize::hexColor($color);
             update_term_meta($termId, FolderModel::META_COLOR, $color);
         }
 
@@ -177,6 +179,7 @@ class FolderRepository
         }
 
         if ('' !== $color) {
+            $color = Sanitize::hexColor($color);
             update_term_meta($termId, FolderModel::META_COLOR, $color);
         }
 
@@ -223,10 +226,15 @@ class FolderRepository
     public function assignMedia(int $folderId, array $mediaIds): void
     {
         $this->validateTermId($folderId);
+        $this->validateAttachmentIds($mediaIds);
+
+        wp_defer_term_counting(true);
 
         foreach ($mediaIds as $mediaId) {
             wp_set_object_terms($mediaId, $folderId, TaxonomyService::TAXONOMY_NAME, false);
         }
+
+        wp_defer_term_counting(false);
     }
 
     /**
@@ -243,9 +251,13 @@ class FolderRepository
     {
         $this->validateTermId($folderId);
 
+        wp_defer_term_counting(true);
+
         foreach ($mediaIds as $mediaId) {
             wp_remove_object_terms($mediaId, $folderId, TaxonomyService::TAXONOMY_NAME);
         }
+
+        wp_defer_term_counting(false);
     }
 
     /**
@@ -468,6 +480,65 @@ class FolderRepository
         }
 
         return $roots;
+    }
+
+    /**
+     * Validate that all IDs are attachment post IDs
+     *
+     * Uses a single bulk query to verify all IDs at once.
+     *
+     * @param int[] $mediaIds Array of post IDs to validate
+     *
+     * @return void
+     *
+     * @throws InvalidArgumentException If any ID is not a valid attachment.
+     */
+    private function validateAttachmentIds(array $mediaIds): void
+    {
+        if (empty($mediaIds)) {
+            return;
+        }
+
+        $mediaIds = array_map('intval', $mediaIds);
+        $mediaIds = array_values(
+            array_filter(
+                $mediaIds,
+                static function (int $id): bool {
+                    return $id > 0;
+                }
+            )
+        );
+
+        if (empty($mediaIds)) {
+            throw new InvalidArgumentException(
+                esc_html__('No valid media IDs provided.', 'foldsnap')
+            );
+        }
+
+        /** @var int[] $validIds */
+        $validIds = get_posts(
+            [
+                'post__in'       => $mediaIds,
+                'post_type'      => TaxonomyService::POST_TYPE,
+                'post_status'    => 'any',
+                'posts_per_page' => count($mediaIds),
+                'fields'         => 'ids',
+                'no_found_rows'  => true,
+            ]
+        );
+
+        $invalidIds = array_diff($mediaIds, $validIds);
+
+        if (! empty($invalidIds)) {
+            throw new InvalidArgumentException(
+                esc_html(
+                    sprintf(
+                        'Invalid attachment IDs: %s',
+                        implode(', ', $invalidIds)
+                    )
+                )
+            );
+        }
     }
 
     /**
