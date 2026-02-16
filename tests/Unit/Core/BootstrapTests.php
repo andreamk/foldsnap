@@ -10,6 +10,7 @@ declare(strict_types=1);
 
 namespace FoldSnap\Tests\Unit\Core;
 
+use FoldSnap\Controllers\RestApiController;
 use FoldSnap\Core\Bootstrap;
 use FoldSnap\Services\TaxonomyService;
 use WP_UnitTestCase;
@@ -57,6 +58,21 @@ class BootstrapTests extends WP_UnitTestCase
         $this->assertGreaterThan(
             0,
             has_action($menuHook, [Bootstrap::class, 'menu'])
+        );
+    }
+
+    /**
+     * Test onInit registers REST API controller
+     *
+     * @return void
+     */
+    public function test_onInit_registers_rest_api_controller(): void
+    {
+        Bootstrap::onInit();
+
+        $this->assertGreaterThan(
+            0,
+            has_action('rest_api_init', [RestApiController::getInstance(), 'registerRoutes'])
         );
     }
 

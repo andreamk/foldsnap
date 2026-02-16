@@ -1,0 +1,21 @@
+/* FoldSnap Admin Styles */
+
+.foldsnap-container {
+	display: flex;
+	min-height: 500px;
+}
+
+.foldsnap-sidebar {
+	width: 280px;
+	min-width: 280px;
+	border-right: 1px solid #dcdcde;
+	background: #f0f0f1;
+	padding: 12px;
+	overflow-y: auto;
+}
+
+.foldsnap-content {
+	flex: 1;
+	padding: 16px;
+	overflow-y: auto;
+}

@@ -113,7 +113,7 @@ Ogni step include codice + test relativi. I test si scrivono e si eseguono nello
 
 **Verifica:** `/test-coverage` sui file sorgente dello step, poi `composer fullcheck`
 
-### Step 3b — FolderModel e FolderRepository: size, conteggi ricorsivi, sanitizzazione nomi
+### Step 3b — FolderModel e FolderRepository: size, conteggi ricorsivi, sanitizzazione nomi ✅
 
 **Aggiorna `src/Models/FolderModel.php`:**
 - Nuova proprieta' `private int $directSize = 0` (size in bytes dei media direttamente assegnati)
@@ -160,7 +160,7 @@ Ogni step include codice + test relativi. I test si scrivono e si eseguono nello
 
 **Verifica:** `/test-coverage` sui file sorgente dello step, poi `composer fullcheck`
 
-### Step 4 — RestApiController + Bootstrap + MainPageController + test
+### Step 4 — RestApiController + Bootstrap + MainPageController + test ✅
 
 **Crea `src/Controllers/RestApiController.php`:**
 - Singleton, riceve `FolderRepository` nel costruttore

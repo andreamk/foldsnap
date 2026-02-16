@@ -62,6 +62,15 @@ final class MainPageController extends AbstractMenuPageController
             $asset['version'],
             true
         );
+
+        wp_localize_script(
+            'foldsnap-admin',
+            'foldsnap_data',
+            [
+                'restUrl'   => rest_url('foldsnap/v1/'),
+                'restNonce' => wp_create_nonce('wp_rest'),
+            ]
+        );
     }
 
     /**
@@ -72,5 +81,11 @@ final class MainPageController extends AbstractMenuPageController
     public function pageStyles(): void
     {
         wp_enqueue_style('wp-components');
+        wp_enqueue_style(
+            'foldsnap-admin',
+            FOLDSNAP_PLUGIN_URL . '/assets/css/foldsnap-admin.css',
+            [],
+            (string) filemtime(FOLDSNAP_PATH . '/assets/css/foldsnap-admin.css')
+        );
     }
 }

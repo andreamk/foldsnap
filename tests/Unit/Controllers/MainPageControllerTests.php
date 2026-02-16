@@ -123,4 +123,40 @@ class MainPageControllerTests extends WP_UnitTestCase
 
         $this->assertStringContainsString('page=foldsnap', $url);
     }
+
+    /**
+     * Test pageScripts localizes REST data for frontend
+     *
+     * @return void
+     */
+    public function test_pageScripts_localizes_rest_data(): void
+    {
+        $this->controller->pageScripts();
+
+        if (! wp_script_is('foldsnap-admin', 'enqueued')) {
+            $this->markTestSkipped('Asset file not available (build required).');
+        }
+
+        /** @var \WP_Scripts $wp_scripts */
+        global $wp_scripts;
+        $scriptData = $wp_scripts->get_data('foldsnap-admin', 'data');
+
+        $this->assertIsString($scriptData);
+        $this->assertStringContainsString('foldsnap_data', $scriptData);
+        $this->assertStringContainsString('restUrl', $scriptData);
+        $this->assertStringContainsString('restNonce', $scriptData);
+    }
+
+    /**
+     * Test pageStyles enqueues WordPress components and custom admin styles
+     *
+     * @return void
+     */
+    public function test_pageStyles_enqueues_styles(): void
+    {
+        $this->controller->pageStyles();
+
+        $this->assertTrue(wp_style_is('wp-components', 'enqueued'));
+        $this->assertTrue(wp_style_is('foldsnap-admin', 'enqueued'));
+    }
 }
