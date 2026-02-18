@@ -199,17 +199,7 @@ Ogni step include codice + test relativi. I test si scrivono e si eseguono nello
 
 **Verifica:** `/test-coverage` sui file sorgente dello step, poi `composer fullcheck`
 
-### Step 5 — Uninstall cleanup + test
-
-**Modifica `src/Core/Uninstall.php`:**
-- Aggiungere `self::deleteTaxonomyTerms()` in `cleanSite()`
-- Nuovo metodo `deleteTaxonomyTerms()`: registra taxonomy temporaneamente, recupera tutti i termini, elimina con `wp_delete_term()`
-
-**Test:** Aggiornare `tests/Unit/Core/UninstallTests.php`
-
-**Verifica:** `/test-coverage` sui file sorgente dello step, poi `composer fullcheck`
-
-### Step 6 — Dipendenze npm + Store @wordpress/data + test
+### Step 5 — Dipendenze npm + Store @wordpress/data + test
 
 **Installa:** `npm install @wordpress/api-fetch @wordpress/data @dnd-kit/core @dnd-kit/sortable @dnd-kit/utilities`
 
@@ -230,7 +220,7 @@ Strategia MVP: dopo ogni mutazione, re-fetch dell'intero albero (semplice, affid
 
 **Verifica:** `/test-coverage` sui file sorgente dello step, poi `composer fullcheck`
 
-### Step 7 — Folder tree + ricerca + drag & drop cartelle + CSS + test
+### Step 6 — Folder tree + ricerca + drag & drop cartelle + CSS + test
 
 **Crea `template/js/components/FolderItem.jsx`:**
 - Props: `folder`, `selectedFolderId`, `onSelect`, `depth`
@@ -266,7 +256,7 @@ Strategia MVP: dopo ogni mutazione, re-fetch dell'intero albero (semplice, affid
 
 **Verifica:** `/test-coverage` sui file sorgente dello step, poi `composer fullcheck`
 
-### Step 8 — Media grid + drag & drop media + test
+### Step 7 — Media grid + drag & drop media + test
 
 **Crea `template/js/components/MediaGrid.jsx`:**
 - Usa `useSelect` per leggere `getMedia`, `isMediaLoading`, `getMediaTotal`, `getMediaTotalPages` dallo store
@@ -293,7 +283,7 @@ Strategia MVP: dopo ogni mutazione, re-fetch dell'intero albero (semplice, affid
 
 **Verifica:** `/test-coverage` sui file sorgente dello step, poi `composer fullcheck`
 
-### Step 9 — Contatori incrementali (size + count) + hook cancellazione media
+### Step 8 — Contatori incrementali (size + count) + hook cancellazione media
 
 **Obiettivo:** Eliminare le query aggregate pesanti (`computeFolderSizes`, `getRootTotalSize`) che fanno JOIN su migliaia di righe ad ogni `getTree()`. Sostituirle con contatori incrementali salvati come `term_meta` e aggiornati solo quando i dati cambiano.
 
@@ -323,6 +313,16 @@ Strategia MVP: dopo ogni mutazione, re-fetch dell'intero albero (semplice, affid
 - Esporre come endpoint REST o WP-CLI command per uso manuale/schedulato
 
 **Test:** Aggiornare i test di `FolderRepositoryTests.php` per verificare che `assignMedia`/`removeMedia` aggiornino size e count, aggiungere test per l'hook di cancellazione e per il ricalcolo globale
+
+**Verifica:** `/test-coverage` sui file sorgente dello step, poi `composer fullcheck`
+
+### Step 9 — Uninstall cleanup + test
+
+**Modifica `src/Core/Uninstall.php`:**
+- Aggiungere `self::deleteTaxonomyTerms()` in `cleanSite()`
+- Nuovo metodo `deleteTaxonomyTerms()`: registra taxonomy temporaneamente, recupera tutti i termini, elimina con `wp_delete_term()`
+
+**Test:** Aggiornare `tests/Unit/Core/UninstallTests.php`
 
 **Verifica:** `/test-coverage` sui file sorgente dello step, poi `composer fullcheck`
 
