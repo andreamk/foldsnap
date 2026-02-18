@@ -10,6 +10,7 @@ declare(strict_types=1);
 
 namespace FoldSnap\Core;
 
+use FoldSnap\Controllers\MediaLibraryController;
 use FoldSnap\Controllers\RestApiController;
 use FoldSnap\Core\Controllers\ControllersManager;
 use FoldSnap\Services\TaxonomyService;
@@ -35,6 +36,7 @@ final class Bootstrap
     {
         TaxonomyService::register();
         RestApiController::getInstance();
+        MediaLibraryController::getInstance();
 
         if (is_admin()) {
             ControllersManager::getInstance();

@@ -1,21 +1,288 @@
 /* FoldSnap Admin Styles */
 
-.foldsnap-container {
+/* ===== Media Library sidebar integration ===== */
+
+/*
+ * Sidebar is inserted before #wpbody-content inside #wpbody.
+ * #wpbody becomes a flex row: sidebar left, #wpbody-content right.
+ */
+.upload-php #wpbody {
 	display: flex;
-	min-height: 500px;
+	align-items: flex-start;
 }
 
 .foldsnap-sidebar {
-	width: 280px;
-	min-width: 280px;
+	width: 220px;
+	min-width: 220px;
+	flex-shrink: 0;
 	border-right: 1px solid #dcdcde;
-	background: #f0f0f1;
-	padding: 12px;
+	background: #f6f7f7;
+	padding: 10px;
+	box-sizing: border-box;
+	min-height: 400px;
 	overflow-y: auto;
+	align-self: stretch;
 }
 
-.foldsnap-content {
+.upload-php #wpbody-content {
 	flex: 1;
-	padding: 16px;
-	overflow-y: auto;
+	min-width: 0;
+}
+
+/* ===== Folder Tree ===== */
+
+.foldsnap-folder-tree {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+
+.foldsnap-folder-tree__search {
+	margin-bottom: 8px;
+}
+
+.foldsnap-folder-tree__search .components-base-control {
+	margin-bottom: 0;
+}
+
+.foldsnap-search-input input[type="text"] {
+	width: 100%;
+	font-size: 13px;
+}
+
+.foldsnap-folder-tree__loading {
+	display: flex;
+	justify-content: center;
+	padding: 16px 0;
+}
+
+.foldsnap-folder-tree__actions {
+	margin-top: 8px;
+	padding-top: 8px;
+	border-top: 1px solid #dcdcde;
+}
+
+.foldsnap-folder-tree__new-btn {
+	width: 100%;
+	justify-content: center;
+}
+
+/* ===== Root Item ===== */
+
+.foldsnap-root-item {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding: 6px 8px;
+	border-radius: 4px;
+	cursor: pointer;
+	font-weight: 600;
+	font-size: 13px;
+	color: #1e1e1e;
+	margin-bottom: 4px;
+	transition: background 0.1s ease;
+}
+
+.foldsnap-root-item:hover {
+	background: #e0e0e0;
+}
+
+.foldsnap-root-item--selected {
+	background: #2271b1;
+	color: #fff;
+}
+
+.foldsnap-root-item--selected:hover {
+	background: #135e96;
+}
+
+.foldsnap-root-item__label {
+	flex: 1;
+}
+
+.foldsnap-root-item__badge {
+	font-size: 11px;
+	background: rgba( 0, 0, 0, 0.12 );
+	border-radius: 10px;
+	padding: 1px 6px;
+}
+
+.foldsnap-root-item--selected .foldsnap-root-item__badge {
+	background: rgba( 255, 255, 255, 0.25 );
+}
+
+/* ===== Folder Item ===== */
+
+.foldsnap-folder-item {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	padding: 5px 8px;
+	border-radius: 4px;
+	cursor: pointer;
+	font-size: 13px;
+	color: #1e1e1e;
+	position: relative;
+	transition: background 0.1s ease;
+	user-select: none;
+}
+
+.foldsnap-folder-item:hover {
+	background: #e0e0e0;
+}
+
+.foldsnap-folder-item--selected {
+	background: #2271b1;
+	color: #fff;
+}
+
+.foldsnap-folder-item--selected:hover {
+	background: #135e96;
+}
+
+.foldsnap-folder-item--drag-over {
+	background: #b8d8f8;
+	outline: 2px dashed #2271b1;
+	outline-offset: -2px;
+}
+
+.foldsnap-folder-item--selected.foldsnap-folder-item--drag-over {
+	background: #135e96;
+	outline-color: #fff;
+}
+
+.foldsnap-folder-item__drag-handle {
+	cursor: grab;
+	color: #8c8f94;
+	font-size: 14px;
+	line-height: 1;
+	flex-shrink: 0;
+	padding: 0 2px;
+}
+
+.foldsnap-folder-item__drag-handle:active {
+	cursor: grabbing;
+}
+
+.foldsnap-folder-item--selected .foldsnap-folder-item__drag-handle {
+	color: rgba( 255, 255, 255, 0.7 );
+}
+
+.foldsnap-folder-item__chevron {
+	width: 16px;
+	height: 16px;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	background: none;
+	border: none;
+	cursor: pointer;
+	padding: 0;
+	font-size: 10px;
+	color: inherit;
+	flex-shrink: 0;
+}
+
+.foldsnap-folder-item__chevron--empty {
+	cursor: default;
+}
+
+.foldsnap-folder-item__color-dot {
+	width: 10px;
+	height: 10px;
+	border-radius: 50%;
+	flex-shrink: 0;
+	border: 1px solid rgba( 0, 0, 0, 0.15 );
+}
+
+.foldsnap-folder-item__name {
+	flex: 1;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.foldsnap-folder-item__badge {
+	font-size: 11px;
+	background: rgba( 0, 0, 0, 0.1 );
+	border-radius: 10px;
+	padding: 1px 5px;
+	flex-shrink: 0;
+}
+
+.foldsnap-folder-item--selected .foldsnap-folder-item__badge {
+	background: rgba( 255, 255, 255, 0.25 );
+}
+
+.foldsnap-folder-item__size {
+	font-size: 11px;
+	color: #8c8f94;
+	flex-shrink: 0;
+}
+
+.foldsnap-folder-item--selected .foldsnap-folder-item__size {
+	color: rgba( 255, 255, 255, 0.75 );
+}
+
+.foldsnap-folder-item__actions {
+	flex-shrink: 0;
+	opacity: 0;
+	transition: opacity 0.1s ease;
+}
+
+.foldsnap-folder-item:hover .foldsnap-folder-item__actions,
+.foldsnap-folder-item--selected .foldsnap-folder-item__actions {
+	opacity: 1;
+}
+
+.foldsnap-folder-item__actions button {
+	min-width: auto;
+	height: 24px;
+	width: 24px;
+	padding: 0;
+}
+
+.foldsnap-folder-item__children {
+	/* Children inherit indent via paddingLeft on each item */
+}
+
+/* ===== Create Folder Modal ===== */
+
+.foldsnap-create-folder-modal .components-base-control {
+	margin-bottom: 16px;
+}
+
+.foldsnap-create-folder-modal__actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: 8px;
+	margin-top: 24px;
+}
+
+/* ===== Media Grid (placeholder for Step 7) ===== */
+
+.foldsnap-media-grid {
+	display: grid;
+	grid-template-columns: repeat( auto-fill, minmax( 120px, 1fr ) );
+	gap: 12px;
+}
+
+.foldsnap-media-item {
+	border-radius: 4px;
+	overflow: hidden;
+	border: 2px solid transparent;
+	cursor: grab;
+	transition: border-color 0.1s ease, opacity 0.1s ease;
+}
+
+.foldsnap-media-item:hover {
+	border-color: #2271b1;
+}
+
+.foldsnap-media-item--selected {
+	border-color: #2271b1;
+}
+
+.foldsnap-media-item--dragging {
+	opacity: 0.4;
 }
