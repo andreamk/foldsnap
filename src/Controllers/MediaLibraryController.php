@@ -90,29 +90,9 @@ final class MediaLibraryController
             -1
         );
 
-        if ($folderId < 0) {
-            return $query; // Not set, "All Media", or invalid — no filter.
+        if ($folderId >= 0) {
+            $query['tax_query'] = TaxonomyService::buildFolderTaxQuery($folderId);
         }
-
-        if (0 === $folderId) {
-            // Root: media not assigned to any folder.
-            $query['tax_query'] = [ // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_tax_query
-                [
-                    'taxonomy' => TaxonomyService::TAXONOMY_NAME,
-                    'operator' => 'NOT EXISTS',
-                ],
-            ];
-        } else {
-            $query['tax_query'] = [ // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_tax_query
-                [
-                    'taxonomy'         => TaxonomyService::TAXONOMY_NAME,
-                    'field'            => 'term_id',
-                    'terms'            => $folderId,
-                    'include_children' => false,
-                ],
-            ];
-        }
-
         return $query;
     }
 
@@ -121,7 +101,7 @@ final class MediaLibraryController
      *
      * In list mode upload.php uses a standard WP_Query instead of the AJAX
      * query-attachments endpoint. The JS redirects to
-     * upload.php?foldsnap_folder=ID when a folder is clicked.
+     * upload.php?foldsnap_folder_id=ID when a folder is clicked.
      *
      * @param \WP_Query $query The current query.
      *
@@ -140,26 +120,8 @@ final class MediaLibraryController
 
         $folderId = SanitizeInput::toInt(INPUT_GET, 'foldsnap_folder_id', -1);
 
-        if ($folderId < 0) {
-            return;
-        }
-
-        if (0 === $folderId) {
-            $query->set('tax_query', [ // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_tax_query
-                [
-                    'taxonomy' => TaxonomyService::TAXONOMY_NAME,
-                    'operator' => 'NOT EXISTS',
-                ],
-            ]);
-        } else {
-            $query->set('tax_query', [ // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_tax_query
-                [
-                    'taxonomy'         => TaxonomyService::TAXONOMY_NAME,
-                    'field'            => 'term_id',
-                    'terms'            => $folderId,
-                    'include_children' => false,
-                ],
-            ]);
+        if ($folderId >= 0) {
+            $query->set('tax_query', TaxonomyService::buildFolderTaxQuery($folderId));
         }
     }
 

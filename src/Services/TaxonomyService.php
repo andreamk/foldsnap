@@ -43,6 +43,34 @@ final class TaxonomyService
     }
 
     /**
+     * Build a tax_query array to filter attachments by folder.
+     *
+     * @param int $folderId Folder term ID. 0 = unassigned (root), >0 = specific folder.
+     *
+     * @return array<int, array<string, mixed>> tax_query clauses.
+     */
+    public static function buildFolderTaxQuery(int $folderId): array
+    {
+        if (0 === $folderId) {
+            return [
+                [
+                    'taxonomy' => self::TAXONOMY_NAME,
+                    'operator' => 'NOT EXISTS',
+                ],
+            ];
+        }
+
+        return [
+            [
+                'taxonomy'         => self::TAXONOMY_NAME,
+                'field'            => 'term_id',
+                'terms'            => $folderId,
+                'include_children' => false,
+            ],
+        ];
+    }
+
+    /**
      * Get taxonomy labels
      *
      * @return array<string, string>
