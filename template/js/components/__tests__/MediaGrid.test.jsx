@@ -13,7 +13,16 @@ jest.mock( '../MediaItem', () => {
 	const MockMediaItem = ( { media, isSelected, onSelect } ) => (
 		<div data-testid={ `media-item-${ media.id }` }>
 			<span>{ media.title }</span>
-			<button onClick={ () => onSelect( media.id, {} ) }>Select</button>
+			<button
+				onClick={ ( e ) =>
+					onSelect( media.id, {
+						ctrl: e.ctrlKey || e.metaKey,
+						shift: e.shiftKey,
+					} )
+				}
+			>
+				Select
+			</button>
 			{ isSelected && (
 				<span data-testid="selected-marker">selected</span>
 			) }
@@ -173,14 +182,23 @@ describe( 'MediaGrid', () => {
 		setupUseSelect( makeStoreState() );
 		render( <MediaGrid /> );
 
-		// First select item 1
 		const selectButtons = screen.getAllByText( 'Select' );
+
+		// Select item 1 with a normal click.
 		fireEvent.click( selectButtons[ 0 ] );
 		expect(
 			screen
 				.getByTestId( 'media-item-1' )
 				.querySelector( '[data-testid="selected-marker"]' )
 		).toBeInTheDocument();
+
+		// Ctrl-click item 1 again to deselect it.
+		fireEvent.click( selectButtons[ 0 ], { ctrlKey: true } );
+		expect(
+			screen
+				.getByTestId( 'media-item-1' )
+				.querySelector( '[data-testid="selected-marker"]' )
+		).not.toBeInTheDocument();
 	} );
 
 	it( 'displays total item count in pagination', () => {

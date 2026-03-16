@@ -82,7 +82,6 @@ class MediaLibraryControllerTests extends WP_UnitTestCase
         $this->assertIsString($scriptData);
         $this->assertStringContainsString('foldsnap_data', $scriptData);
         $this->assertStringContainsString('restUrl', $scriptData);
-        $this->assertStringContainsString('restNonce', $scriptData);
     }
 
     /**

@@ -109,9 +109,12 @@ export default function initMediaModeBridge() {
 	} );
 
 	// Grid mode only: poll until wp.media.frame is ready, then apply once.
+	// Give up after 10 seconds (40 × 250 ms) to avoid leaking the interval.
 	if ( ! isListMode ) {
+		let pollAttempts = 0;
 		const pollFrame = setInterval( () => {
-			if ( applyGridFilter( lastFolderId ) ) {
+			pollAttempts++;
+			if ( applyGridFilter( lastFolderId ) || pollAttempts >= 40 ) {
 				clearInterval( pollFrame );
 			}
 		}, 250 );

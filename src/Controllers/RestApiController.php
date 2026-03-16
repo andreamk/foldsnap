@@ -423,22 +423,8 @@ final class RestApiController
             'order'          => 'DESC',
         ];
 
-        if (0 === $folderId) {
-            $queryArgs['tax_query'] = [ // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_tax_query
-                [
-                    'taxonomy' => TaxonomyService::TAXONOMY_NAME,
-                    'operator' => 'NOT EXISTS',
-                ],
-            ];
-        } else {
-            $queryArgs['tax_query'] = [ // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_tax_query
-                [
-                    'taxonomy' => TaxonomyService::TAXONOMY_NAME,
-                    'field'    => 'term_id',
-                    'terms'    => $folderId,
-                ],
-            ];
-        }
+        // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_tax_query
+        $queryArgs['tax_query'] = TaxonomyService::buildFolderTaxQuery($folderId);
 
         $query = new \WP_Query($queryArgs);
 

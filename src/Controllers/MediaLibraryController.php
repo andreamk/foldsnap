@@ -91,7 +91,7 @@ final class MediaLibraryController
         );
 
         if ($folderId >= 0) {
-            $query['tax_query'] = TaxonomyService::buildFolderTaxQuery($folderId);
+            $query['tax_query'] = TaxonomyService::buildFolderTaxQuery($folderId); // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_tax_query
         }
         return $query;
     }
@@ -121,7 +121,7 @@ final class MediaLibraryController
         $folderId = SanitizeInput::toInt(INPUT_GET, 'foldsnap_folder_id', -1);
 
         if ($folderId >= 0) {
-            $query->set('tax_query', TaxonomyService::buildFolderTaxQuery($folderId));
+            $query->set('tax_query', TaxonomyService::buildFolderTaxQuery($folderId)); // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_tax_query
         }
     }
 
@@ -158,7 +158,6 @@ final class MediaLibraryController
             'foldsnap_data',
             [
                 'restUrl'   => rest_url('foldsnap/v1/'),
-                'restNonce' => wp_create_nonce('wp_rest'),
                 'mediaMode' => self::getMediaMode(),
             ]
         );
