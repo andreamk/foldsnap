@@ -1,4 +1,4 @@
-<?php
+<?php // phpcs:disable PSR1.Files.SideEffects.FoundWithSymbols
 
 /**
  * Plugin bootstrap
@@ -10,6 +10,10 @@ declare(strict_types=1);
 
 namespace FoldSnap\Core;
 
+defined('ABSPATH') || exit;
+
+use FoldSnap\Controllers\MediaLibraryController;
+use FoldSnap\Controllers\RestApiController;
 use FoldSnap\Core\Controllers\ControllersManager;
 use FoldSnap\Services\TaxonomyService;
 
@@ -33,6 +37,8 @@ final class Bootstrap
     public static function onInit(): void
     {
         TaxonomyService::register();
+        RestApiController::getInstance();
+        MediaLibraryController::getInstance();
 
         if (is_admin()) {
             ControllersManager::getInstance();

@@ -113,7 +113,7 @@ Ogni step include codice + test relativi. I test si scrivono e si eseguono nello
 
 **Verifica:** `/test-coverage` sui file sorgente dello step, poi `composer fullcheck`
 
-### Step 3b — FolderModel e FolderRepository: size, conteggi ricorsivi, sanitizzazione nomi
+### Step 3b — FolderModel e FolderRepository: size, conteggi ricorsivi, sanitizzazione nomi ✅
 
 **Aggiorna `src/Models/FolderModel.php`:**
 - Nuova proprieta' `private int $directSize = 0` (size in bytes dei media direttamente assegnati)
@@ -160,7 +160,7 @@ Ogni step include codice + test relativi. I test si scrivono e si eseguono nello
 
 **Verifica:** `/test-coverage` sui file sorgente dello step, poi `composer fullcheck`
 
-### Step 4 — RestApiController + Bootstrap + MainPageController + test
+### Step 4 — RestApiController + Bootstrap + MainPageController + test ✅
 
 **Crea `src/Controllers/RestApiController.php`:**
 - Singleton, riceve `FolderRepository` nel costruttore
@@ -199,17 +199,7 @@ Ogni step include codice + test relativi. I test si scrivono e si eseguono nello
 
 **Verifica:** `/test-coverage` sui file sorgente dello step, poi `composer fullcheck`
 
-### Step 5 — Uninstall cleanup + test
-
-**Modifica `src/Core/Uninstall.php`:**
-- Aggiungere `self::deleteTaxonomyTerms()` in `cleanSite()`
-- Nuovo metodo `deleteTaxonomyTerms()`: registra taxonomy temporaneamente, recupera tutti i termini, elimina con `wp_delete_term()`
-
-**Test:** Aggiornare `tests/Unit/Core/UninstallTests.php`
-
-**Verifica:** `/test-coverage` sui file sorgente dello step, poi `composer fullcheck`
-
-### Step 6 — Dipendenze npm + Store @wordpress/data + test
+### Step 5 — Dipendenze npm + Store @wordpress/data + test
 
 **Installa:** `npm install @wordpress/api-fetch @wordpress/data @dnd-kit/core @dnd-kit/sortable @dnd-kit/utilities`
 
@@ -230,7 +220,7 @@ Strategia MVP: dopo ogni mutazione, re-fetch dell'intero albero (semplice, affid
 
 **Verifica:** `/test-coverage` sui file sorgente dello step, poi `composer fullcheck`
 
-### Step 7 — Folder tree + ricerca + drag & drop cartelle + CSS + test
+### Step 6 — Folder tree + ricerca + drag & drop cartelle + CSS + test
 
 **Crea `template/js/components/FolderItem.jsx`:**
 - Props: `folder`, `selectedFolderId`, `onSelect`, `depth`
@@ -266,7 +256,48 @@ Strategia MVP: dopo ogni mutazione, re-fetch dell'intero albero (semplice, affid
 
 **Verifica:** `/test-coverage` sui file sorgente dello step, poi `composer fullcheck`
 
-### Step 8 — Media grid + drag & drop media + test
+### Step 6b — Integrazione Media Library nativa + refactoring entry point
+
+**Obiettivo:** Iniettare `FolderTree` direttamente nella Media Library nativa di WordPress (`upload.php`), usando lo stesso pattern di FileBird: hook PHP su `upload.php`, container iniettato nel DOM, filtro media via `wp.media` Backbone. Eliminare `App.jsx` come wrapper standalone (era solo un test).
+
+**Crea `src/Controllers/MediaLibraryController.php`:**
+- Singleton, registrato in `Bootstrap::onInit()` prima di `is_admin()`
+- Hook `admin_enqueue_scripts`: controlla `get_current_screen()->id === 'upload'`, enqueue script/style solo su quella pagina
+- `wp_localize_script('foldsnap-admin', 'foldsnap_data', ['restUrl' => ..., 'restNonce' => ...])`
+- Hook `admin_footer` su `upload.php`: stampa `<div id="foldsnap-sidebar"></div>` nel body (il JS lo posizionerà)
+- Nessun menu WordPress, nessuna pagina admin — solo asset injection
+
+**Aggiorna `src/Core/Bootstrap.php`:**
+- Aggiungere `MediaLibraryController::getInstance()` in `onInit()` prima di `is_admin()`
+- Lasciare `MainPageController` invariato (servirà per settings futuri)
+
+**Aggiorna `template/js/index.js`:**
+- Rimuovere mount su `#foldsnap-app` (era il test)
+- Montare `FolderTree` su `#foldsnap-sidebar` (iniettato dal PHP nel footer di `upload.php`)
+- Inizializzare `DndContext` attorno a `FolderTree` direttamente qui
+- Estendere `wp.media` Backbone per intercettare la selezione cartella e filtrare la griglia nativa:
+  - Override di `wp.media.view.Attachments.initialize` per iniettare `foldsnap_folder_id` nei `props` della collection
+  - Quando `setSelectedFolder` viene chiamato dallo store, aggiorna `collection.props.set({ foldsnap_folder_id: id })` → WordPress re-fetcha i media filtrati
+
+**Aggiorna `src/Controllers/MainPageController.php`:**
+- Rimuovere `renderContent()` (il `#foldsnap-app` non esiste piu')
+- Rimuovere `pageScripts()` e `pageStyles()` (gli asset ora li gestisce `MediaLibraryController`)
+- Lasciare il controller vuoto/minimal — servirà come placeholder per la pagina settings futura
+
+**Elimina `template/js/components/App.jsx` e `__tests__/App.test.jsx`:**
+- Era solo un test di bootstrap React, non fa parte dell'architettura finale
+
+**Aggiorna `assets/css/foldsnap-admin.css`:**
+- `.foldsnap-sidebar` deve posizionarsi come pannello laterale sinistro nella Media Library
+- Override stili WordPress per accomodare la sidebar (`.media-frame` layout)
+
+**Test:** `tests/Unit/Controllers/MediaLibraryControllerTests.php`
+- Verifica che gli script vengano enqueued solo su `upload.php`
+- Verifica che `wp_localize_script` venga chiamato con i dati corretti
+
+**Verifica:** `composer fullcheck`
+
+### Step 7 — Media grid + drag & drop media + test
 
 **Crea `template/js/components/MediaGrid.jsx`:**
 - Usa `useSelect` per leggere `getMedia`, `isMediaLoading`, `getMediaTotal`, `getMediaTotalPages` dallo store
@@ -293,7 +324,7 @@ Strategia MVP: dopo ogni mutazione, re-fetch dell'intero albero (semplice, affid
 
 **Verifica:** `/test-coverage` sui file sorgente dello step, poi `composer fullcheck`
 
-### Step 9 — Contatori incrementali (size + count) + hook cancellazione media
+### Step 8 — Contatori incrementali (size + count) + hook cancellazione media
 
 **Obiettivo:** Eliminare le query aggregate pesanti (`computeFolderSizes`, `getRootTotalSize`) che fanno JOIN su migliaia di righe ad ogni `getTree()`. Sostituirle con contatori incrementali salvati come `term_meta` e aggiornati solo quando i dati cambiano.
 
@@ -323,6 +354,16 @@ Strategia MVP: dopo ogni mutazione, re-fetch dell'intero albero (semplice, affid
 - Esporre come endpoint REST o WP-CLI command per uso manuale/schedulato
 
 **Test:** Aggiornare i test di `FolderRepositoryTests.php` per verificare che `assignMedia`/`removeMedia` aggiornino size e count, aggiungere test per l'hook di cancellazione e per il ricalcolo globale
+
+**Verifica:** `/test-coverage` sui file sorgente dello step, poi `composer fullcheck`
+
+### Step 9 — Uninstall cleanup + test
+
+**Modifica `src/Core/Uninstall.php`:**
+- Aggiungere `self::deleteTaxonomyTerms()` in `cleanSite()`
+- Nuovo metodo `deleteTaxonomyTerms()`: registra taxonomy temporaneamente, recupera tutti i termini, elimina con `wp_delete_term()`
+
+**Test:** Aggiornare `tests/Unit/Core/UninstallTests.php`
 
 **Verifica:** `/test-coverage` sui file sorgente dello step, poi `composer fullcheck`
 

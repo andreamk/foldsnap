@@ -401,4 +401,139 @@ class SanitizeInputTests extends WP_UnitTestCase
 
         $this->assertSame(['from post'], $result);
     }
+
+    /**
+     * Test toInt reads nested key from POST
+     *
+     * @return void
+     */
+    public function test_toInt_reads_nested_key_from_POST(): void
+    {
+        $_POST['query']          = ['foldsnap_folder_id' => '42'];
+        $this->postKeysToClean[] = 'query';
+
+        $this->assertSame(42, SanitizeInput::toInt(INPUT_POST, ['query', 'foldsnap_folder_id']));
+    }
+
+    /**
+     * Test toInt returns default for missing nested key
+     *
+     * @return void
+     */
+    public function test_toInt_returns_default_for_missing_nested_key(): void
+    {
+        $_POST['query']          = ['other_key' => '10'];
+        $this->postKeysToClean[] = 'query';
+
+        $this->assertSame(-1, SanitizeInput::toInt(INPUT_POST, ['query', 'foldsnap_folder_id'], -1));
+    }
+
+    /**
+     * Test toInt returns default when nested parent is not array
+     *
+     * @return void
+     */
+    public function test_toInt_returns_default_when_nested_parent_is_not_array(): void
+    {
+        $_POST['query']          = 'not_an_array';
+        $this->postKeysToClean[] = 'query';
+
+        $this->assertSame(0, SanitizeInput::toInt(INPUT_POST, ['query', 'foldsnap_folder_id']));
+    }
+
+    /**
+     * Test toInt reads nested key from INPUT_REQUEST
+     *
+     * @return void
+     */
+    public function test_toInt_reads_nested_key_from_INPUT_REQUEST(): void
+    {
+        $_POST['query']          = ['folder_id' => '7'];
+        $this->postKeysToClean[] = 'query';
+
+        $this->assertSame(7, SanitizeInput::toInt(SanitizeInput::INPUT_REQUEST, ['query', 'folder_id']));
+    }
+
+    /**
+     * Test str reads nested key from POST
+     *
+     * @return void
+     */
+    public function test_str_reads_nested_key_from_POST(): void
+    {
+        $_POST['data']           = ['name' => 'hello world'];
+        $this->postKeysToClean[] = 'data';
+
+        $this->assertSame('hello world', SanitizeInput::str(INPUT_POST, ['data', 'name']));
+    }
+
+    /**
+     * Test str returns default for missing nested key
+     *
+     * @return void
+     */
+    public function test_str_returns_default_for_missing_nested_key(): void
+    {
+        $_POST['data']           = ['other' => 'value'];
+        $this->postKeysToClean[] = 'data';
+
+        $this->assertSame('fallback', SanitizeInput::str(INPUT_POST, ['data', 'name'], 'fallback'));
+    }
+
+    /**
+     * Test toBool reads nested key from GET
+     *
+     * @return void
+     */
+    public function test_toBool_reads_nested_key_from_GET(): void
+    {
+        $_GET['options']        = ['enabled' => '1'];
+        $this->getKeysToClean[] = 'options';
+
+        $this->assertTrue(SanitizeInput::toBool(INPUT_GET, ['options', 'enabled']));
+    }
+
+    /**
+     * Test strictStr reads nested key from POST
+     *
+     * @return void
+     */
+    public function test_strictStr_reads_nested_key_from_POST(): void
+    {
+        $_POST['form']           = ['username' => 'JohnDoe123'];
+        $this->postKeysToClean[] = 'form';
+
+        $this->assertSame('JohnDoe123', SanitizeInput::strictStr(INPUT_POST, ['form', 'username']));
+    }
+
+    /**
+     * Test strictArray reads nested key from POST
+     *
+     * @return void
+     */
+    public function test_strictArray_reads_nested_key_from_POST(): void
+    {
+        $_POST['data']           = [
+            'tags' => [
+                'alpha',
+                'beta!',
+            ],
+        ];
+        $this->postKeysToClean[] = 'data';
+
+        $this->assertSame(['alpha', 'beta'], SanitizeInput::strictArray(INPUT_POST, ['data', 'tags']));
+    }
+
+    /**
+     * Test deeply nested key access (3 levels)
+     *
+     * @return void
+     */
+    public function test_toInt_reads_deeply_nested_key(): void
+    {
+        $_POST['level1']         = ['level2' => ['level3' => '99']];
+        $this->postKeysToClean[] = 'level1';
+
+        $this->assertSame(99, SanitizeInput::toInt(INPUT_POST, ['level1', 'level2', 'level3']));
+    }
 }

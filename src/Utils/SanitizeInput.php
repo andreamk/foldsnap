@@ -29,35 +29,35 @@ final class SanitizeInput
     /**
      * Sanitize string from input superglobals, strips control characters.
      *
-     * @param InputType $type    One of INPUT_GET, INPUT_POST, INPUT_COOKIE, INPUT_SERVER, INPUT_ENV or self::INPUT_REQUEST
-     * @param string    $varName Name of a variable to get
-     * @param string    $default Default value if variable doesn't exist
-     * @param int       $flags   Bitmask of Sanitize::STRIP_* constants
+     * @param InputType       $type    One of INPUT_GET, INPUT_POST, INPUT_COOKIE, INPUT_SERVER, INPUT_ENV or self::INPUT_REQUEST
+     * @param string|string[] $varName Variable name or array of keys for nested access
+     * @param string          $default Default value if variable doesn't exist
+     * @param int             $flags   Bitmask of Sanitize::STRIP_* constants
      *
      * @return string
      */
-    public static function str(int $type, string $varName, string $default = '', int $flags = 0): string
+    public static function str(int $type, $varName, string $default = '', int $flags = 0): string
     {
-        $result = self::getRawStringValue($type, $varName);
+        $value = self::getValueByType($type, $varName);
 
-        if (null === $result) {
+        if (null === $value || is_array($value)) {
             return $default;
         }
 
-        return Sanitize::str($result, $flags);
+        return Sanitize::str($value, $flags);
     }
 
     /**
      * Strict sanitize string value from input superglobals.
      *
-     * @param InputType $type             One of INPUT_GET, INPUT_POST, INPUT_COOKIE, INPUT_SERVER, INPUT_ENV or self::INPUT_REQUEST
-     * @param string    $varName          Name of a variable to get
-     * @param string    $default          Default value if variable doesn't exist
-     * @param string    $extraAcceptChars Extra accepted characters
+     * @param InputType       $type             One of INPUT_GET, INPUT_POST, INPUT_COOKIE, INPUT_SERVER, INPUT_ENV or self::INPUT_REQUEST
+     * @param string|string[] $varName          Variable name or array of keys for nested access
+     * @param string          $default          Default value if variable doesn't exist
+     * @param string          $extraAcceptChars Extra accepted characters
      *
      * @return string
      */
-    public static function strictStr(int $type, string $varName, string $default = '', string $extraAcceptChars = ''): string
+    public static function strictStr(int $type, $varName, string $default = '', string $extraAcceptChars = ''): string
     {
         $value = self::getValueByType($type, $varName);
         if (null === $value) {
@@ -75,13 +75,13 @@ final class SanitizeInput
     /**
      * Sanitize integer value from input superglobals.
      *
-     * @param InputType $type    One of INPUT_GET, INPUT_POST, INPUT_COOKIE, INPUT_SERVER, INPUT_ENV or self::INPUT_REQUEST
-     * @param string    $varName Name of a variable to get
-     * @param int       $default Default value if variable doesn't exist
+     * @param InputType       $type    One of INPUT_GET, INPUT_POST, INPUT_COOKIE, INPUT_SERVER, INPUT_ENV or self::INPUT_REQUEST
+     * @param string|string[] $varName Variable name or array of keys for nested access
+     * @param int             $default Default value if variable doesn't exist
      *
      * @return int
      */
-    public static function toInt(int $type, string $varName, int $default = 0): int
+    public static function toInt(int $type, $varName, int $default = 0): int
     {
         $value = self::getValueByType($type, $varName);
         if (null === $value || is_array($value)) {
@@ -94,13 +94,13 @@ final class SanitizeInput
     /**
      * Sanitize boolean value from input superglobals.
      *
-     * @param InputType $type    One of INPUT_GET, INPUT_POST, INPUT_COOKIE, INPUT_SERVER, INPUT_ENV or self::INPUT_REQUEST
-     * @param string    $varName Name of a variable to get
-     * @param bool      $default Default value if variable doesn't exist
+     * @param InputType       $type    One of INPUT_GET, INPUT_POST, INPUT_COOKIE, INPUT_SERVER, INPUT_ENV or self::INPUT_REQUEST
+     * @param string|string[] $varName Variable name or array of keys for nested access
+     * @param bool            $default Default value if variable doesn't exist
      *
      * @return bool
      */
-    public static function toBool(int $type, string $varName, bool $default = false): bool
+    public static function toBool(int $type, $varName, bool $default = false): bool
     {
         $value = self::getValueByType($type, $varName);
         if (null === $value || is_array($value)) {
@@ -113,17 +113,16 @@ final class SanitizeInput
     /**
      * Sanitize an array of strings from input superglobals using strict sanitization.
      *
-     * @param InputType $type             One of INPUT_GET, INPUT_POST, INPUT_COOKIE, INPUT_SERVER, INPUT_ENV or self::INPUT_REQUEST
-     * @param string    $varName          Name of a variable to get
-     * @param string[]  $default          Default value if variable doesn't exist or is not an array
-     * @param string    $extraAcceptChars Extra accepted characters
+     * @param InputType       $type             One of INPUT_GET, INPUT_POST, INPUT_COOKIE, INPUT_SERVER, INPUT_ENV or self::INPUT_REQUEST
+     * @param string|string[] $varName          Variable name or array of keys for nested access
+     * @param string[]        $default          Default value if variable doesn't exist or is not an array
+     * @param string          $extraAcceptChars Extra accepted characters
      *
      * @return string[]
      */
-    public static function strictArray(int $type, string $varName, array $default = [], string $extraAcceptChars = ''): array
+    public static function strictArray(int $type, $varName, array $default = [], string $extraAcceptChars = ''): array
     {
-        $input = self::getInputFromType($type);
-        $value = $input[$varName] ?? null;
+        $value = self::getValueByType($type, $varName);
 
         if (!is_array($value)) {
             return $default;
@@ -132,21 +131,6 @@ final class SanitizeInput
         return Sanitize::strictArray($value, $extraAcceptChars);
     }
 
-    /**
-     * Gets a specific external variable by name from REQUEST (GET or POST).
-     * POST takes priority when variable exists in both.
-     *
-     * @param string      $variableName Name of a variable to get
-     * @param int         $filter       The ID of the filter to apply
-     * @param mixed[]|int $options      Associative array of options or bitwise disjunction of flags
-     *
-     * @return mixed Value of the requested variable on success
-     */
-    private static function filterRequest(string $variableName, int $filter = FILTER_DEFAULT, $options = 0)
-    {
-        $type = (null !== filter_input(INPUT_POST, $variableName)) ? INPUT_POST : INPUT_GET;
-        return filter_input($type, $variableName, $filter, $options);
-    }
 
     /**
      * Return input superglobal array by type.
@@ -181,66 +165,65 @@ final class SanitizeInput
         // phpcs:enable
     }
 
-    /**
-     * Get a raw string value from input superglobal, applying only FILTER_UNSAFE_RAW.
-     * Returns null if the variable doesn't exist or is not a string.
-     *
-     * @param InputType $type    One of INPUT_GET, INPUT_POST, INPUT_COOKIE, INPUT_SERVER, INPUT_ENV or self::INPUT_REQUEST
-     * @param string    $varName Name of a variable to get
-     *
-     * @return string|null
-     */
-    private static function getRawStringValue(int $type, string $varName): ?string
-    {
-        $filter  = FILTER_UNSAFE_RAW;
-        $options = [
-            'options' => ['default' => null],
-        ];
-
-        if (self::INPUT_REQUEST === $type) {
-            $result = self::filterRequest($varName, $filter, $options);
-        } elseif (INPUT_SERVER === $type) {
-            // On some servers filter_input doesn't work with INPUT_SERVER
-            $result = isset($_SERVER[$varName]) ? filter_var(wp_unslash($_SERVER[$varName]), $filter, $options) : null;
-        } else {
-            $result = filter_input($type, $varName, $filter, $options);
-        }
-
-        if (!is_string($result)) {
-            return null;
-        }
-
-        return $result;
-    }
 
     /**
      * Return value from input superglobal by type, null if it doesn't exist.
      *
-     * @param InputType $type    One of INPUT_GET, INPUT_POST, INPUT_COOKIE, INPUT_SERVER, INPUT_ENV or self::INPUT_REQUEST
-     * @param string    $varName Name of a variable to get
+     * Reads directly from superglobals via getInputFromType(), then navigates
+     * keys (single or nested). Scalar values are passed through filter_var()
+     * for sanitization; INPUT_SERVER values are also wp_unslash'd.
+     *
+     * @param InputType       $type    One of INPUT_GET, INPUT_POST, INPUT_COOKIE, INPUT_SERVER, INPUT_ENV or self::INPUT_REQUEST
+     * @param string|string[] $varName Variable name or array of keys for nested access
      *
      * @return string|string[]|null
      */
-    private static function getValueByType(int $type, string $varName)
+    private static function getValueByType(int $type, $varName)
     {
-        $doNothingCallback = (fn($v) => $v);
+        $keys    = is_array($varName) ? $varName : [$varName];
+        $current = self::getInputFromType($type);
 
-        if (self::INPUT_REQUEST === $type) {
-            $type = (null !== filter_input(INPUT_POST, $varName)) ? INPUT_POST : INPUT_GET;
+        foreach ($keys as $key) {
+            if (!is_array($current) || !array_key_exists($key, $current)) {
+                return null;
+            }
+            $current = $current[$key];
         }
 
         if (INPUT_SERVER === $type) {
-            // On some servers filter_input doesn't work with INPUT_SERVER
-            if (isset($_SERVER[$varName])) {
-                $value = filter_var(wp_unslash($_SERVER[$varName]), FILTER_CALLBACK, ['options' => $doNothingCallback]);
-            } else {
-                $value = null;
-            }
-        } else {
-            $value = filter_input($type, $varName, FILTER_CALLBACK, ['options' => $doNothingCallback]);
+            $current = wp_unslash($current);
         }
 
-        /** @var string|string[]|null $value */
-        return $value;
+        return self::sanitizeRaw($current);
+    }
+
+    /**
+     * Strip low ASCII control characters (including null bytes) from a value.
+     * Applies recursively to arrays.
+     *
+     * @param mixed $value Raw value from superglobal.
+     *
+     * @return string|string[]|null Sanitized value, or null if not a string/array.
+     */
+    private static function sanitizeRaw($value)
+    {
+        if (is_array($value)) {
+            $result = [];
+            foreach ($value as $k => $v) {
+                $sanitized = self::sanitizeRaw($v);
+                if (null !== $sanitized) {
+                    $result[$k] = $sanitized;
+                }
+            }
+            /** @var string[] $result */
+            return $result;
+        }
+
+        if (!is_string($value)) {
+            return null;
+        }
+
+        $filtered = filter_var($value, FILTER_UNSAFE_RAW, FILTER_FLAG_STRIP_LOW);
+        return is_string($filtered) ? $filtered : null;
     }
 }
