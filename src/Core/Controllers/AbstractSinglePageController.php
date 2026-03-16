@@ -1,4 +1,4 @@
-<?php
+<?php // phpcs:disable PSR1.Files.SideEffects.FoundWithSymbols
 
 /**
  * Abstract class that manages a single page in WordPress administration without an entry in the menu.
@@ -10,6 +10,8 @@
 declare(strict_types=1);
 
 namespace FoldSnap\Core\Controllers;
+
+defined('ABSPATH') || exit;
 
 use FoldSnap\Core\Views\TplMng;
 use FoldSnap\Utils\Sanitize;

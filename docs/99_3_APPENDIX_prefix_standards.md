@@ -10,6 +10,7 @@ Standard prefixes for FoldSnap codebase.
 | Functions | `foldsnap_` | snake_case | `foldsnap_get_folders()` |
 | Hooks (actions/filters) | `foldsnap_` | snake_case | `do_action('foldsnap_folder_created')` |
 | Constants | `FOLDSNAP_` | UPPER_SNAKE | `FOLDSNAP_VERSION` |
+| Global Variables | `$foldsnap` | camelCase | `$foldsnapBootFile` |
 | Options (wp_options) | `foldsnap_opt_` | snake_case | `get_option('foldsnap_opt_settings')` |
 | User Meta (wp_usermeta) | `foldsnap_opt_` | snake_case | `get_user_meta($id, 'foldsnap_opt_display')` |
 | AJAX Actions | `foldsnap_` | snake_case | `wp_ajax_foldsnap_create_folder` |

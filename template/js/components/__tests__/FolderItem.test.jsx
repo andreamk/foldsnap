@@ -96,6 +96,19 @@ describe( 'FolderItem', () => {
 		expect( screen.getByText( 'Photos' ) ).toBeInTheDocument();
 	} );
 
+	it( 'sets data-folder-id attribute for jQuery UI droppable', () => {
+		const { container } = render(
+			<FolderItem
+				folder={ makeFolder( { id: 42 } ) }
+				selectedFolderId={ null }
+				onSelect={ jest.fn() }
+				onAddSubfolder={ jest.fn() }
+			/>
+		);
+		const folderEl = container.querySelector( '.foldsnap-folder-item' );
+		expect( folderEl ).toHaveAttribute( 'data-folder-id', '42' );
+	} );
+
 	it( 'calls onSelect when clicked', () => {
 		const onSelect = jest.fn();
 		render(
@@ -209,18 +222,6 @@ describe( 'FolderItem', () => {
 		const folder = makeFolder( {
 			children: [ { id: 2, name: 'Child Folder', children: [] } ],
 		} );
-
-		// Children visible after mock
-		jest.mock( '@dnd-kit/sortable', () => ( {
-			useSortable: () => ( {
-				attributes: {},
-				listeners: {},
-				setNodeRef: jest.fn(),
-				transform: null,
-				transition: null,
-				isDragging: false,
-			} ),
-		} ) );
 
 		render(
 			<FolderItem

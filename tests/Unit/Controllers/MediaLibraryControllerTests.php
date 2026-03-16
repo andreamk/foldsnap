@@ -86,6 +86,24 @@ class MediaLibraryControllerTests extends WP_UnitTestCase
     }
 
     /**
+     * Test enqueueAssets enqueues drag-drop bridge script on upload screen
+     *
+     * @return void
+     */
+    public function test_enqueueAssets_enqueues_dragdrop_script_on_upload_screen(): void
+    {
+        set_current_screen('upload');
+
+        $this->controller->enqueueAssets();
+
+        if (! wp_script_is('foldsnap-admin', 'enqueued')) {
+            $this->markTestSkipped('Asset file not available (build required).');
+        }
+
+        $this->assertTrue(wp_script_is('foldsnap-dragdrop', 'enqueued'));
+    }
+
+    /**
      * Test enqueueAssets enqueues styles on upload screen
      *
      * @return void

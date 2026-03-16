@@ -26,6 +26,10 @@ const formatSize = ( bytes ) => {
 /**
  * Renders a single folder node in the tree.
  *
+ * Uses @dnd-kit for folder reorder/reparent. Media assignment via drag
+ * is handled externally by jQuery UI (see foldsnap-dragdrop.js) which
+ * reads the data-folder-id attribute on the droppable div.
+ *
  * @param {Object}      props                  Component props.
  * @param {Object}      props.folder           Folder data object.
  * @param {number|null} props.selectedFolderId Currently selected folder ID.
@@ -60,7 +64,7 @@ const FolderItem = ( {
 		data: { type: 'folder', folder },
 	} );
 
-	// Droppable: accept media drops (folder assignment)
+	// Droppable: accept @dnd-kit drops (folder reparenting)
 	const { isOver, setNodeRef: setDroppableRef } = useDroppable( {
 		id: `folder-drop-${ folder.id }`,
 		data: { type: 'folder', folderId: folder.id },
@@ -118,6 +122,7 @@ const FolderItem = ( {
 				style={ indentStyle }
 				role="button"
 				tabIndex={ 0 }
+				data-folder-id={ folder.id }
 				onClick={ handleSelect }
 				onKeyDown={ ( e ) => e.key === 'Enter' && handleSelect() }
 			>

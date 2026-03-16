@@ -29,14 +29,11 @@ jest.mock( '@dnd-kit/core', () => ( {
 
 describe( 'FolderSidebar', () => {
 	let mockUpdateFolder;
-	let mockAssignMedia;
 
 	beforeEach( () => {
 		mockUpdateFolder = jest.fn();
-		mockAssignMedia = jest.fn();
 		useDispatch.mockReturnValue( {
 			updateFolder: mockUpdateFolder,
-			assignMedia: mockAssignMedia,
 		} );
 		mockOnDragEnd.mockClear();
 	} );
@@ -54,11 +51,17 @@ describe( 'FolderSidebar', () => {
 		).toBeInTheDocument();
 	} );
 
+	it( 'does not render a content area', () => {
+		const { container } = render( <FolderSidebar /> );
+		expect(
+			container.querySelector( '.foldsnap-content' )
+		).not.toBeInTheDocument();
+	} );
+
 	it( 'does nothing on drag end when there is no over target', () => {
 		render( <FolderSidebar /> );
 		mockOnDragEnd( { active: { id: 1 }, over: null } );
 		expect( mockUpdateFolder ).not.toHaveBeenCalled();
-		expect( mockAssignMedia ).not.toHaveBeenCalled();
 	} );
 
 	it( 'does nothing on drag end when active and over are the same', () => {
@@ -141,18 +144,18 @@ describe( 'FolderSidebar', () => {
 		} );
 	} );
 
-	it( 'calls assignMedia when media is dropped onto a folder', () => {
+	it( 'ignores non-folder drag types', () => {
 		render( <FolderSidebar /> );
 		mockOnDragEnd( {
 			active: {
 				id: 'media-99',
-				data: { current: { type: 'media', mediaIds: [ 99, 100 ] } },
+				data: { current: { type: 'media', mediaIds: [ 99 ] } },
 			},
 			over: {
 				id: 5,
 				data: { current: { type: 'folder', folderId: 5 } },
 			},
 		} );
-		expect( mockAssignMedia ).toHaveBeenCalledWith( 5, [ 99, 100 ] );
+		expect( mockUpdateFolder ).not.toHaveBeenCalled();
 	} );
 } );

@@ -1,4 +1,4 @@
-<?php
+<?php // phpcs:disable PSR1.Files.SideEffects.FoundWithSymbols
 
 /**
  * Media Library controller
@@ -12,6 +12,11 @@
 declare(strict_types=1);
 
 namespace FoldSnap\Controllers;
+
+defined('ABSPATH') || exit;
+
+use FoldSnap\Services\TaxonomyService;
+use FoldSnap\Utils\SanitizeInput;
 
 final class MediaLibraryController
 {
@@ -38,6 +43,124 @@ final class MediaLibraryController
     private function __construct()
     {
         add_action('admin_enqueue_scripts', [$this, 'enqueueAssets']);
+        add_filter('ajax_query_attachments_args', [$this, 'filterAttachmentsByFolder']);
+        add_action('pre_get_posts', [$this, 'filterListModeByFolder']);
+    }
+
+    /**
+     * Resolve the current media library mode (grid or list).
+     *
+     * Same logic as upload.php: URL parameter takes priority,
+     * then user option, default 'grid'.
+     *
+     * @return string 'grid' or 'list'
+     */
+    public static function getMediaMode(): string
+    {
+        $urlMode = SanitizeInput::str(INPUT_GET, 'mode');
+        if ('grid' === $urlMode || 'list' === $urlMode) {
+            return $urlMode;
+        }
+
+        $userMode = get_user_option('media_library_mode', get_current_user_id());
+
+        return is_string($userMode) && '' !== $userMode ? $userMode : 'grid';
+    }
+
+    /**
+     * Filter media grid AJAX query by folder when foldsnap_folder_id is set.
+     *
+     * WordPress fires this filter on the query-attachments AJAX action
+     * used by the native media grid. The JS subscribe() in index.js sets
+     * foldsnap_folder_id on the Backbone collection props, which arrives
+     * here as $_REQUEST['query']['foldsnap_folder_id'].
+     *
+     * @param array<string, mixed> $query WP_Query args for attachments.
+     *
+     * @return array<string, mixed> Modified query args.
+     */
+    public function filterAttachmentsByFolder(array $query): array
+    {
+        $folderId = SanitizeInput::toInt(
+            SanitizeInput::INPUT_REQUEST,
+            [
+                'query',
+                'foldsnap_folder_id',
+            ],
+            -1
+        );
+
+        if ($folderId < 0) {
+            return $query; // Not set, "All Media", or invalid — no filter.
+        }
+
+        if (0 === $folderId) {
+            // Root: media not assigned to any folder.
+            $query['tax_query'] = [ // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_tax_query
+                [
+                    'taxonomy' => TaxonomyService::TAXONOMY_NAME,
+                    'operator' => 'NOT EXISTS',
+                ],
+            ];
+        } else {
+            $query['tax_query'] = [ // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_tax_query
+                [
+                    'taxonomy'         => TaxonomyService::TAXONOMY_NAME,
+                    'field'            => 'term_id',
+                    'terms'            => $folderId,
+                    'include_children' => false,
+                ],
+            ];
+        }
+
+        return $query;
+    }
+
+    /**
+     * Filter media list table query by folder (list mode).
+     *
+     * In list mode upload.php uses a standard WP_Query instead of the AJAX
+     * query-attachments endpoint. The JS redirects to
+     * upload.php?foldsnap_folder=ID when a folder is clicked.
+     *
+     * @param \WP_Query $query The current query.
+     *
+     * @return void
+     */
+    public function filterListModeByFolder(\WP_Query $query): void
+    {
+        if (!is_admin() || !$query->is_main_query() || 'attachment' !== $query->get('post_type')) {
+            return;
+        }
+
+        // Only in list mode — grid mode loads via AJAX (filterAttachmentsByFolder).
+        if ('list' !== self::getMediaMode()) {
+            return;
+        }
+
+        $folderId = SanitizeInput::toInt(INPUT_GET, 'foldsnap_folder_id', -1);
+
+        if ($folderId < 0) {
+            return;
+        }
+
+        if (0 === $folderId) {
+            $query->set('tax_query', [ // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_tax_query
+                [
+                    'taxonomy' => TaxonomyService::TAXONOMY_NAME,
+                    'operator' => 'NOT EXISTS',
+                ],
+            ]);
+        } else {
+            $query->set('tax_query', [ // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_tax_query
+                [
+                    'taxonomy'         => TaxonomyService::TAXONOMY_NAME,
+                    'field'            => 'term_id',
+                    'terms'            => $folderId,
+                    'include_children' => false,
+                ],
+            ]);
+        }
     }
 
     /**
@@ -74,7 +197,21 @@ final class MediaLibraryController
             [
                 'restUrl'   => rest_url('foldsnap/v1/'),
                 'restNonce' => wp_create_nonce('wp_rest'),
+                'mediaMode' => self::getMediaMode(),
             ]
+        );
+
+        wp_enqueue_script(
+            'foldsnap-dragdrop',
+            FOLDSNAP_PLUGIN_URL . '/assets/js/foldsnap-dragdrop.js',
+            [
+                'jquery',
+                'jquery-ui-draggable',
+                'jquery-ui-droppable',
+                'foldsnap-admin',
+            ],
+            FOLDSNAP_VERSION,
+            true
         );
 
         wp_enqueue_style('wp-components');

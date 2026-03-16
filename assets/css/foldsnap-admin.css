@@ -3,8 +3,9 @@
 /* ===== Media Library sidebar integration ===== */
 
 /*
- * Sidebar is inserted before #wpbody-content inside #wpbody.
+ * #foldsnap-sidebar is inserted before #wpbody-content inside #wpbody.
  * #wpbody becomes a flex row: sidebar left, #wpbody-content right.
+ * The native WP media grid remains fully functional.
  */
 .upload-php #wpbody {
 	display: flex;
@@ -259,30 +260,24 @@
 	margin-top: 24px;
 }
 
-/* ===== Media Grid (placeholder for Step 7) ===== */
+/* ===== jQuery UI Drag & Drop ===== */
 
-.foldsnap-media-grid {
-	display: grid;
-	grid-template-columns: repeat( auto-fill, minmax( 120px, 1fr ) );
-	gap: 12px;
+/*
+ * Drag helper shown while dragging attachment(s) from the native WP grid.
+ * Created by foldsnap-dragdrop.js via jQuery UI draggable helper option.
+ */
+.foldsnap-drag-helper {
+	background: #2271b1;
+	color: #fff;
+	font-size: 12px;
+	font-weight: 600;
+	padding: 4px 10px;
+	border-radius: 12px;
+	white-space: nowrap;
+	pointer-events: none;
+	box-shadow: 0 2px 6px rgba( 0, 0, 0, 0.2 );
 }
 
-.foldsnap-media-item {
-	border-radius: 4px;
-	overflow: hidden;
-	border: 2px solid transparent;
-	cursor: grab;
-	transition: border-color 0.1s ease, opacity 0.1s ease;
-}
-
-.foldsnap-media-item:hover {
-	border-color: #2271b1;
-}
-
-.foldsnap-media-item--selected {
-	border-color: #2271b1;
-}
-
-.foldsnap-media-item--dragging {
+.upload-php .attachments-browser .attachment.foldsnap-dragging {
 	opacity: 0.4;
 }

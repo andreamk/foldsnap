@@ -18,6 +18,6 @@
 
 defined('ABSPATH') || exit;
 
-$currentPluginBootFile = __FILE__;
+$foldsnapBootFile = __FILE__;
 
 require_once __DIR__ . '/foldsnap-main.php';

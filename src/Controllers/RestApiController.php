@@ -1,4 +1,4 @@
-<?php
+<?php // phpcs:disable PSR1.Files.SideEffects.FoundWithSymbols
 
 /**
  * REST API controller for folder management
@@ -12,6 +12,8 @@
 declare(strict_types=1);
 
 namespace FoldSnap\Controllers;
+
+defined('ABSPATH') || exit;
 
 use Exception;
 use FoldSnap\Services\FolderRepository;

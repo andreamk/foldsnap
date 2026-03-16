@@ -14,12 +14,14 @@ import FolderTree from './FolderTree';
  * Wraps FolderTree in a DndContext that handles:
  * - Folder reordering (drag folder onto a sibling position)
  * - Folder reparenting (drag folder onto a drop zone of another folder)
- * - Media assignment (drag media item onto a folder)
+ *
+ * Media assignment is handled via HTML5 native drag & drop from the
+ * WordPress media grid (see index.js and FolderItem.jsx).
  *
  * @return {JSX.Element} The rendered sidebar.
  */
 const FolderSidebar = () => {
-	const { updateFolder, assignMedia } = useDispatch( STORE_NAME );
+	const { updateFolder } = useDispatch( STORE_NAME );
 
 	const sensors = useSensors(
 		useSensor( PointerSensor, {
@@ -28,7 +30,7 @@ const FolderSidebar = () => {
 	);
 
 	/**
-	 * Handles the end of a drag operation.
+	 * Handles the end of a drag operation (folder reorder/reparent only).
 	 *
 	 * @param {Object} event DndKit drag end event.
 	 */
@@ -62,12 +64,6 @@ const FolderSidebar = () => {
 				name: activeFolder.name,
 				position: over.data.current?.folder?.position ?? 0,
 			} );
-		}
-
-		if ( activeType === 'media' && overType === 'folder' ) {
-			const mediaIds = active.data.current.mediaIds;
-			const folderId = over.data.current.folderId;
-			assignMedia( folderId, mediaIds );
 		}
 	};
 
