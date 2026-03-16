@@ -172,4 +172,48 @@ class TaxonomyServiceTests extends WP_UnitTestCase
 
         $this->assertTrue(taxonomy_exists(TaxonomyService::TAXONOMY_NAME));
     }
+
+    /**
+     * Test buildFolderTaxQuery returns NOT EXISTS clause for root (folderId = 0)
+     *
+     * @return void
+     */
+    public function test_buildFolderTaxQuery_returns_not_exists_for_root(): void
+    {
+        $result = TaxonomyService::buildFolderTaxQuery(0);
+
+        $this->assertCount(1, $result);
+        $this->assertSame(TaxonomyService::TAXONOMY_NAME, $result[0]['taxonomy']);
+        $this->assertSame('NOT EXISTS', $result[0]['operator']);
+        $this->assertArrayNotHasKey('field', $result[0]);
+        $this->assertArrayNotHasKey('terms', $result[0]);
+    }
+
+    /**
+     * Test buildFolderTaxQuery returns term_id clause for a specific folder
+     *
+     * @return void
+     */
+    public function test_buildFolderTaxQuery_returns_term_id_clause_for_folder(): void
+    {
+        $result = TaxonomyService::buildFolderTaxQuery(42);
+
+        $this->assertCount(1, $result);
+        $this->assertSame(TaxonomyService::TAXONOMY_NAME, $result[0]['taxonomy']);
+        $this->assertSame('term_id', $result[0]['field']);
+        $this->assertSame(42, $result[0]['terms']);
+        $this->assertFalse($result[0]['include_children']);
+    }
+
+    /**
+     * Test buildFolderTaxQuery does not include children for specific folder
+     *
+     * @return void
+     */
+    public function test_buildFolderTaxQuery_excludes_children(): void
+    {
+        $result = TaxonomyService::buildFolderTaxQuery(10);
+
+        $this->assertFalse($result[0]['include_children']);
+    }
 }

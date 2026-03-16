@@ -18,7 +18,6 @@ defined('ABSPATH') || exit;
 use Exception;
 use FoldSnap\Services\FolderRepository;
 use FoldSnap\Services\TaxonomyService;
-use FoldSnap\Utils\Sanitize;
 use InvalidArgumentException;
 use WP_Error;
 use WP_REST_Request;
@@ -91,6 +90,28 @@ final class RestApiController
                         $this,
                         'checkPermission',
                     ],
+                    'args'                => [
+                        'name'      => [
+                            'required'          => true,
+                            'type'              => 'string',
+                            'sanitize_callback' => 'sanitize_text_field',
+                        ],
+                        'parent_id' => [
+                            'type'              => 'integer',
+                            'default'           => 0,
+                            'sanitize_callback' => 'absint',
+                        ],
+                        'color'     => [
+                            'type'              => 'string',
+                            'default'           => '',
+                            'sanitize_callback' => 'sanitize_text_field',
+                        ],
+                        'position'  => [
+                            'type'              => 'integer',
+                            'default'           => 0,
+                            'sanitize_callback' => 'absint',
+                        ],
+                    ],
                 ],
             ]
         );
@@ -109,6 +130,29 @@ final class RestApiController
                         $this,
                         'checkPermission',
                     ],
+                    'args'                => [
+                        'id'        => [
+                            'required'          => true,
+                            'type'              => 'integer',
+                            'sanitize_callback' => 'absint',
+                        ],
+                        'name'      => [
+                            'type'              => 'string',
+                            'sanitize_callback' => 'sanitize_text_field',
+                        ],
+                        'parent_id' => [
+                            'type'              => 'integer',
+                            'sanitize_callback' => 'absint',
+                        ],
+                        'color'     => [
+                            'type'              => 'string',
+                            'sanitize_callback' => 'sanitize_text_field',
+                        ],
+                        'position'  => [
+                            'type'              => 'integer',
+                            'sanitize_callback' => 'absint',
+                        ],
+                    ],
                 ],
                 [
                     'methods'             => WP_REST_Server::DELETABLE,
@@ -119,6 +163,13 @@ final class RestApiController
                     'permission_callback' => [
                         $this,
                         'checkPermission',
+                    ],
+                    'args'                => [
+                        'id' => [
+                            'required'          => true,
+                            'type'              => 'integer',
+                            'sanitize_callback' => 'absint',
+                        ],
                     ],
                 ],
             ]
@@ -138,6 +189,18 @@ final class RestApiController
                         $this,
                         'checkPermission',
                     ],
+                    'args'                => [
+                        'id'        => [
+                            'required'          => true,
+                            'type'              => 'integer',
+                            'sanitize_callback' => 'absint',
+                        ],
+                        'media_ids' => [
+                            'required' => true,
+                            'type'     => 'array',
+                            'items'    => ['type' => 'integer'],
+                        ],
+                    ],
                 ],
                 [
                     'methods'             => WP_REST_Server::DELETABLE,
@@ -148,6 +211,18 @@ final class RestApiController
                     'permission_callback' => [
                         $this,
                         'checkPermission',
+                    ],
+                    'args'                => [
+                        'id'        => [
+                            'required'          => true,
+                            'type'              => 'integer',
+                            'sanitize_callback' => 'absint',
+                        ],
+                        'media_ids' => [
+                            'required' => true,
+                            'type'     => 'array',
+                            'items'    => ['type' => 'integer'],
+                        ],
                     ],
                 ],
             ]
@@ -166,6 +241,23 @@ final class RestApiController
                     'permission_callback' => [
                         $this,
                         'checkPermission',
+                    ],
+                    'args'                => [
+                        'folder_id' => [
+                            'required'          => true,
+                            'type'              => 'integer',
+                            'sanitize_callback' => 'absint',
+                        ],
+                        'page'      => [
+                            'type'              => 'integer',
+                            'default'           => 1,
+                            'sanitize_callback' => 'absint',
+                        ],
+                        'per_page'  => [
+                            'type'              => 'integer',
+                            'default'           => 40,
+                            'sanitize_callback' => 'absint',
+                        ],
                     ],
                 ],
             ]
@@ -230,23 +322,11 @@ final class RestApiController
             );
         }
 
-        try {
+        return $this->handleRestRequest(function () use ($name, $parentId, $color, $position): WP_REST_Response {
             $folder = $this->repository->create($name, $parentId, $color, $position);
 
             return new WP_REST_Response($folder->toArray(), 201);
-        } catch (InvalidArgumentException $e) {
-            return new WP_Error(
-                'invalid_argument',
-                $e->getMessage(),
-                ['status' => 400]
-            );
-        } catch (Exception $e) {
-            return new WP_Error(
-                'server_error',
-                $e->getMessage(),
-                ['status' => 500]
-            );
-        }
+        });
     }
 
     /**
@@ -264,23 +344,11 @@ final class RestApiController
         $parentId = $this->getOptionalIntParam($request, 'parent_id');
         $position = $this->getOptionalIntParam($request, 'position');
 
-        try {
+        return $this->handleRestRequest(function () use ($id, $name, $parentId, $color, $position): WP_REST_Response {
             $folder = $this->repository->update($id, $name, $parentId, $color, $position);
 
             return new WP_REST_Response($folder->toArray(), 200);
-        } catch (InvalidArgumentException $e) {
-            return new WP_Error(
-                'invalid_argument',
-                $e->getMessage(),
-                ['status' => 400]
-            );
-        } catch (Exception $e) {
-            return new WP_Error(
-                'server_error',
-                $e->getMessage(),
-                ['status' => 500]
-            );
-        }
+        });
     }
 
     /**
@@ -294,23 +362,11 @@ final class RestApiController
     {
         $id = absint($this->getStringParam($request, 'id'));
 
-        try {
+        return $this->handleRestRequest(function () use ($id): WP_REST_Response {
             $this->repository->delete($id);
 
             return new WP_REST_Response(['deleted' => true], 200);
-        } catch (InvalidArgumentException $e) {
-            return new WP_Error(
-                'invalid_argument',
-                $e->getMessage(),
-                ['status' => 400]
-            );
-        } catch (Exception $e) {
-            return new WP_Error(
-                'server_error',
-                $e->getMessage(),
-                ['status' => 500]
-            );
-        }
+        });
     }
 
     /**
@@ -333,23 +389,11 @@ final class RestApiController
             );
         }
 
-        try {
+        return $this->handleRestRequest(function () use ($folderId, $mediaIds): WP_REST_Response {
             $this->repository->assignMedia($folderId, $mediaIds);
 
             return new WP_REST_Response(['assigned' => true], 200);
-        } catch (InvalidArgumentException $e) {
-            return new WP_Error(
-                'invalid_argument',
-                $e->getMessage(),
-                ['status' => 400]
-            );
-        } catch (Exception $e) {
-            return new WP_Error(
-                'server_error',
-                $e->getMessage(),
-                ['status' => 500]
-            );
-        }
+        });
     }
 
     /**
@@ -372,23 +416,11 @@ final class RestApiController
             );
         }
 
-        try {
+        return $this->handleRestRequest(function () use ($folderId, $mediaIds): WP_REST_Response {
             $this->repository->removeMedia($folderId, $mediaIds);
 
             return new WP_REST_Response(['removed' => true], 200);
-        } catch (InvalidArgumentException $e) {
-            return new WP_Error(
-                'invalid_argument',
-                $e->getMessage(),
-                ['status' => 400]
-            );
-        } catch (Exception $e) {
-            return new WP_Error(
-                'server_error',
-                $e->getMessage(),
-                ['status' => 500]
-            );
-        }
+        });
     }
 
     /**
@@ -427,6 +459,12 @@ final class RestApiController
         $queryArgs['tax_query'] = TaxonomyService::buildFolderTaxQuery($folderId);
 
         $query = new \WP_Query($queryArgs);
+
+        /** @var int[] $postIds */
+        $postIds = wp_list_pluck($query->posts, 'ID');
+        if (! empty($postIds)) {
+            update_meta_cache('post', $postIds);
+        }
 
         $media = [];
         foreach ($query->posts as $post) {
@@ -476,6 +514,32 @@ final class RestApiController
             'mime_type'     => $post->post_mime_type,
             'date'          => $post->post_date,
         ];
+    }
+
+    /**
+     * Execute a REST callback with standardized exception handling
+     *
+     * @param callable(): WP_REST_Response $callback Business logic returning a response
+     *
+     * @return WP_REST_Response|WP_Error
+     */
+    private function handleRestRequest(callable $callback)
+    {
+        try {
+            return $callback();
+        } catch (InvalidArgumentException $e) {
+            return new WP_Error(
+                'invalid_argument',
+                $e->getMessage(),
+                ['status' => 400]
+            );
+        } catch (Exception $e) {
+            return new WP_Error(
+                'server_error',
+                $e->getMessage(),
+                ['status' => 500]
+            );
+        }
     }
 
     /**

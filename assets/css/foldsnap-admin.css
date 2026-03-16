@@ -281,3 +281,12 @@
 .upload-php .attachments-browser .attachment.foldsnap-dragging {
 	opacity: 0.4;
 }
+
+/* ===== Confirm dialog actions ===== */
+
+.foldsnap-confirm-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: 8px;
+	margin-top: 16px;
+}

@@ -1,27 +1,12 @@
 import { useState } from '@wordpress/element';
-import { DropdownMenu } from '@wordpress/components';
+import { Button, DropdownMenu, Modal } from '@wordpress/components';
 import { useDispatch } from '@wordpress/data';
 import { useSortable } from '@dnd-kit/sortable';
 import { useDroppable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 import { __ } from '@wordpress/i18n';
 import { STORE_NAME } from '../store/constants';
-
-/**
- * Formats a byte count to a human-readable string.
- *
- * @param {number} bytes Size in bytes.
- * @return {string} Formatted size string.
- */
-const formatSize = ( bytes ) => {
-	if ( bytes < 1024 ) {
-		return bytes + ' B';
-	}
-	if ( bytes < 1024 * 1024 ) {
-		return ( bytes / 1024 ).toFixed( 1 ) + ' KB';
-	}
-	return ( bytes / ( 1024 * 1024 ) ).toFixed( 1 ) + ' MB';
-};
+import formatSize from '../utils/format-size';
 
 /**
  * Renders a single folder node in the tree.
@@ -46,6 +31,7 @@ const FolderItem = ( {
 	onAddSubfolder,
 } ) => {
 	const [ isExpanded, setIsExpanded ] = useState( true );
+	const [ showDeleteConfirm, setShowDeleteConfirm ] = useState( false );
 	const { deleteFolder } = useDispatch( STORE_NAME );
 
 	const hasChildren = folder.children && folder.children.length > 0;
@@ -85,14 +71,13 @@ const FolderItem = ( {
 		onSelect( folder.id );
 	};
 
-	const handleDelete = async () => {
-		// eslint-disable-next-line no-alert
-		const confirmed = window.confirm(
-			__( 'Delete this folder? Media will return to root.', 'foldsnap' )
-		);
-		if ( confirmed ) {
-			await deleteFolder( folder.id );
-		}
+	const handleDelete = () => {
+		setShowDeleteConfirm( true );
+	};
+
+	const confirmDelete = async () => {
+		setShowDeleteConfirm( false );
+		await deleteFolder( folder.id );
 	};
 
 	const dropdownControls = [
@@ -212,9 +197,38 @@ const FolderItem = ( {
 					) ) }
 				</div>
 			) }
+
+			{ showDeleteConfirm && (
+				<Modal
+					title={ __( 'Delete folder', 'foldsnap' ) }
+					onRequestClose={ () => setShowDeleteConfirm( false ) }
+					size="small"
+				>
+					<p>
+						{ __(
+							'Delete this folder? Media will return to root.',
+							'foldsnap'
+						) }
+					</p>
+					<div className="foldsnap-confirm-actions">
+						<Button
+							variant="tertiary"
+							onClick={ () => setShowDeleteConfirm( false ) }
+						>
+							{ __( 'Cancel', 'foldsnap' ) }
+						</Button>
+						<Button
+							variant="primary"
+							isDestructive
+							onClick={ confirmDelete }
+						>
+							{ __( 'Delete', 'foldsnap' ) }
+						</Button>
+					</div>
+				</Modal>
+			) }
 		</div>
 	);
 };
 
-export { formatSize };
 export default FolderItem;

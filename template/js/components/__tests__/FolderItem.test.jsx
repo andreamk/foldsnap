@@ -1,6 +1,7 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import { useDispatch } from '@wordpress/data';
-import FolderItem, { formatSize } from '../FolderItem';
+import FolderItem from '../FolderItem';
+import formatSize from '../../utils/format-size';
 
 // Mock @wordpress/data
 jest.mock( '@wordpress/data', () => ( {
@@ -36,7 +37,7 @@ jest.mock( '@dnd-kit/utilities', () => ( {
 	},
 } ) );
 
-// Mock @wordpress/components DropdownMenu
+// Mock @wordpress/components
 jest.mock( '@wordpress/components', () => ( {
 	Button: ( { children, onClick } ) => (
 		<button onClick={ onClick }>{ children }</button>
@@ -48,6 +49,12 @@ jest.mock( '@wordpress/components', () => ( {
 					{ c.title }
 				</button>
 			) ) }
+		</div>
+	),
+	Modal: ( { children, title, onRequestClose } ) => (
+		<div data-testid="confirm-modal" aria-label={ title }>
+			{ children }
+			<button onClick={ onRequestClose }>Close</button>
 		</div>
 	),
 } ) );

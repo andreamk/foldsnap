@@ -1,5 +1,6 @@
 import { render, screen, fireEvent } from '@testing-library/react';
-import MediaItem, { formatSize } from '../MediaItem';
+import MediaItem from '../MediaItem';
+import formatSize from '../../utils/format-size';
 
 // Mock @dnd-kit/core
 let mockIsDragging = false;
