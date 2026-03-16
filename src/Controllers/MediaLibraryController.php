@@ -153,6 +153,8 @@ final class MediaLibraryController
             true
         );
 
+        wp_set_script_translations('foldsnap-admin', 'foldsnap', FOLDSNAP_PATH . '/languages');
+
         wp_localize_script(
             'foldsnap-admin',
             'foldsnap_data',
@@ -169,11 +171,14 @@ final class MediaLibraryController
                 'jquery',
                 'jquery-ui-draggable',
                 'jquery-ui-droppable',
+                'wp-i18n',
                 'foldsnap-admin',
             ],
             FOLDSNAP_VERSION,
             true
         );
+
+        wp_set_script_translations('foldsnap-dragdrop', 'foldsnap', FOLDSNAP_PATH . '/languages');
 
         wp_enqueue_style('wp-components');
         wp_enqueue_style(

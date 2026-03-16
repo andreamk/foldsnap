@@ -293,4 +293,60 @@ class MediaLibraryControllerTests extends WP_UnitTestCase
 
         $this->assertEmpty($query->get('tax_query'));
     }
+
+    /**
+     * Test filterListModeByFolder sets tax_query for specific folder in list mode
+     *
+     * @return void
+     */
+    public function test_filterListModeByFolder_sets_tax_query_for_folder(): void
+    {
+        $_GET['mode']               = 'list';
+        $_GET['foldsnap_folder_id'] = '5';
+
+        set_current_screen('upload');
+
+        global $wp_the_query;
+        $savedQuery   = $wp_the_query;
+        $wp_the_query = new \WP_Query();
+        $wp_the_query->set('post_type', 'attachment');
+
+        $this->controller->filterListModeByFolder($wp_the_query);
+
+        /** @var array<int, array<string, mixed>> $taxQuery */
+        $taxQuery = $wp_the_query->get('tax_query');
+        $this->assertIsArray($taxQuery);
+        $this->assertSame('term_id', $taxQuery[0]['field']);
+        $this->assertSame(5, $taxQuery[0]['terms']);
+        $this->assertFalse($taxQuery[0]['include_children']);
+
+        $wp_the_query = $savedQuery;
+    }
+
+    /**
+     * Test filterListModeByFolder sets tax_query for root (unassigned) in list mode
+     *
+     * @return void
+     */
+    public function test_filterListModeByFolder_sets_tax_query_for_root(): void
+    {
+        $_GET['mode']               = 'list';
+        $_GET['foldsnap_folder_id'] = '0';
+
+        set_current_screen('upload');
+
+        global $wp_the_query;
+        $savedQuery   = $wp_the_query;
+        $wp_the_query = new \WP_Query();
+        $wp_the_query->set('post_type', 'attachment');
+
+        $this->controller->filterListModeByFolder($wp_the_query);
+
+        /** @var array<int, array<string, mixed>> $taxQuery */
+        $taxQuery = $wp_the_query->get('tax_query');
+        $this->assertIsArray($taxQuery);
+        $this->assertSame('NOT EXISTS', $taxQuery[0]['operator']);
+
+        $wp_the_query = $savedQuery;
+    }
 }

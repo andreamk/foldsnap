@@ -259,4 +259,58 @@ describe( 'FolderItem', () => {
 		fireEvent.click( screen.getByText( 'Add subfolder' ) );
 		expect( onAddSubfolder ).toHaveBeenCalledWith( 5 );
 	} );
+
+	it( 'shows delete confirmation modal when Delete is clicked', () => {
+		render(
+			<FolderItem
+				folder={ makeFolder() }
+				selectedFolderId={ null }
+				onSelect={ jest.fn() }
+				onAddSubfolder={ jest.fn() }
+			/>
+		);
+		fireEvent.click( screen.getByText( 'Delete' ) );
+		expect( screen.getByTestId( 'confirm-modal' ) ).toBeInTheDocument();
+		expect(
+			screen.getByText( /Delete this folder\?/ )
+		).toBeInTheDocument();
+	} );
+
+	it( 'calls deleteFolder when delete is confirmed', () => {
+		render(
+			<FolderItem
+				folder={ makeFolder( { id: 7 } ) }
+				selectedFolderId={ null }
+				onSelect={ jest.fn() }
+				onAddSubfolder={ jest.fn() }
+			/>
+		);
+		// Open confirmation modal
+		fireEvent.click( screen.getByText( 'Delete' ) );
+
+		// Click the confirm Delete button inside the modal
+		const deleteButtons = screen.getAllByText( 'Delete' );
+		fireEvent.click( deleteButtons[ deleteButtons.length - 1 ] );
+
+		expect( mockDeleteFolder ).toHaveBeenCalledWith( 7 );
+	} );
+
+	it( 'closes modal without deleting when Cancel is clicked', () => {
+		render(
+			<FolderItem
+				folder={ makeFolder() }
+				selectedFolderId={ null }
+				onSelect={ jest.fn() }
+				onAddSubfolder={ jest.fn() }
+			/>
+		);
+		fireEvent.click( screen.getByText( 'Delete' ) );
+		expect( screen.getByTestId( 'confirm-modal' ) ).toBeInTheDocument();
+
+		fireEvent.click( screen.getByText( 'Cancel' ) );
+		expect(
+			screen.queryByTestId( 'confirm-modal' )
+		).not.toBeInTheDocument();
+		expect( mockDeleteFolder ).not.toHaveBeenCalled();
+	} );
 } );

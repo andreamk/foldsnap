@@ -29,6 +29,9 @@ class FolderRepository
     /** @var string Cache key for root (unassigned) total size */
     private const CACHE_ROOT_TOTAL_SIZE = 'root_total_size';
 
+    /** @var string Cache key for root (unassigned) media count */
+    private const CACHE_ROOT_MEDIA_COUNT = 'root_media_count';
+
     /** @var string Cache group for all FoldSnap cache entries */
     private const CACHE_GROUP = 'foldsnap';
 
@@ -307,10 +310,19 @@ class FolderRepository
      */
     public function getRootMediaCount(): int
     {
-        return Database::countUnassignedMedia(
+        $cached = wp_cache_get(self::CACHE_ROOT_MEDIA_COUNT, self::CACHE_GROUP);
+        if (is_int($cached)) {
+            return $cached;
+        }
+
+        $count = Database::countUnassignedMedia(
             TaxonomyService::TAXONOMY_NAME,
             TaxonomyService::POST_TYPE
         );
+
+        wp_cache_set(self::CACHE_ROOT_MEDIA_COUNT, $count, self::CACHE_GROUP);
+
+        return $count;
     }
 
     /**
@@ -346,6 +358,7 @@ class FolderRepository
     {
         wp_cache_delete(self::CACHE_FOLDER_SIZES, self::CACHE_GROUP);
         wp_cache_delete(self::CACHE_ROOT_TOTAL_SIZE, self::CACHE_GROUP);
+        wp_cache_delete(self::CACHE_ROOT_MEDIA_COUNT, self::CACHE_GROUP);
     }
 
     /**

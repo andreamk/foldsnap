@@ -201,6 +201,39 @@ describe( 'MediaGrid', () => {
 		).not.toBeInTheDocument();
 	} );
 
+	it( 'selects range on shift-click', () => {
+		setupUseSelect( makeStoreState() );
+		render( <MediaGrid /> );
+
+		const selectButtons = screen.getAllByText( 'Select' );
+
+		// Click item 1 (simple click to set anchor).
+		fireEvent.click( selectButtons[ 0 ] );
+		expect(
+			screen
+				.getByTestId( 'media-item-1' )
+				.querySelector( '[data-testid="selected-marker"]' )
+		).toBeInTheDocument();
+
+		// Shift-click item 3 to select range 1–3.
+		fireEvent.click( selectButtons[ 2 ], { shiftKey: true } );
+		expect(
+			screen
+				.getByTestId( 'media-item-1' )
+				.querySelector( '[data-testid="selected-marker"]' )
+		).toBeInTheDocument();
+		expect(
+			screen
+				.getByTestId( 'media-item-2' )
+				.querySelector( '[data-testid="selected-marker"]' )
+		).toBeInTheDocument();
+		expect(
+			screen
+				.getByTestId( 'media-item-3' )
+				.querySelector( '[data-testid="selected-marker"]' )
+		).toBeInTheDocument();
+	} );
+
 	it( 'displays total item count in pagination', () => {
 		setupUseSelect(
 			makeStoreState( { mediaTotalPages: 2, mediaTotal: 50 } )

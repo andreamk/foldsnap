@@ -60,7 +60,16 @@
 				const ids = getSelectedIds( $el );
 				const $helper = $( '<div class="foldsnap-drag-helper"></div>' );
 				$helper.text(
-					ids.length + ( ids.length === 1 ? ' item' : ' items' )
+					wp.i18n.sprintf(
+						// translators: %d is the number of media items being dragged.
+						wp.i18n._n(
+							'%d item',
+							'%d items',
+							ids.length,
+							'foldsnap'
+						),
+						ids.length
+					)
 				);
 				$helper.attr( 'data-ids', ids.join( ',' ) );
 				return $helper;
