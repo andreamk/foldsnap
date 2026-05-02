@@ -3,9 +3,9 @@
 /**
  * Immutable DTO representing a folder (taxonomy term)
  *
- * This class is read-only by design. It captures a snapshot of a folder's
- * state at a given point in time. To modify folder data, use FolderRepository
- * which performs the DB writes and returns a fresh FolderModel instance.
+ * Pure value object: holds the 7 core properties of a folder. Recursive
+ * concerns (children, total media count, total size) live elsewhere —
+ * the controller layer decorates the array form when needed.
  *
  * @package FoldSnap
  */
@@ -28,10 +28,6 @@ final class FolderModel
     private int $mediaCount;
     private string $color;
     private int $position;
-    private int $directSize = 0;
-
-    /** @var FolderModel[] */
-    private array $children = [];
 
     /**
      * Constructor
@@ -40,7 +36,7 @@ final class FolderModel
      * @param string $name       Folder name
      * @param string $slug       Folder slug
      * @param int    $parentId   Parent term ID (0 for root)
-     * @param int    $mediaCount Number of media assigned
+     * @param int    $mediaCount Number of media directly assigned
      * @param string $color      Hex color code
      * @param int    $position   Sort position
      */
@@ -93,7 +89,7 @@ final class FolderModel
     }
 
     /**
-     * Get parent term ID
+     * Get parent term ID (0 for root)
      *
      * @return int
      */
@@ -103,7 +99,7 @@ final class FolderModel
     }
 
     /**
-     * Get number of assigned media
+     * Get number of media directly assigned (not recursive)
      *
      * @return int
      */
@@ -130,82 +126,6 @@ final class FolderModel
     public function getPosition(): int
     {
         return $this->position;
-    }
-
-    /**
-     * Get direct size in bytes (media directly assigned to this folder)
-     *
-     * @return int
-     */
-    public function getDirectSize(): int
-    {
-        return $this->directSize;
-    }
-
-    /**
-     * Set direct size in bytes
-     *
-     * @param int $bytes Size in bytes
-     *
-     * @return void
-     */
-    public function setDirectSize(int $bytes): void
-    {
-        $this->directSize = $bytes;
-    }
-
-    /**
-     * Get total media count (recursive: this folder + all descendants)
-     *
-     * @return int
-     */
-    public function getTotalMediaCount(): int
-    {
-        $total = $this->mediaCount;
-
-        foreach ($this->children as $child) {
-            $total += $child->getTotalMediaCount();
-        }
-
-        return $total;
-    }
-
-    /**
-     * Get total size in bytes (recursive: this folder + all descendants)
-     *
-     * @return int
-     */
-    public function getTotalSize(): int
-    {
-        $total = $this->directSize;
-
-        foreach ($this->children as $child) {
-            $total += $child->getTotalSize();
-        }
-
-        return $total;
-    }
-
-    /**
-     * Get children folders
-     *
-     * @return FolderModel[]
-     */
-    public function getChildren(): array
-    {
-        return $this->children;
-    }
-
-    /**
-     * Add a child folder
-     *
-     * @param FolderModel $child Child folder model
-     *
-     * @return void
-     */
-    public function addChild(FolderModel $child): void
-    {
-        $this->children[] = $child;
     }
 
     /**
@@ -237,29 +157,20 @@ final class FolderModel
     }
 
     /**
-     * Serialize the model to an array (recursive, includes children)
+     * Serialize the model to its 7 core properties
      *
-     * @return array<string, mixed>
+     * @return array{id:int,name:string,slug:string,parent_id:int,media_count:int,color:string,position:int}
      */
     public function toArray(): array
     {
         return [
-            'id'                => $this->id,
-            'name'              => $this->name,
-            'slug'              => $this->slug,
-            'parent_id'         => $this->parentId,
-            'media_count'       => $this->mediaCount,
-            'total_media_count' => $this->getTotalMediaCount(),
-            'color'             => $this->color,
-            'position'          => $this->position,
-            'direct_size'       => $this->directSize,
-            'total_size'        => $this->getTotalSize(),
-            'children'          => array_map(
-                static function (FolderModel $child): array {
-                    return $child->toArray();
-                },
-                $this->children
-            ),
+            'id'          => $this->id,
+            'name'        => $this->name,
+            'slug'        => $this->slug,
+            'parent_id'   => $this->parentId,
+            'media_count' => $this->mediaCount,
+            'color'       => $this->color,
+            'position'    => $this->position,
         ];
     }
 }

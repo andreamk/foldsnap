@@ -1,10 +1,13 @@
 <?php
 
 /**
- * REST API controller for folder management
+ * Top-level REST controller for the foldsnap/v1 namespace
  *
- * Registers and handles all REST API endpoints under the foldsnap/v1 namespace.
- * Provides CRUD operations for folders and media assignment/removal.
+ * Owns route registration and read endpoints (folder discovery via
+ * children/search modes, folder path lookup, paginated media listing).
+ * Write endpoints (create / update / delete / media assign / media remove)
+ * are delegated to RestApiFolderMutationsController, which is registered
+ * here as the callback target.
  *
  * @package FoldSnap
  */
@@ -13,10 +16,10 @@ declare(strict_types=1);
 
 namespace FoldSnap\Controllers;
 
-use Exception;
+use FoldSnap\Models\FolderModel;
 use FoldSnap\Services\FolderRepository;
+use FoldSnap\Services\FolderTreeNavigator;
 use FoldSnap\Services\TaxonomyService;
-use InvalidArgumentException;
 use WP_Error;
 use WP_REST_Request;
 use WP_REST_Response;
@@ -24,12 +27,17 @@ use WP_REST_Server;
 
 final class RestApiController
 {
+    use RestApiRequestUtils;
+    use RestApiFolderPresenter;
+
     private const REST_NAMESPACE = 'foldsnap/v1';
 
     /** @var self|null */
     private static ?self $instance = null;
 
     private FolderRepository $repository;
+    private FolderTreeNavigator $navigatorInstance;
+    private RestApiFolderMutationsController $mutations;
 
     /**
      * Get singleton instance
@@ -39,7 +47,10 @@ final class RestApiController
     public static function getInstance(): self
     {
         if (null === self::$instance) {
-            self::$instance = new self(new FolderRepository());
+            $repository     = new FolderRepository();
+            $navigator      = new FolderTreeNavigator($repository);
+            $mutations      = new RestApiFolderMutationsController($repository, $navigator);
+            self::$instance = new self($repository, $navigator, $mutations);
         }
 
         return self::$instance;
@@ -48,12 +59,29 @@ final class RestApiController
     /**
      * Constructor
      *
-     * @param FolderRepository $repository Folder repository instance
+     * @param FolderRepository                 $repository Folder repository instance
+     * @param FolderTreeNavigator              $navigator  Tree navigator instance
+     * @param RestApiFolderMutationsController $mutations  Write-endpoints controller
      */
-    private function __construct(FolderRepository $repository)
-    {
-        $this->repository = $repository;
+    private function __construct(
+        FolderRepository $repository,
+        FolderTreeNavigator $navigator,
+        RestApiFolderMutationsController $mutations
+    ) {
+        $this->repository        = $repository;
+        $this->navigatorInstance = $navigator;
+        $this->mutations         = $mutations;
         add_action('rest_api_init', [$this, 'registerRoutes']);
+    }
+
+    /**
+     * Get navigator instance (used by RestApiFolderPresenter)
+     *
+     * @return FolderTreeNavigator
+     */
+    protected function navigator(): FolderTreeNavigator
+    {
+        return $this->navigatorInstance;
     }
 
     /**
@@ -81,7 +109,7 @@ final class RestApiController
                 [
                     'methods'             => WP_REST_Server::CREATABLE,
                     'callback'            => [
-                        $this,
+                        $this->mutations,
                         'createFolder',
                     ],
                     'permission_callback' => [
@@ -121,7 +149,7 @@ final class RestApiController
                 [
                     'methods'             => WP_REST_Server::EDITABLE,
                     'callback'            => [
-                        $this,
+                        $this->mutations,
                         'updateFolder',
                     ],
                     'permission_callback' => [
@@ -155,7 +183,7 @@ final class RestApiController
                 [
                     'methods'             => WP_REST_Server::DELETABLE,
                     'callback'            => [
-                        $this,
+                        $this->mutations,
                         'deleteFolder',
                     ],
                     'permission_callback' => [
@@ -175,12 +203,35 @@ final class RestApiController
 
         register_rest_route(
             self::REST_NAMESPACE,
+            '/folders/(?P<id>\d+)/path',
+            [
+                'methods'             => WP_REST_Server::READABLE,
+                'callback'            => [
+                    $this,
+                    'getFolderPath',
+                ],
+                'permission_callback' => [
+                    $this,
+                    'checkPermission',
+                ],
+                'args'                => [
+                    'id' => [
+                        'required'          => true,
+                        'type'              => 'integer',
+                        'sanitize_callback' => 'absint',
+                    ],
+                ],
+            ]
+        );
+
+        register_rest_route(
+            self::REST_NAMESPACE,
             '/folders/(?P<id>\d+)/media',
             [
                 [
                     'methods'             => WP_REST_Server::CREATABLE,
                     'callback'            => [
-                        $this,
+                        $this->mutations,
                         'assignMedia',
                     ],
                     'permission_callback' => [
@@ -203,7 +254,7 @@ final class RestApiController
                 [
                     'methods'             => WP_REST_Server::DELETABLE,
                     'callback'            => [
-                        $this,
+                        $this->mutations,
                         'removeMedia',
                     ],
                     'permission_callback' => [
@@ -263,7 +314,7 @@ final class RestApiController
     }
 
     /**
-     * Check if the current user has permission to manage media
+     * Permission callback shared by every endpoint
      *
      * @return bool
      */
@@ -275,149 +326,48 @@ final class RestApiController
     /**
      * GET /foldsnap/v1/folders
      *
+     * Two mutually exclusive modes:
+     * - children fetch (default): ?parent_ids[]=0&parent_ids[]=42&page=1&per_page=100
+     * - search:                   ?search=foo&page=1&per_page=50
+     *
+     * @param WP_REST_Request $request REST request object
+     *
      * @return WP_REST_Response
      */
-    public function getFolders(): WP_REST_Response
+    public function getFolders(WP_REST_Request $request): WP_REST_Response
     {
-        $tree = $this->repository->getTree();
+        $search = trim($this->getStringParam($request, 'search'));
 
-        $foldersArray = array_map(
-            static function ($folder): array {
-                return $folder->toArray();
-            },
-            $tree
-        );
-
-        return new WP_REST_Response(
-            [
-                'folders'          => $foldersArray,
-                'root_media_count' => $this->repository->getRootMediaCount(),
-                'root_total_size'  => $this->repository->getRootTotalSize(),
-            ],
-            200
-        );
-    }
-
-    /**
-     * POST /foldsnap/v1/folders
-     *
-     * @param WP_REST_Request $request REST request object
-     *
-     * @return WP_REST_Response|WP_Error
-     */
-    public function createFolder(WP_REST_Request $request)
-    {
-        $name     = sanitize_text_field($this->getStringParam($request, 'name'));
-        $parentId = absint($this->getStringParam($request, 'parent_id'));
-        $color    = sanitize_text_field($this->getStringParam($request, 'color'));
-        $position = absint($this->getStringParam($request, 'position'));
-
-        if ('' === $name) {
-            return new WP_Error(
-                'missing_name',
-                __('Folder name is required.', 'foldsnap'),
-                ['status' => 400]
-            );
+        if ('' !== $search) {
+            return $this->getFoldersSearch($request, $search);
         }
 
-        return $this->handleRestRequest(function () use ($name, $parentId, $color, $position): WP_REST_Response {
-            $folder = $this->repository->create($name, $parentId, $color, $position);
-
-            return new WP_REST_Response($folder->toArray(), 201);
-        });
+        return $this->getFoldersChildren($request);
     }
 
     /**
-     * PUT /foldsnap/v1/folders/{id}
+     * GET /foldsnap/v1/folders/{id}/path
+     *
+     * Returns the ancestor chain (root → target) decorated with totals
+     * and has_children. Used by clients to expand the tree to a deep-linked
+     * folder.
      *
      * @param WP_REST_Request $request REST request object
      *
      * @return WP_REST_Response|WP_Error
      */
-    public function updateFolder(WP_REST_Request $request)
-    {
-        $id       = absint($this->getStringParam($request, 'id'));
-        $name     = sanitize_text_field($this->getStringParam($request, 'name'));
-        $color    = sanitize_text_field($this->getStringParam($request, 'color'));
-        $parentId = $this->getOptionalIntParam($request, 'parent_id');
-        $position = $this->getOptionalIntParam($request, 'position');
-
-        return $this->handleRestRequest(function () use ($id, $name, $parentId, $color, $position): WP_REST_Response {
-            $folder = $this->repository->update($id, $name, $parentId, $color, $position);
-
-            return new WP_REST_Response($folder->toArray(), 200);
-        });
-    }
-
-    /**
-     * DELETE /foldsnap/v1/folders/{id}
-     *
-     * @param WP_REST_Request $request REST request object
-     *
-     * @return WP_REST_Response|WP_Error
-     */
-    public function deleteFolder(WP_REST_Request $request)
+    public function getFolderPath(WP_REST_Request $request)
     {
         $id = absint($this->getStringParam($request, 'id'));
 
         return $this->handleRestRequest(function () use ($id): WP_REST_Response {
-            $this->repository->delete($id);
+            $path = $this->repository->getPath($id);
 
-            return new WP_REST_Response(['deleted' => true], 200);
-        });
-    }
+            if (empty($path)) {
+                return new WP_REST_Response(['path' => []], 200);
+            }
 
-    /**
-     * POST /foldsnap/v1/folders/{id}/media
-     *
-     * @param WP_REST_Request $request REST request object
-     *
-     * @return WP_REST_Response|WP_Error
-     */
-    public function assignMedia(WP_REST_Request $request)
-    {
-        $folderId = absint($this->getStringParam($request, 'id'));
-        $mediaIds = $this->parseMediaIds($request);
-
-        if (empty($mediaIds)) {
-            return new WP_Error(
-                'missing_media_ids',
-                __('media_ids is required and must be a non-empty array.', 'foldsnap'),
-                ['status' => 400]
-            );
-        }
-
-        return $this->handleRestRequest(function () use ($folderId, $mediaIds): WP_REST_Response {
-            $this->repository->assignMedia($folderId, $mediaIds);
-
-            return new WP_REST_Response(['assigned' => true], 200);
-        });
-    }
-
-    /**
-     * DELETE /foldsnap/v1/folders/{id}/media
-     *
-     * @param WP_REST_Request $request REST request object
-     *
-     * @return WP_REST_Response|WP_Error
-     */
-    public function removeMedia(WP_REST_Request $request)
-    {
-        $folderId = absint($this->getStringParam($request, 'id'));
-        $mediaIds = $this->parseMediaIds($request);
-
-        if (empty($mediaIds)) {
-            return new WP_Error(
-                'missing_media_ids',
-                __('media_ids is required and must be a non-empty array.', 'foldsnap'),
-                ['status' => 400]
-            );
-        }
-
-        return $this->handleRestRequest(function () use ($folderId, $mediaIds): WP_REST_Response {
-            $this->repository->removeMedia($folderId, $mediaIds);
-
-            return new WP_REST_Response(['removed' => true], 200);
+            return new WP_REST_Response(['path' => $this->decorateFolders($path)], 200);
         });
     }
 
@@ -486,6 +436,119 @@ final class RestApiController
     }
 
     /**
+     * Children-fetch mode for GET /folders
+     *
+     * Returns paginated children for one or more parent IDs. The response
+     * carries the requested parent IDs plus root-level totals so clients
+     * can refresh root counters in the same trip when fetching from root.
+     *
+     * @param WP_REST_Request $request REST request object
+     *
+     * @return WP_REST_Response
+     */
+    private function getFoldersChildren(WP_REST_Request $request): WP_REST_Response
+    {
+        $parentIds  = $this->parseParentIds($request);
+        $page       = max(1, absint($this->getStringParam($request, 'page')));
+        $rawPerPage = $this->getStringParam($request, 'per_page');
+        $perPage    = '' === $rawPerPage ? 100 : max(1, min(200, absint($rawPerPage)));
+
+        if (empty($parentIds)) {
+            $parentIds = [0];
+        }
+
+        $byParent = $this->repository->getByParents($parentIds);
+
+        // Aggregate children across all requested parents into a flat list;
+        // each FolderModel carries its parent_id so the client can rebuild
+        // the children-by-parent map. Pagination is applied to the combined
+        // list, ordered as the repository returns each parent's children.
+        /** @var FolderModel[] $allChildren */
+        $allChildren = [];
+        foreach ($parentIds as $parentId) {
+            foreach ($byParent[$parentId] ?? [] as $child) {
+                $allChildren[] = $child;
+            }
+        }
+
+        $total      = count($allChildren);
+        $totalPages = $total > 0 ? (int) ceil($total / $perPage) : 0;
+        $offset     = ($page - 1) * $perPage;
+        $pageSlice  = array_slice($allChildren, $offset, $perPage);
+
+        $response = new WP_REST_Response(
+            [
+                'mode'                 => 'children',
+                'folders'              => $this->decorateFolders($pageSlice),
+                'requested_parent_ids' => array_values($parentIds),
+                'total'                => $total,
+                'total_pages'          => $totalPages,
+                'root_media_count'     => $this->repository->getRootMediaCount(),
+                'root_total_size'      => $this->repository->getRootTotalSize(),
+            ],
+            200
+        );
+
+        $response->header('X-WP-Total', (string) $total);
+        $response->header('X-WP-TotalPages', (string) $totalPages);
+
+        return $response;
+    }
+
+    /**
+     * Search mode for GET /folders
+     *
+     * @param WP_REST_Request $request REST request
+     * @param string          $search  Trimmed search query
+     *
+     * @return WP_REST_Response
+     */
+    private function getFoldersSearch(WP_REST_Request $request, string $search): WP_REST_Response
+    {
+        $page       = max(1, absint($this->getStringParam($request, 'page')));
+        $rawPerPage = $this->getStringParam($request, 'per_page');
+        $perPage    = '' === $rawPerPage ? 50 : max(1, min(100, absint($rawPerPage)));
+
+        $result  = $this->repository->search($search, $page, $perPage);
+        $folders = $this->decorateFolders($result['folders']);
+
+        $results = [];
+        foreach ($result['folders'] as $index => $folder) {
+            // Breadcrumb = ancestors only, so drop the folder itself (last element of getPath).
+            $ancestors = array_slice($this->repository->getPath($folder->getId()), 0, -1);
+
+            $results[] = [
+                'folder'     => $folders[$index],
+                'breadcrumb' => array_map(
+                    static function (FolderModel $f): array {
+                        return [
+                            'id'   => $f->getId(),
+                            'name' => $f->getName(),
+                        ];
+                    },
+                    $ancestors
+                ),
+            ];
+        }
+
+        $response = new WP_REST_Response(
+            [
+                'mode'        => 'search',
+                'query'       => $search,
+                'results'     => $results,
+                'total'       => $result['total'],
+                'total_pages' => $result['total_pages'],
+            ],
+            200
+        );
+
+        $response->header('X-WP-Total', (string) $result['total']);
+        $response->header('X-WP-TotalPages', (string) $result['total_pages']);
+
+        return $response;
+    }
+
+    /**
      * Format a WP_Post attachment into a media item array
      *
      * @param \WP_Post $post Attachment post object
@@ -512,99 +575,5 @@ final class RestApiController
             'mime_type'     => $post->post_mime_type,
             'date'          => $post->post_date,
         ];
-    }
-
-    /**
-     * Execute a REST callback with standardized exception handling
-     *
-     * @param callable(): WP_REST_Response $callback Business logic returning a response
-     *
-     * @return WP_REST_Response|WP_Error
-     */
-    private function handleRestRequest(callable $callback)
-    {
-        try {
-            return $callback();
-        } catch (InvalidArgumentException $e) {
-            return new WP_Error(
-                'invalid_argument',
-                $e->getMessage(),
-                ['status' => 400]
-            );
-        } catch (Exception $e) {
-            return new WP_Error(
-                'server_error',
-                $e->getMessage(),
-                ['status' => 500]
-            );
-        }
-    }
-
-    /**
-     * Parse media_ids from request body
-     *
-     * @param WP_REST_Request $request REST request object
-     *
-     * @return int[]
-     */
-    private function parseMediaIds(WP_REST_Request $request): array
-    {
-        $rawIds = $request->get_param('media_ids');
-
-        if (! is_array($rawIds)) {
-            return [];
-        }
-
-        $intIds = [];
-        foreach ($rawIds as $rawId) {
-            $intIds[] = absint(is_scalar($rawId) ? (string) $rawId : '');
-        }
-
-        return array_values(
-            array_filter(
-                $intIds,
-                static function (int $id): bool {
-                    return $id > 0;
-                }
-            )
-        );
-    }
-
-    /**
-     * Get an optional integer parameter from request, returning -1 (sentinel) if not provided
-     *
-     * @param WP_REST_Request $request   REST request object
-     * @param string          $paramName Parameter name
-     *
-     * @return int Parameter value, or -1 if not provided
-     */
-    private function getOptionalIntParam(WP_REST_Request $request, string $paramName): int
-    {
-        $value = $request->get_param($paramName);
-
-        if (null === $value) {
-            return -1;
-        }
-
-        return absint(is_scalar($value) ? (string) $value : '');
-    }
-
-    /**
-     * Get a string parameter from request, safely handling mixed return type
-     *
-     * @param WP_REST_Request $request   REST request object
-     * @param string          $paramName Parameter name
-     *
-     * @return string Parameter value as string, or empty string if not provided/not scalar
-     */
-    private function getStringParam(WP_REST_Request $request, string $paramName): string
-    {
-        $value = $request->get_param($paramName);
-
-        if (null === $value || ! is_scalar($value)) {
-            return '';
-        }
-
-        return (string) $value;
     }
 }

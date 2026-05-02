@@ -349,8 +349,6 @@ Numerazione aggiornata:
 
 ### Step 8 — Architettura pulita: DTO puro + API flat con lazy load
 
-**Piano dettagliato**: `~/.claude/plans/1-il-rece-condition-enumerated-goblet.md`
-
 **Obiettivo**: trasformare `FolderModel` in un DTO immutabile, eliminare l'albero ricorsivo server-side, esporre API flat con lazy load on-expand, ridisegnare lo store frontend con persistenza dell'expansion state.
 
 #### Sotto-step A — Backend

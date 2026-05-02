@@ -43,42 +43,6 @@ class FolderModelTests extends WP_UnitTestCase
         $this->assertSame(5, $model->getMediaCount());
         $this->assertSame('#ff0000', $model->getColor());
         $this->assertSame(3, $model->getPosition());
-        $this->assertSame([], $model->getChildren());
-    }
-
-    /**
-     * Test addChild adds a child folder
-     *
-     * @return void
-     */
-    public function test_add_child_adds_folder(): void
-    {
-        $parent = new FolderModel(1, 'Parent', 'parent', 0, 0, '', 0);
-        $child  = new FolderModel(2, 'Child', 'child', 1, 0, '', 0);
-
-        $parent->addChild($child);
-
-        $this->assertCount(1, $parent->getChildren());
-        $this->assertSame($child, $parent->getChildren()[0]);
-    }
-
-    /**
-     * Test addChild can add multiple children
-     *
-     * @return void
-     */
-    public function test_add_child_adds_multiple_children(): void
-    {
-        $parent = new FolderModel(1, 'Parent', 'parent', 0, 0, '', 0);
-        $child1 = new FolderModel(2, 'Child A', 'child-a', 1, 0, '', 0);
-        $child2 = new FolderModel(3, 'Child B', 'child-b', 1, 0, '', 1);
-
-        $parent->addChild($child1);
-        $parent->addChild($child2);
-
-        $this->assertCount(2, $parent->getChildren());
-        $this->assertSame($child1, $parent->getChildren()[0]);
-        $this->assertSame($child2, $parent->getChildren()[1]);
     }
 
     /**
@@ -151,171 +115,42 @@ class FolderModelTests extends WP_UnitTestCase
     }
 
     /**
-     * Test directSize defaults to zero
+     * Test toArray returns the 7 core properties only
      *
      * @return void
      */
-    public function test_direct_size_defaults_to_zero(): void
-    {
-        $model = new FolderModel(1, 'Folder', 'folder', 0, 0, '', 0);
-
-        $this->assertSame(0, $model->getDirectSize());
-    }
-
-    /**
-     * Test setDirectSize and getDirectSize
-     *
-     * @return void
-     */
-    public function test_set_and_get_direct_size(): void
-    {
-        $model = new FolderModel(1, 'Folder', 'folder', 0, 0, '', 0);
-
-        $model->setDirectSize(1048576);
-
-        $this->assertSame(1048576, $model->getDirectSize());
-    }
-
-    /**
-     * Test getTotalMediaCount without children returns own count
-     *
-     * @return void
-     */
-    public function test_total_media_count_without_children(): void
-    {
-        $model = new FolderModel(1, 'Folder', 'folder', 0, 10, '', 0);
-
-        $this->assertSame(10, $model->getTotalMediaCount());
-    }
-
-    /**
-     * Test getTotalMediaCount with nested children sums recursively
-     *
-     * @return void
-     */
-    public function test_total_media_count_with_nested_children(): void
-    {
-        $grandchild = new FolderModel(3, 'GC', 'gc', 2, 3, '', 0);
-        $child      = new FolderModel(2, 'Child', 'child', 1, 5, '', 0);
-        $parent     = new FolderModel(1, 'Parent', 'parent', 0, 2, '', 0);
-
-        $child->addChild($grandchild);
-        $parent->addChild($child);
-
-        $this->assertSame(10, $parent->getTotalMediaCount());
-        $this->assertSame(8, $child->getTotalMediaCount());
-        $this->assertSame(3, $grandchild->getTotalMediaCount());
-    }
-
-    /**
-     * Test getTotalSize without children returns own directSize
-     *
-     * @return void
-     */
-    public function test_total_size_without_children(): void
-    {
-        $model = new FolderModel(1, 'Folder', 'folder', 0, 0, '', 0);
-        $model->setDirectSize(5000);
-
-        $this->assertSame(5000, $model->getTotalSize());
-    }
-
-    /**
-     * Test getTotalSize with nested children sums recursively
-     *
-     * @return void
-     */
-    public function test_total_size_with_nested_children(): void
-    {
-        $grandchild = new FolderModel(3, 'GC', 'gc', 2, 0, '', 0);
-        $grandchild->setDirectSize(1000);
-
-        $child = new FolderModel(2, 'Child', 'child', 1, 0, '', 0);
-        $child->setDirectSize(2000);
-
-        $parent = new FolderModel(1, 'Parent', 'parent', 0, 0, '', 0);
-        $parent->setDirectSize(3000);
-
-        $child->addChild($grandchild);
-        $parent->addChild($child);
-
-        $this->assertSame(6000, $parent->getTotalSize());
-        $this->assertSame(3000, $child->getTotalSize());
-        $this->assertSame(1000, $grandchild->getTotalSize());
-    }
-
-    /**
-     * Test toArray returns correct structure without children
-     *
-     * @return void
-     */
-    public function test_to_array_returns_correct_structure(): void
+    public function test_to_array_returns_core_properties_only(): void
     {
         $model = new FolderModel(5, 'Music', 'music', 0, 10, '#0000ff', 1);
 
         $expected = [
-            'id'                => 5,
-            'name'              => 'Music',
-            'slug'              => 'music',
-            'parent_id'         => 0,
-            'media_count'       => 10,
-            'total_media_count' => 10,
-            'color'             => '#0000ff',
-            'position'          => 1,
-            'direct_size'       => 0,
-            'total_size'        => 0,
-            'children'          => [],
+            'id'          => 5,
+            'name'        => 'Music',
+            'slug'        => 'music',
+            'parent_id'   => 0,
+            'media_count' => 10,
+            'color'       => '#0000ff',
+            'position'    => 1,
         ];
 
         $this->assertSame($expected, $model->toArray());
     }
 
     /**
-     * Test toArray includes children recursively with totals
+     * Test toArray does not include children, totals, or size fields
      *
      * @return void
      */
-    public function test_to_array_includes_children_recursively(): void
+    public function test_to_array_excludes_decorated_fields(): void
     {
-        $grandchild = new FolderModel(3, 'Sub-sub', 'sub-sub', 2, 0, '', 0);
-        $child      = new FolderModel(2, 'Sub', 'sub', 1, 3, '#aabb00', 1);
-        $parent     = new FolderModel(1, 'Root', 'root', 0, 5, '#ff0000', 0);
+        $model  = new FolderModel(1, 'Folder', 'folder', 0, 5, '', 0);
+        $result = $model->toArray();
 
-        $child->addChild($grandchild);
-        $parent->addChild($child);
-
-        $result = $parent->toArray();
-
-        $this->assertSame(8, $result['total_media_count']);
-        $this->assertCount(1, $result['children']);
-        $this->assertSame(2, $result['children'][0]['id']);
-        $this->assertSame(3, $result['children'][0]['total_media_count']);
-
-        $this->assertCount(1, $result['children'][0]['children']);
-        $this->assertSame(3, $result['children'][0]['children'][0]['id']);
-        $this->assertSame([], $result['children'][0]['children'][0]['children']);
-    }
-
-    /**
-     * Test toArray includes size fields
-     *
-     * @return void
-     */
-    public function test_to_array_includes_size_fields(): void
-    {
-        $child = new FolderModel(2, 'Child', 'child', 1, 0, '', 0);
-        $child->setDirectSize(500);
-
-        $parent = new FolderModel(1, 'Parent', 'parent', 0, 0, '', 0);
-        $parent->setDirectSize(1000);
-        $parent->addChild($child);
-
-        $result = $parent->toArray();
-
-        $this->assertSame(1000, $result['direct_size']);
-        $this->assertSame(1500, $result['total_size']);
-        $this->assertSame(500, $result['children'][0]['direct_size']);
-        $this->assertSame(500, $result['children'][0]['total_size']);
+        $this->assertArrayNotHasKey('children', $result);
+        $this->assertArrayNotHasKey('total_media_count', $result);
+        $this->assertArrayNotHasKey('total_size', $result);
+        $this->assertArrayNotHasKey('direct_size', $result);
+        $this->assertArrayNotHasKey('has_children', $result);
     }
 
     /**

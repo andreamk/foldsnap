@@ -23,9 +23,6 @@ use WP_Term;
 
 class FolderRepository
 {
-    /** @var string Cache key for per-folder size map */
-    private const CACHE_FOLDER_SIZES = 'folder_sizes';
-
     /** @var string Cache key for root (unassigned) total size */
     private const CACHE_ROOT_TOTAL_SIZE = 'root_total_size';
 
@@ -37,68 +34,6 @@ class FolderRepository
 
     /** @var int Sanitize max folder length */
     private const MAX_FOLDER_LENGTH = 200;
-
-    /**
-     * Retrieve all folders as a flat list
-     *
-     * @return FolderModel[]
-     */
-    public function getAll(): array
-    {
-        /** @var WP_Term[]|WP_Error */
-        $terms = get_terms(
-            [
-                'taxonomy'   => TaxonomyService::TAXONOMY_NAME,
-                'hide_empty' => false,
-            ]
-        );
-
-        if (is_wp_error($terms)) {
-            return [];
-        }
-
-        $termIds = array_map(
-            static function (WP_Term $term): int {
-                return $term->term_id;
-            },
-            $terms
-        );
-
-        if (! empty($termIds)) {
-            update_termmeta_cache($termIds);
-        }
-
-        $models = [];
-        foreach ($terms as $term) {
-            $models[] = FolderModel::fromTerm($term);
-        }
-
-        return $models;
-    }
-
-    /**
-     * Retrieve all folders as a nested tree, sorted by position
-     *
-     * Injects direct sizes into each folder before building the tree.
-     * Recursive totals (getTotalMediaCount, getTotalSize) are computed
-     * automatically by FolderModel's recursive getters after tree assembly.
-     *
-     * @return FolderModel[]
-     */
-    public function getTree(): array
-    {
-        $folders = $this->getAll();
-        $sizeMap = $this->computeFolderSizes();
-
-        foreach ($folders as $folder) {
-            $folderId = $folder->getId();
-            if (isset($sizeMap[$folderId])) {
-                $folder->setDirectSize($sizeMap[$folderId]);
-            }
-        }
-
-        return $this->buildTree($folders);
-    }
 
     /**
      * Retrieve a single folder by term ID
@@ -116,6 +51,185 @@ class FolderRepository
         }
 
         return FolderModel::fromTerm($term);
+    }
+
+    /**
+     * Retrieve multiple folders by term IDs
+     *
+     * @param int[] $termIds Term IDs to fetch
+     *
+     * @return FolderModel[] Models indexed numerically (not keyed by ID)
+     */
+    public function getByIds(array $termIds): array
+    {
+        $termIds = array_map('intval', $termIds);
+
+        if (empty($termIds)) {
+            return [];
+        }
+
+        $terms = get_terms(
+            [
+                'taxonomy'   => TaxonomyService::TAXONOMY_NAME,
+                'hide_empty' => false,
+                'include'    => $termIds,
+            ]
+        );
+
+        if (is_wp_error($terms) || ! is_array($terms)) {
+            return [];
+        }
+
+        return $this->termsToModels($terms);
+    }
+
+    /**
+     * Retrieve direct children for a single parent
+     *
+     * @param int $parentId Parent term ID (0 for root-level folders)
+     *
+     * @return FolderModel[] Children sorted by position then name
+     */
+    public function getByParent(int $parentId): array
+    {
+        $byParent = $this->getByParents([$parentId]);
+        return $byParent[$parentId] ?? [];
+    }
+
+    /**
+     * Retrieve direct children for several parents in a single query
+     *
+     * Returns a map keyed by the requested parent IDs. Parents with no
+     * children get an empty list. Children are sorted by position ASC,
+     * then name ASC, for stable display order.
+     *
+     * @param int[] $parentIds Parent term IDs (0 for root)
+     *
+     * @return array<int, FolderModel[]>
+     */
+    public function getByParents(array $parentIds): array
+    {
+        $parentIds = array_values(array_unique(array_map('intval', $parentIds)));
+        $parentIds = array_values(array_filter($parentIds, static fn (int $id): bool => $id >= 0));
+
+        /** @var array<int, FolderModel[]> $result */
+        $result = [];
+        foreach ($parentIds as $parentId) {
+            $result[$parentId] = [];
+        }
+
+        if (empty($parentIds)) {
+            return $result;
+        }
+
+        // WP_Term_Query's parent__in is unreliable when combined with the
+        // 'parent' arg (or its absence). Issue one targeted query per parent.
+        foreach ($parentIds as $parentId) {
+            $terms = get_terms(
+                [
+                    'taxonomy'   => TaxonomyService::TAXONOMY_NAME,
+                    'hide_empty' => false,
+                    'parent'     => $parentId,
+                ]
+            );
+
+            if (is_wp_error($terms) || ! is_array($terms)) {
+                continue;
+            }
+
+            $result[$parentId] = $this->termsToModels($terms);
+        }
+
+        foreach ($result as $parentId => $children) {
+            usort(
+                $children,
+                static function (FolderModel $a, FolderModel $b): int {
+                    $cmp = $a->getPosition() <=> $b->getPosition();
+                    if (0 !== $cmp) {
+                        return $cmp;
+                    }
+                    return strcasecmp($a->getName(), $b->getName());
+                }
+            );
+            $result[$parentId] = $children;
+        }
+
+        return $result;
+    }
+
+    /**
+     * Search folders by name (paginated)
+     *
+     * Uses get_terms() with `name__like` for substring matching. Returns
+     * a flat list of matching folders without their hierarchy — callers
+     * decorate with breadcrumbs separately when needed.
+     *
+     * @param string $query   Search string (empty returns no results)
+     * @param int    $page    1-indexed page number
+     * @param int    $perPage Items per page (clamped 1..100)
+     *
+     * @return array{folders:FolderModel[], total:int, total_pages:int}
+     */
+    public function search(string $query, int $page = 1, int $perPage = 50): array
+    {
+        $trimmed = trim($query);
+
+        $page    = max(1, $page);
+        $perPage = max(1, min(100, $perPage));
+
+        if ('' === $trimmed) {
+            return [
+                'folders'     => [],
+                'total'       => 0,
+                'total_pages' => 0,
+            ];
+        }
+
+        $countResult = get_terms(
+            [
+                'taxonomy'   => TaxonomyService::TAXONOMY_NAME,
+                'hide_empty' => false,
+                'name__like' => $trimmed,
+                'fields'     => 'count',
+            ]
+        );
+
+        $total = is_numeric($countResult) ? (int) $countResult : 0;
+
+        $terms = get_terms(
+            [
+                'taxonomy'   => TaxonomyService::TAXONOMY_NAME,
+                'hide_empty' => false,
+                'name__like' => $trimmed,
+                'orderby'    => 'name',
+                'order'      => 'ASC',
+                'number'     => $perPage,
+                'offset'     => ($page - 1) * $perPage,
+            ]
+        );
+
+        $folders = is_array($terms) ? $this->termsToModels($terms) : [];
+
+        $totalPages = $total > 0 ? (int) ceil($total / $perPage) : 0;
+
+        return [
+            'folders'     => $folders,
+            'total'       => $total,
+            'total_pages' => $totalPages,
+        ];
+    }
+
+    /**
+     * Resolve the ancestor path (root → target) for a folder
+     *
+     * @param int $folderId Target folder term ID
+     *
+     * @return FolderModel[]
+     */
+    public function getPath(int $folderId): array
+    {
+        $navigator = new FolderTreeNavigator($this);
+        return $navigator->resolvePath($folderId);
     }
 
     /**
@@ -242,7 +356,7 @@ class FolderRepository
         $result = wp_delete_term($termId, TaxonomyService::TAXONOMY_NAME);
 
         if (true === $result) {
-            $this->invalidateSizeCache();
+            $this->invalidateRootCache();
         }
 
         return true === $result;
@@ -269,14 +383,29 @@ class FolderRepository
             return;
         }
 
-        wp_defer_term_counting(true);
-
+        // Track previous folder IDs so we can flush their cache too.
+        $previousFolderIds = [];
         foreach ($mediaIds as $mediaId) {
+            $current = wp_get_object_terms($mediaId, TaxonomyService::TAXONOMY_NAME, ['fields' => 'ids']);
+            if (is_array($current)) {
+                foreach ($current as $cid) {
+                    if (is_numeric($cid)) {
+                        $previousFolderIds[] = (int) $cid;
+                    }
+                }
+            }
             wp_set_object_terms($mediaId, $folderId, TaxonomyService::TAXONOMY_NAME, false);
         }
 
-        wp_defer_term_counting(false);
-        $this->invalidateSizeCache();
+        // Force an immediate count update — wp_set_object_terms only updates
+        // counts via deferred recount. Without this, downstream reads of
+        // term_taxonomy.count within the same request return stale values.
+        $idsToRecount = array_values(array_unique(array_merge([$folderId], $previousFolderIds)));
+        wp_update_term_count_now($idsToRecount, TaxonomyService::TAXONOMY_NAME);
+
+        clean_term_cache($idsToRecount, TaxonomyService::TAXONOMY_NAME);
+
+        $this->invalidateRootCache();
     }
 
     /**
@@ -293,14 +422,13 @@ class FolderRepository
     {
         $this->getByIdOrFail($folderId);
 
-        wp_defer_term_counting(true);
-
         foreach ($mediaIds as $mediaId) {
             wp_remove_object_terms($mediaId, $folderId, TaxonomyService::TAXONOMY_NAME);
         }
 
-        wp_defer_term_counting(false);
-        $this->invalidateSizeCache();
+        wp_update_term_count_now([$folderId], TaxonomyService::TAXONOMY_NAME);
+        clean_term_cache([$folderId], TaxonomyService::TAXONOMY_NAME);
+        $this->invalidateRootCache();
     }
 
     /**
@@ -342,7 +470,13 @@ class FolderRepository
             TaxonomyService::POST_TYPE
         );
 
-        $total = $this->sumFileSizesFromMeta($results);
+        $total = 0;
+        foreach ($results as $serializedMeta) {
+            $meta = maybe_unserialize($serializedMeta);
+            if (is_array($meta) && isset($meta['filesize']) && is_numeric($meta['filesize'])) {
+                $total += (int) $meta['filesize'];
+            }
+        }
 
         wp_cache_set(self::CACHE_ROOT_TOTAL_SIZE, $total, self::CACHE_GROUP);
 
@@ -350,15 +484,38 @@ class FolderRepository
     }
 
     /**
-     * Invalidate cached folder size data
+     * Invalidate cached root counters
      *
      * @return void
      */
-    private function invalidateSizeCache(): void
+    private function invalidateRootCache(): void
     {
-        wp_cache_delete(self::CACHE_FOLDER_SIZES, self::CACHE_GROUP);
         wp_cache_delete(self::CACHE_ROOT_TOTAL_SIZE, self::CACHE_GROUP);
         wp_cache_delete(self::CACHE_ROOT_MEDIA_COUNT, self::CACHE_GROUP);
+    }
+
+    /**
+     * Convert a list of WP_Term objects to FolderModel instances
+     *
+     * Pre-fetches term meta in bulk to avoid N+1 queries when models
+     * read their color/position via FolderModel::fromTerm.
+     *
+     * @param WP_Term[] $terms WP_Term objects
+     *
+     * @return FolderModel[]
+     */
+    private function termsToModels(array $terms): array
+    {
+        $termIds = array_map(static fn (WP_Term $t): int => $t->term_id, $terms);
+        if (! empty($termIds)) {
+            update_termmeta_cache($termIds);
+        }
+
+        $models = [];
+        foreach ($terms as $term) {
+            $models[] = FolderModel::fromTerm($term);
+        }
+        return $models;
     }
 
     /**
@@ -366,7 +523,7 @@ class FolderRepository
      *
      * Applies sanitize_text_field, removes dangerous leading characters
      * (Excel injection prevention), strips control characters, trims
-     * whitespace, and enforces a MAX_FOLDER_LENGTH character limit (wp_terms.name column).
+     * whitespace, and enforces a MAX_FOLDER_LENGTH character limit.
      *
      * @param string $name Raw folder name
      *
@@ -444,115 +601,6 @@ class FolderRepository
         }
 
         return sprintf('%s (%d)', $name, $maxSuffix + 1);
-    }
-
-    /**
-     * Compute direct size in bytes for each folder
-     *
-     * Queries attachment metadata for all media assigned to folders,
-     * extracts the filesize from serialized _wp_attachment_metadata,
-     * and groups totals by folder term ID.
-     *
-     * @return array<int, int> Map of folder term ID => total bytes
-     */
-    private function computeFolderSizes(): array
-    {
-        $cached = wp_cache_get(self::CACHE_FOLDER_SIZES, self::CACHE_GROUP);
-        if (is_array($cached)) {
-            /** @var array<int, int> $cached */
-            return $cached;
-        }
-
-        $rows = Database::getFolderAttachmentMeta(TaxonomyService::TAXONOMY_NAME);
-
-        /** @var array<int, int> $sizeMap */
-        $sizeMap = [];
-
-        foreach ($rows as $row) {
-            $folderId = $row['folder_id'];
-            $fileSize = $this->extractFileSize($row['meta_value']);
-
-            if (! isset($sizeMap[$folderId])) {
-                $sizeMap[$folderId] = 0;
-            }
-
-            $sizeMap[$folderId] += $fileSize;
-        }
-
-        wp_cache_set(self::CACHE_FOLDER_SIZES, $sizeMap, self::CACHE_GROUP);
-
-        return $sizeMap;
-    }
-
-    /**
-     * Sum file sizes from an array of serialized attachment metadata values
-     *
-     * @param string[] $metaValues Array of serialized _wp_attachment_metadata values
-     *
-     * @return int Total size in bytes
-     */
-    private function sumFileSizesFromMeta(array $metaValues): int
-    {
-        $total = 0;
-
-        foreach ($metaValues as $metaValue) {
-            $total += $this->extractFileSize($metaValue);
-        }
-
-        return $total;
-    }
-
-    /**
-     * Extract filesize from a serialized attachment metadata value
-     *
-     * @param string $serializedMeta Serialized _wp_attachment_metadata value
-     *
-     * @return int File size in bytes, or 0 if not available
-     */
-    private function extractFileSize(string $serializedMeta): int
-    {
-        $meta = maybe_unserialize($serializedMeta);
-
-        if (is_array($meta) && isset($meta['filesize']) && is_numeric($meta['filesize'])) {
-            return (int) $meta['filesize'];
-        }
-
-        return 0;
-    }
-
-    /**
-     * Build a nested tree from a flat list of folder models
-     *
-     * @param FolderModel[] $folders Flat list of folders
-     *
-     * @return FolderModel[] Root-level folders with children attached
-     */
-    private function buildTree(array $folders): array
-    {
-        usort(
-            $folders,
-            static function (FolderModel $a, FolderModel $b): int {
-                return $a->getPosition() <=> $b->getPosition();
-            }
-        );
-
-        /** @var array<int, FolderModel> $map */
-        $map = [];
-        foreach ($folders as $folder) {
-            $map[$folder->getId()] = $folder;
-        }
-
-        $roots = [];
-        foreach ($folders as $folder) {
-            $parentId = $folder->getParentId();
-            if (0 === $parentId || ! isset($map[$parentId])) {
-                $roots[] = $folder;
-            } else {
-                $map[$parentId]->addChild($folder);
-            }
-        }
-
-        return $roots;
     }
 
     /**
