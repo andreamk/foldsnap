@@ -1,4 +1,4 @@
-<?php // phpcs:disable PSR1.Files.SideEffects.FoundWithSymbols
+<?php
 
 /**
  * Plugin bootstrap
@@ -9,8 +9,6 @@
 declare(strict_types=1);
 
 namespace FoldSnap\Core;
-
-defined('ABSPATH') || exit;
 
 use FoldSnap\Controllers\MediaLibraryController;
 use FoldSnap\Controllers\RestApiController;

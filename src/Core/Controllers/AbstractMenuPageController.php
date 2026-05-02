@@ -1,4 +1,4 @@
-<?php // phpcs:disable PSR1.Files.SideEffects.FoundWithSymbols
+<?php
 
 /**
  * Abstract class that manages a menu page and sub-menus.
@@ -10,8 +10,6 @@
 declare(strict_types=1);
 
 namespace FoldSnap\Core\Controllers;
-
-defined('ABSPATH') || exit;
 
 use FoldSnap\Core\Views\TplMng;
 use Error;

@@ -1,4 +1,4 @@
-<?php // phpcs:disable PSR1.Files.SideEffects.FoundWithSymbols
+<?php
 
 /**
  * Media Library controller
@@ -12,8 +12,6 @@
 declare(strict_types=1);
 
 namespace FoldSnap\Controllers;
-
-defined('ABSPATH') || exit;
 
 use FoldSnap\Services\TaxonomyService;
 use FoldSnap\Utils\SanitizeInput;

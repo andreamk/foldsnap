@@ -163,13 +163,16 @@ final class TplMng
             echo '<p>FILE TPL NOT FOUND: ' . esc_html($slugTpl) . '</p>';
         }
 
-        $obContent = ob_get_clean();
-        /** @var string $renderResult */
-        $renderResult = apply_filters(self::getRenderHook($slugTpl), is_string($obContent) ? $obContent : '');
+        $obContent    = (string) ob_get_clean();
+        $renderResult = apply_filters(self::getRenderHook($slugTpl), $obContent);
+        if (!is_string($renderResult)) {
+            throw new Exception('Unespected filter return; filter: ' . esc_html(self::getRenderHook($slugTpl)));
+        }
 
         if (self::$stripSpaces) {
             $renderResult = (string) preg_replace('~>[\n\s]+<~', '><', $renderResult);
         }
+
         if ($echo) {
             // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Template output, already processed
             echo $renderResult;

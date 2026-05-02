@@ -1,4 +1,4 @@
-<?php // phpcs:disable PSR1.Files.SideEffects.FoundWithSymbols
+<?php
 
 /**
  * Singleton class that manages the various controllers of the administration of WordPress
@@ -9,8 +9,6 @@
 declare(strict_types=1);
 
 namespace FoldSnap\Core\Controllers;
-
-defined('ABSPATH') || exit;
 
 use FoldSnap\Controllers\MainPageController;
 use FoldSnap\Utils\Sanitize;
