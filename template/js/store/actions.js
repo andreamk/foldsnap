@@ -347,13 +347,18 @@ export function* loadMoreSearchResults( { perPage = SEARCH_PER_PAGE } = {} ) {
 	if ( trimmed === '' ) {
 		return;
 	}
-	const pagination = yield {
-		type: 'SELECT',
-		selector: 'getSearchPagination',
-		args: [],
-	};
-	const currentPage = pagination?.page ?? 0;
-	const totalPages = pagination?.totalPages ?? 0;
+	const currentPage =
+		( yield {
+			type: 'SELECT',
+			selector: 'getSearchPage',
+			args: [],
+		} ) ?? 0;
+	const totalPages =
+		( yield {
+			type: 'SELECT',
+			selector: 'getSearchTotalPages',
+			args: [],
+		} ) ?? 0;
 	if ( currentPage >= totalPages ) {
 		return;
 	}
@@ -432,21 +437,20 @@ export function* createFolder( {
 /**
  * Update an existing folder.
  *
- * Reparenting is detected from the response envelope; both old and new
- * parent slots are refreshed so the tree stays consistent.
+ * Only the fields actually provided are sent to the server, so omitted
+ * fields keep their current value. Reparenting is detected from the
+ * response envelope; both old and new parent slots are refreshed so the
+ * tree stays consistent.
  *
- * @param {number} id              Folder ID.
- * @param {Object} params          Fields to update.
- * @param {string} params.name     New name.
- * @param {number} params.parentId New parent ID (-1 = unchanged).
- * @param {string} params.color    New color.
- * @param {number} params.position New position (-1 = unchanged).
+ * @param {number} id                Folder ID.
+ * @param {Object} params            Fields to update (omit to leave unchanged).
+ * @param {string} [params.name]     New name.
+ * @param {number} [params.parentId] New parent ID.
+ * @param {string} [params.color]    New color.
+ * @param {number} [params.position] New position.
  * @return {Iterable} Action generator.
  */
-export function* updateFolder(
-	id,
-	{ name, parentId = -1, color, position = -1 }
-) {
+export function* updateFolder( id, { name, parentId, color, position } = {} ) {
 	const previous = yield {
 		type: 'SELECT',
 		selector: 'getFolderById',
@@ -454,10 +458,24 @@ export function* updateFolder(
 	};
 	const oldParentId = previous?.parent_id ?? null;
 
+	const data = {};
+	if ( name !== undefined ) {
+		data.name = name;
+	}
+	if ( parentId !== undefined ) {
+		data.parent_id = parentId;
+	}
+	if ( color !== undefined ) {
+		data.color = color;
+	}
+	if ( position !== undefined ) {
+		data.position = position;
+	}
+
 	const response = yield apiFetch( {
 		path: `/foldsnap/v1/folders/${ id }`,
 		method: 'PUT',
-		data: { name, parent_id: parentId, color, position },
+		data,
 	} );
 
 	const newParentId = response.folder?.parent_id ?? null;

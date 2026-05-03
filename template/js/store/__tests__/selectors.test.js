@@ -11,7 +11,9 @@ import {
 	getSearchQuery,
 	getSearchResults,
 	isSearchLoading,
-	getSearchPagination,
+	getSearchPage,
+	getSearchTotalPages,
+	getSearchTotal,
 	getError,
 	getMedia,
 	isMediaLoading,
@@ -121,11 +123,9 @@ describe( 'selectors', () => {
 			expect( getSearchQuery( state ) ).toBe( 'vac' );
 			expect( getSearchResults( state ) ).toHaveLength( 1 );
 			expect( isSearchLoading( state ) ).toBe( true );
-			expect( getSearchPagination( state ) ).toEqual( {
-				page: 1,
-				totalPages: 3,
-				total: 50,
-			} );
+			expect( getSearchPage( state ) ).toBe( 1 );
+			expect( getSearchTotalPages( state ) ).toBe( 3 );
+			expect( getSearchTotal( state ) ).toBe( 50 );
 			expect( getError( state ) ).toBe( 'boom' );
 			expect( getMedia( state ) ).toHaveLength( 1 );
 			expect( isMediaLoading( state ) ).toBe( true );

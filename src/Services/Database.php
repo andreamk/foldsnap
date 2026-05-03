@@ -35,6 +35,25 @@ namespace FoldSnap\Services;
 class Database
 {
     /**
+     * Extract the `filesize` field from a `_wp_attachment_metadata` array.
+     *
+     * Returns 0 when the value is missing, the metadata is not an array,
+     * or `filesize` is not numeric — covering attachments uploaded before
+     * the field existed and rows with corrupted serialized payloads.
+     *
+     * @param mixed $meta Unserialized attachment metadata.
+     *
+     * @return int Bytes (0 if absent or invalid).
+     */
+    public static function extractFileSize($meta): int
+    {
+        if (is_array($meta) && isset($meta['filesize']) && is_numeric($meta['filesize'])) {
+            return (int) $meta['filesize'];
+        }
+        return 0;
+    }
+
+    /**
      * Get serialized attachment metadata for media not assigned to any folder
      *
      * @param string $taxonomy Taxonomy name
@@ -198,10 +217,8 @@ class Database
             if (! is_string($serialized) || '' === $serialized) {
                 continue;
             }
-            $meta = maybe_unserialize($serialized);
-            if (is_array($meta) && isset($meta['filesize']) && is_numeric($meta['filesize'])) {
-                $total += (int) $meta['filesize'];
-            }
+            $meta   = maybe_unserialize($serialized);
+            $total += self::extractFileSize($meta);
         }
 
         return $total;
@@ -591,10 +608,7 @@ class Database
                 continue;
             }
 
-            $unserialized = maybe_unserialize($metaValue);
-            if (is_array($unserialized) && isset($unserialized['filesize']) && is_numeric($unserialized['filesize'])) {
-                $sizes[$postId] = (int) $unserialized['filesize'];
-            }
+            $sizes[$postId] = self::extractFileSize(maybe_unserialize($metaValue));
         }
 
         return $sizes;
@@ -871,9 +885,9 @@ class Database
                 continue;
             }
 
-            $unserialized = maybe_unserialize($metaValue);
-            if (is_array($unserialized) && isset($unserialized['filesize']) && is_numeric($unserialized['filesize'])) {
-                $sizes[$folderId] = ($sizes[$folderId] ?? 0) + (int) $unserialized['filesize'];
+            $size = self::extractFileSize(maybe_unserialize($metaValue));
+            if ($size > 0) {
+                $sizes[$folderId] = ($sizes[$folderId] ?? 0) + $size;
             }
         }
 

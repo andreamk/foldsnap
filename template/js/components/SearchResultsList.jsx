@@ -15,14 +15,19 @@ import { STORE_NAME } from '../store/constants';
  * @return {JSX.Element} Search results panel.
  */
 const SearchResultsList = () => {
-	const { results, isLoading, pagination } = useSelect( ( select ) => {
-		const store = select( STORE_NAME );
-		return {
-			results: store.getSearchResults(),
-			isLoading: store.isSearchLoading(),
-			pagination: store.getSearchPagination(),
-		};
-	}, [] );
+	const { results, isLoading, page, totalPages, total } = useSelect(
+		( select ) => {
+			const store = select( STORE_NAME );
+			return {
+				results: store.getSearchResults(),
+				isLoading: store.isSearchLoading(),
+				page: store.getSearchPage(),
+				totalPages: store.getSearchTotalPages(),
+				total: store.getSearchTotal(),
+			};
+		},
+		[]
+	);
 
 	const {
 		setSelectedFolder,
@@ -55,7 +60,7 @@ const SearchResultsList = () => {
 		);
 	}
 
-	const hasMore = pagination.page < pagination.totalPages;
+	const hasMore = page < totalPages;
 
 	return (
 		<div className="foldsnap-search-results">
@@ -63,7 +68,7 @@ const SearchResultsList = () => {
 				{ sprintf(
 					/* translators: %d: total number of matching folders. */
 					__( '%d folders found', 'foldsnap' ),
-					pagination.total
+					total
 				) }
 			</div>
 			<ul className="foldsnap-search-results__list">

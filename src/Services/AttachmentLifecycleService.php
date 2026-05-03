@@ -64,12 +64,7 @@ class AttachmentLifecycleService
             return $metadata;
         }
 
-        $size = 0;
-        if (is_array($metadata) && isset($metadata['filesize']) && is_numeric($metadata['filesize'])) {
-            $size = (int) $metadata['filesize'];
-        }
-
-        $this->pendingAdditions[(int) $attachmentId] = $size;
+        $this->pendingAdditions[(int) $attachmentId] = Database::extractFileSize($metadata);
         $this->ensureShutdownHook();
 
         return $metadata;
@@ -98,15 +93,11 @@ class AttachmentLifecycleService
             $folderId = (int) $terms[0];
         }
 
-        $size = 0;
-        $meta = get_post_meta($attachmentId, '_wp_attachment_metadata', true);
-        if (is_array($meta) && isset($meta['filesize']) && is_numeric($meta['filesize'])) {
-            $size = (int) $meta['filesize'];
-        }
-
         $this->pendingDeletions[$attachmentId] = [
             'folderId' => $folderId,
-            'size'     => $size,
+            'size'     => Database::extractFileSize(
+                get_post_meta($attachmentId, '_wp_attachment_metadata', true)
+            ),
         ];
         $this->ensureShutdownHook();
     }

@@ -100,6 +100,8 @@ Folder mutations leave the global Root counters invariant: media stays inside th
 
 `POST /foldsnap/v1/folders/recalculate` (admin only) runs a chunked, bottom-up rebuild of all `foldsnap_folder_size` and `foldsnap_folder_count` meta in case a third-party plugin (or a previous bug) leaves the values drifted. The recalculator walks leaf-first using `Database::getChildrenTotalsForFolders` so each parent's totals are summed from already-fixed children.
 
+**First-boot auto-schedule.** `Bootstrap::onInit` checks the `foldsnap_opt_counters_initialized` option. While that flag is unset, every page load schedules a single `foldsnap_counters_recalculate` cron event 5 seconds out (if one is not already pending). The cron handler runs one chunk and reschedules itself 30 seconds later until the recalculator reports `done`, at which point `CountersRecalculator` sets the flag to `'1'` and the auto-schedule path becomes a no-op. The manual REST endpoint above (with `reset=true`) clears the flag so the same chunked path runs again on demand.
+
 ## Folder assignment
 
 Each attachment can belong to **one** folder at a time:

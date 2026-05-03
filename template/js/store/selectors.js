@@ -126,16 +126,28 @@ export const getSearchResults = ( state ) => state.searchResults;
 export const isSearchLoading = ( state ) => state.searchIsLoading;
 
 /**
- * Pagination state for the active search.
+ * Current page of the active search.
  *
  * @param {Object} state Store state.
- * @return {{page: number, totalPages: number, total: number}} Pagination.
+ * @return {number} Page number.
  */
-export const getSearchPagination = ( state ) => ( {
-	page: state.searchPage,
-	totalPages: state.searchTotalPages,
-	total: state.searchTotal,
-} );
+export const getSearchPage = ( state ) => state.searchPage;
+
+/**
+ * Total pages of the active search.
+ *
+ * @param {Object} state Store state.
+ * @return {number} Total pages.
+ */
+export const getSearchTotalPages = ( state ) => state.searchTotalPages;
+
+/**
+ * Total result count of the active search.
+ *
+ * @param {Object} state Store state.
+ * @return {number} Total results.
+ */
+export const getSearchTotal = ( state ) => state.searchTotal;
 
 /**
  * Last error message, or null.

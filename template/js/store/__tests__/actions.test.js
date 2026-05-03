@@ -1,4 +1,4 @@
-import { ACTION_TYPES, ROOT_PARENT_ID } from '../constants';
+import { ACTION_TYPES } from '../constants';
 import {
 	fetchChildren,
 	fetchChildrenBatch,
@@ -257,7 +257,8 @@ describe( 'search actions', () => {
 	it( 'loadMoreSearchResults stops when out of pages', () => {
 		const yields = drive( loadMoreSearchResults(), [
 			'vac', // getSearchQuery
-			{ page: 2, totalPages: 2 }, // getSearchPagination
+			2, // getSearchPage
+			2, // getSearchTotalPages
 		] );
 		const fetchStart = yields.find(
 			( y ) => y.type === ACTION_TYPES.FETCH_SEARCH_START
@@ -446,9 +447,4 @@ describe( 'setSelectedFolder / fetchMedia', () => {
 			error: 'timeout',
 		} );
 	} );
-} );
-
-// Sanity: ROOT_PARENT_ID is 0 and used everywhere.
-test( 'ROOT_PARENT_ID is 0', () => {
-	expect( ROOT_PARENT_ID ).toBe( 0 );
 } );

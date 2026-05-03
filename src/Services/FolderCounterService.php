@@ -163,10 +163,7 @@ class FolderCounterService
 
         $total = 0;
         foreach ($results as $serializedMeta) {
-            $meta = maybe_unserialize($serializedMeta);
-            if (is_array($meta) && isset($meta['filesize']) && is_numeric($meta['filesize'])) {
-                $total += (int) $meta['filesize'];
-            }
+            $total += Database::extractFileSize(maybe_unserialize($serializedMeta));
         }
 
         wp_cache_set(self::CACHE_ROOT_TOTAL_SIZE, $total, self::CACHE_GROUP);

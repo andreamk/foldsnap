@@ -26,7 +26,9 @@ const setup = ( {
 		fn( () => ( {
 			getSearchResults: () => results,
 			isSearchLoading: () => isLoading,
-			getSearchPagination: () => pagination,
+			getSearchPage: () => pagination.page,
+			getSearchTotalPages: () => pagination.totalPages,
+			getSearchTotal: () => pagination.total,
 		} ) )
 	);
 };

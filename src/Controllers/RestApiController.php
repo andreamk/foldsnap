@@ -18,6 +18,7 @@ namespace FoldSnap\Controllers;
 
 use FoldSnap\Models\FolderModel;
 use FoldSnap\Services\CountersRecalculator;
+use FoldSnap\Services\Database;
 use FoldSnap\Services\FolderCounterService;
 use FoldSnap\Services\FolderNameSanitizer;
 use FoldSnap\Services\FolderRepository;
@@ -643,12 +644,7 @@ final class RestApiController
      */
     private function formatMediaItem(\WP_Post $post): array
     {
-        $metadata = wp_get_attachment_metadata($post->ID);
-        $fileSize = 0;
-        if (is_array($metadata) && isset($metadata['filesize']) && is_numeric($metadata['filesize'])) {
-            $fileSize = (int) $metadata['filesize'];
-        }
-
+        $fileSize     = Database::extractFileSize(wp_get_attachment_metadata($post->ID));
         $thumbnailUrl = wp_get_attachment_image_url($post->ID, 'thumbnail');
 
         return [
