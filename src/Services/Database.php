@@ -134,10 +134,7 @@ class Database
     }
 
     /**
-     * Count every attachment of the given post type, regardless of folder
-     *
-     * Used to compute the Root folder's `total_media_count`. Mirrors the
-     * post-status filter (`inherit`) used by the unassigned variant.
+     * Count every attachment of the given post type with status `inherit`.
      *
      * @param string $postType Post type to filter
      *
@@ -162,11 +159,9 @@ class Database
     }
 
     /**
-     * Sum filesize across every attachment of the given post type
+     * Sum filesize across every attachment of the given post type.
      *
-     * Used to compute the Root folder's `total_size`. Reads filesize from
-     * `_wp_attachment_metadata` (available since WP 6.0; FoldSnap requires
-     * 6.5+).
+     * Reads `filesize` from `_wp_attachment_metadata`.
      *
      * @param string $postType Post type to filter
      *
@@ -482,11 +477,10 @@ class Database
     }
 
     /**
-     * Read filesize for a list of attachments from `_wp_attachment_metadata`
+     * Read filesize for a list of attachments from `_wp_attachment_metadata`.
      *
-     * Used by the incremental counter logic to compute size deltas when
-     * media is assigned/removed. Returns 0 for attachments whose metadata
-     * is missing or has no `filesize` key.
+     * Returns 0 for attachments whose metadata row is missing or has no
+     * `filesize` key.
      *
      * @param int[] $mediaIds Attachment post IDs.
      *
@@ -549,17 +543,14 @@ class Database
     }
 
     /**
-     * Bulk increment/decrement an integer term meta across many terms
+     * Bulk increment/decrement an integer term meta across many terms.
      *
-     * Pre-condition: every term in $termIds has a row in wp_termmeta for
-     * $metaKey (the meta is initialized at folder creation, see
-     * FolderRepository::create and the recalculate migration).
-     *
-     * Negative deltas are clamped to zero at SQL level via GREATEST so the
-     * value never goes below zero, even if a previous drift left it stale.
+     * Pre-condition: every term in $termIds must already have a row in
+     * wp_termmeta for $metaKey. Negative results are clamped to zero in SQL
+     * via GREATEST.
      *
      * @param int[]  $termIds Term IDs whose meta to adjust.
-     * @param string $metaKey Term meta key (foldsnap_folder_size or _count).
+     * @param string $metaKey Term meta key.
      * @param int    $delta   Signed delta to add to the current value.
      *
      * @return void
@@ -596,11 +587,10 @@ class Database
     }
 
     /**
-     * Read folder_count + folder_size for the direct children of each parent
+     * Sum folder_count and folder_size of the direct children of each parent.
      *
-     * Single JOIN query that aggregates per parent: for each parent it
-     * returns the sum of the children's foldsnap_folder_count and
-     * foldsnap_folder_size term meta. Used by the bottom-up recalculate.
+     * Single JOIN+GROUP BY query: for each parent, aggregates the children's
+     * `foldsnap_folder_count` and `foldsnap_folder_size` term meta.
      *
      * @param int[]  $parentIds Parent term IDs.
      * @param string $taxonomy  Taxonomy name.
@@ -683,16 +673,13 @@ class Database
     }
 
     /**
-     * Initialize size/count term meta to 0 for any folder missing them
+     * Insert size/count term meta rows (value 0) for terms missing them.
      *
-     * Pre-condition for `bulkAdjustTermMeta`: every term must already have
-     * a row in wp_termmeta for the keys being incremented. Folders created
-     * via FolderRepository::create() satisfy this from the start; this
-     * helper covers existing terms during the migration to incremental
-     * counters (and is idempotent — running it twice is a no-op).
+     * Idempotent: terms that already have rows are skipped. Only the supplied
+     * IDs are touched.
      *
      * @param int[]  $termIds  Term IDs to normalize.
-     * @param string $taxonomy Taxonomy name (only the supplied IDs are touched).
+     * @param string $taxonomy Taxonomy name.
      *
      * @return void
      */

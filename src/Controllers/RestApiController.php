@@ -403,9 +403,8 @@ final class RestApiController
     /**
      * GET /foldsnap/v1/folders/{id}/path
      *
-     * Returns the ancestor chain (root → target) decorated with totals
-     * and has_children. Used by clients to expand the tree to a deep-linked
-     * folder.
+     * Returns the ancestor chain (root → target) decorated with totals and
+     * has_children, or `{ path: [] }` if the target does not exist.
      *
      * @param WP_REST_Request $request REST request object
      *
@@ -491,11 +490,10 @@ final class RestApiController
     }
 
     /**
-     * Children-fetch mode for GET /folders
+     * Children-fetch mode for GET /folders.
      *
-     * Returns paginated children for one or more parent IDs. The response
-     * carries the requested parent IDs plus root-level totals so clients
-     * can refresh root counters in the same trip when fetching from root.
+     * Returns paginated direct children for the requested parent IDs as a
+     * flat list, plus the refreshed Root folder.
      *
      * @param WP_REST_Request $request REST request object
      *

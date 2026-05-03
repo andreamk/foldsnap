@@ -1,111 +1,208 @@
 # REST API Endpoints
 
-All endpoints are under the `foldsnap/v1` namespace and require the `upload_files` capability.
+All endpoints live under the `foldsnap/v1` namespace. Folder discovery, navigation, mutations, and media listing share two recurring shapes:
 
-## Folders
+- **Folder object** — the wire form of `FolderModel::toArray()`. Every endpoint that returns folders returns objects of this shape.
+- **Mutation envelope** — every write endpoint (create / update / delete / assignMedia / removeMedia) returns the same envelope so clients can patch their cached tree without refetching.
 
-### GET /foldsnap/v1/folders
+Read endpoints require the `upload_files` capability. The `recalculate` admin endpoint requires `manage_options`.
 
-Returns the full folder tree with media counts and sizes.
+## Shared shapes
 
-**Response (200):**
+### Folder object
 
 ```json
 {
-  "folders": [
-    {
-      "id": 1,
-      "name": "Photos",
-      "slug": "photos",
-      "parent_id": 0,
-      "media_count": 5,
-      "total_media_count": 12,
-      "color": "#ff0000",
-      "position": 0,
-      "direct_size": 10240,
-      "total_size": 25600,
-      "children": []
-    }
-  ],
-  "root_media_count": 42,
-  "root_total_size": 102400
+  "id": 42,
+  "name": "Photos",
+  "slug": "photos",
+  "parent_id": 0,
+  "media_count": 5,
+  "total_media_count": 12,
+  "total_size": 25600,
+  "color": "#ff0000",
+  "position": 0,
+  "has_children": true,
+  "is_root": false
 }
 ```
 
-- `media_count` — direct attachments in this folder (from taxonomy term count)
-- `total_media_count` — recursive total including all descendants
-- `direct_size` / `total_size` — bytes, computed from `_wp_attachment_metadata`
-- `root_media_count` / `root_total_size` — unassigned media (not in any folder)
+| Field               | Notes                                                                              |
+|---------------------|------------------------------------------------------------------------------------|
+| `parent_id`         | `-1` for the synthetic Root, `0` for top-level folders, `> 0` otherwise            |
+| `media_count`       | Direct attachments only (`wp_term_taxonomy.count`)                                 |
+| `total_media_count` | Recursive: this folder plus every descendant. Stored as term meta, kept in sync incrementally. For Root, this is the global site count. |
+| `total_size`        | Recursive bytes, same semantics as `total_media_count`                             |
+| `has_children`      | True if the folder has at least one direct sub-folder                              |
+| `is_root`           | True only for the synthetic Root model                                             |
 
-### POST /foldsnap/v1/folders
+### Mutation envelope
 
-Creates a new folder.
+```json
+{
+  "folder": { "...folder object...": "" },
+  "paths": [
+    [ { "...folder object...": "" }, "..." ]
+  ],
+  "affected_parents": [
+    { "id": 7, "has_children": true }
+  ],
+  "root": { "...folder object...": "" }
+}
+```
 
-| Parameter   | Type   | Required | Description                          |
-|-------------|--------|----------|--------------------------------------|
-| `name`      | string | yes      | Folder name (max 200 chars)          |
-| `parent_id` | int    | no       | Parent folder ID (0 = root, default) |
-| `color`     | string | no       | Hex color (e.g., `#ff0000`)          |
-| `position`  | int    | no       | Sort position (default 0)            |
+- `folder` — the created/updated/touched folder.
+- `paths` — list of ancestor chains whose `total_*` may have changed. The first chain is for `folder`; additional chains are appended when other folders are also affected (e.g. `assignMedia` returns one chain per origin folder). Each chain runs from the leaf up to top-level. The client merges per-chain totals into its cache.
+- `affected_parents` — parents whose `has_children` flag may have flipped (after delete or reparent). Root (`id = 0`) is omitted because its chevron is implicit.
+- `root` — the refreshed Root folder so the client can update the global counters in the same trip.
 
-Duplicate names under the same parent are auto-suffixed (e.g., "Photos (2)").
+`assignMedia` and `removeMedia` envelopes are wrapped in an extra `assigned: true` / `removed: true` flag.
 
-**Response (201):** The created folder object.
+## Folder endpoints
 
-### PUT /foldsnap/v1/folders/{id}
+### `GET /folders`
 
-Updates a folder. Only provided fields are changed.
+Two mutually exclusive modes, picked from query parameters:
 
-| Parameter   | Type   | Required | Description                         |
-|-------------|--------|----------|-------------------------------------|
-| `name`      | string | no       | New name                            |
-| `parent_id` | int    | no       | New parent (-1 or omit = no change) |
-| `color`     | string | no       | New hex color                       |
-| `position`  | int    | no       | New position (-1 or omit = no change) |
+#### Children fetch (default)
 
-**Response (200):** The updated folder object.
+| Parameter      | Type    | Default | Notes                                              |
+|----------------|---------|---------|----------------------------------------------------|
+| `parent_ids[]` | int[]   | `[0]`   | Repeated query param, or comma-separated string    |
+| `page`         | int     | `1`     |                                                    |
+| `per_page`     | int     | `100`   | Clamped to `1..200`                                |
 
-### DELETE /foldsnap/v1/folders/{id}
+```json
+{
+  "mode": "children",
+  "folders": [ "...folder objects across all requested parents..." ],
+  "requested_parent_ids": [ 0, 42 ],
+  "total": 18,
+  "total_pages": 1,
+  "root": { "...folder object..." }
+}
+```
 
-Deletes a folder. Media items lose their folder assignment and return to root.
+`folders` is a flat list — each entry carries its `parent_id`, so the client can group by parent. Sort order matches the repository (`position` ASC, then name).
 
-**Response (200):** `{ "deleted": true }`
+Response also sets `X-WP-Total` and `X-WP-TotalPages` headers.
 
-## Media Assignment
+#### Search
 
-### POST /foldsnap/v1/folders/{id}/media
+| Parameter   | Type   | Default | Notes                                       |
+|-------------|--------|---------|---------------------------------------------|
+| `search`    | string | —       | When non-empty, switches to search mode     |
+| `page`      | int    | `1`     |                                             |
+| `per_page`  | int    | `50`    | Clamped to `1..100`                         |
 
-Assigns media items to a folder. Replaces any existing folder assignment for each item.
+```json
+{
+  "mode": "search",
+  "query": "photos",
+  "results": [
+    {
+      "folder": { "...folder object..." },
+      "breadcrumb": [
+        { "id": 0, "name": "Root", "is_root": true },
+        { "id": 7, "name": "2025", "is_root": false }
+      ]
+    }
+  ],
+  "total": 23,
+  "total_pages": 1
+}
+```
 
-| Parameter   | Type  | Required | Description             |
-|-------------|-------|----------|-------------------------|
-| `media_ids` | int[] | yes      | Attachment post IDs     |
+`breadcrumb` is the ancestor chain (Root first, target excluded), trimmed for tooltip display.
 
-**Response (200):** `{ "assigned": true }`
+### `POST /folders`
 
-### DELETE /foldsnap/v1/folders/{id}/media
+| Parameter   | Type   | Required | Default | Notes                                |
+|-------------|--------|----------|---------|--------------------------------------|
+| `name`      | string | yes      | —       | Sanitized; max 200 chars             |
+| `parent_id` | int    | no       | `0`     | `0` = top-level                      |
+| `color`     | string | no       | `''`    | Hex code                             |
+| `position`  | int    | no       | `0`     |                                      |
 
-Removes media items from a folder.
+Duplicate names under the same parent are auto-suffixed (`Photos`, `Photos (2)`, `Photos (3)`...).
 
-| Parameter   | Type  | Required | Description             |
-|-------------|-------|----------|-------------------------|
-| `media_ids` | int[] | yes      | Attachment post IDs     |
+Returns `201` with a [mutation envelope](#mutation-envelope).
 
-**Response (200):** `{ "removed": true }`
+### `PUT /folders/{id}`
 
-## Media Query
+Updates a folder. Omitted fields are left unchanged.
 
-### GET /foldsnap/v1/media
+| Parameter   | Type   | Required | Notes                                                       |
+|-------------|--------|----------|-------------------------------------------------------------|
+| `name`      | string | no       |                                                             |
+| `parent_id` | int    | no       | Reparent target (`0` = top-level). Omit to leave unchanged. |
+| `color`     | string | no       |                                                             |
+| `position`  | int    | no       |                                                             |
 
-Returns paginated media for a folder.
+Mutating Root (`id = 0`) is rejected with `invalid_argument`.
 
-| Parameter   | Type | Required | Description                                 |
-|-------------|------|----------|---------------------------------------------|
-| `folder_id` | int  | yes      | Folder ID (0 = unassigned/root)             |
-| `page`      | int  | no       | Page number (default 1)                     |
-| `per_page`  | int  | no       | Items per page (1–100, default 40)          |
+Returns `200` with a [mutation envelope](#mutation-envelope). When the folder is reparented, `paths` includes both the old and the new ancestor chain so the client can apply both deltas.
 
-**Response (200):**
+### `DELETE /folders/{id}`
+
+Deletes the folder. Direct media items return to Root; direct sub-folders are promoted to the deleted folder's parent.
+
+```json
+{
+  "deleted": true,
+  "id": 42,
+  "affected_parents": [ { "id": 7, "has_children": false } ],
+  "root": { "...folder object..." }
+}
+```
+
+### `GET /folders/{id}/path`
+
+Returns the ancestor chain from Root to the target, inclusive.
+
+```json
+{
+  "path": [
+    { "...Root folder..." },
+    { "...ancestor..." },
+    { "...target..." }
+  ]
+}
+```
+
+Returns `{ "path": [] }` if the target does not exist.
+
+## Media assignment
+
+### `POST /folders/{id}/media`
+
+Assigns each media item to the folder, replacing any existing assignment.
+
+| Parameter   | Type  | Required | Notes                  |
+|-------------|-------|----------|------------------------|
+| `media_ids` | int[] | yes      | Non-empty              |
+
+Assigning to Root (`id = 0`) is the same as unassigning from any folder.
+
+Returns `200` with `{ "assigned": true, ...mutation envelope }`. The envelope's `paths` includes one chain per origin folder so the client can apply the negative deltas to the folders the media just left.
+
+### `DELETE /folders/{id}/media`
+
+Removes each media item from the folder. Media that was not in the folder is silently skipped.
+
+Returns `200` with `{ "removed": true, ...mutation envelope }`.
+
+## Media query
+
+### `GET /media`
+
+Returns paginated attachments for a folder.
+
+| Parameter   | Type | Required | Default | Notes                                |
+|-------------|------|----------|---------|--------------------------------------|
+| `folder_id` | int  | yes      | —       | `0` = unassigned/Root                |
+| `page`      | int  | no       | `1`     |                                      |
+| `per_page`  | int  | no       | `40`    | Clamped to `1..100`                  |
 
 ```json
 {
@@ -126,16 +223,29 @@ Returns paginated media for a folder.
 }
 ```
 
-Response headers include `X-WP-Total` and `X-WP-TotalPages`.
+Response sets `X-WP-Total` and `X-WP-TotalPages`. The query is built via `TaxonomyService::buildFolderTaxQuery()` (`NOT EXISTS` for Root, `term_id` match with `include_children = false` otherwise).
 
-## Error Responses
+## Admin
+
+### `POST /folders/recalculate`
+
+Runs one chunk of the bottom-up counter recalculate. With `reset = true` the persistent stack is cleared so the next call starts from leaves. Used to rebuild drifted `total_*` values.
+
+| Parameter | Type | Default | Notes                              |
+|-----------|------|---------|------------------------------------|
+| `limit`   | int  | `200`   | Folders processed in this chunk    |
+| `reset`   | bool | `false` | Restart from scratch               |
+
+The response is the recalculator's progress envelope (folders processed, remaining, done flag). Requires `manage_options`.
+
+## Error responses
 
 All endpoints return `WP_Error` on failure:
 
-| Code                | Status | Meaning                          |
-|---------------------|--------|----------------------------------|
-| `missing_name`      | 400    | Folder name not provided         |
-| `missing_folder_id` | 400    | folder_id parameter missing      |
-| `missing_media_ids` | 400    | media_ids empty or not an array  |
-| `invalid_argument`  | 400    | Validation failed (e.g., folder not found) |
-| `server_error`      | 500    | Unexpected server error          |
+| Code                | Status | Meaning                              |
+|---------------------|--------|--------------------------------------|
+| `missing_name`      | 400    | Folder name not provided             |
+| `missing_folder_id` | 400    | `folder_id` parameter missing        |
+| `missing_media_ids` | 400    | `media_ids` empty or not an array    |
+| `invalid_argument`  | 400    | Validation failed (e.g. folder not found, mutation against Root) |
+| `server_error`      | 500    | Unexpected server error              |

@@ -191,11 +191,7 @@ final class FolderModel
     }
 
     /**
-     * Whether this model represents the virtual Root folder
-     *
-     * The Root folder is a synthetic FolderModel with id 0; the database
-     * has no term backing it. Modifying it (rename, delete, parent change)
-     * is forbidden by the repository.
+     * Returns true if this model represents the virtual Root folder (id 0).
      *
      * @return bool
      */
@@ -205,16 +201,15 @@ final class FolderModel
     }
 
     /**
-     * Build the virtual Root FolderModel
+     * Factory for the virtual Root FolderModel.
      *
-     * Identity-only factory. The repository populates the counts/size with
-     * the option-backed Root globals before handing this to the rest of
-     * the system; for Root those globals ARE the recursive totals.
+     * All counter fields are passed in explicitly; Root has no backing
+     * term meta to read from.
      *
      * @param int  $mediaCount      Direct media count (unassigned attachments).
-     * @param int  $totalMediaCount Global recursive media count (every attachment).
-     * @param int  $totalSize       Global recursive total size in bytes.
-     * @param bool $hasChildren     Whether top-level folders exist
+     * @param int  $totalMediaCount Recursive media count.
+     * @param int  $totalSize       Recursive total size in bytes.
+     * @param bool $hasChildren     Whether top-level folders exist.
      *
      * @return self
      */
@@ -240,11 +235,10 @@ final class FolderModel
     }
 
     /**
-     * Build models from a list of WP_Term objects with bulk-loaded meta
+     * Build models from a list of WP_Term objects.
      *
-     * Pre-fetches term meta (`update_termmeta_cache`) and children counts
-     * (`Database::getChildrenCounts`) in a single round-trip each, so the
-     * resulting models are fully populated without N+1 queries.
+     * Pre-fetches term meta and children counts in a single round-trip each
+     * before walking the input.
      *
      * @param WP_Term[] $terms WordPress term objects
      *
@@ -272,10 +266,7 @@ final class FolderModel
     }
 
     /**
-     * Build a model from a single WP_Term
-     *
-     * Convenience wrapper over `fromTerms`. Use `fromTerms` directly when
-     * loading more than one term to avoid N+1 queries.
+     * Build a model from a single WP_Term.
      *
      * @param WP_Term $term WordPress term object
      *

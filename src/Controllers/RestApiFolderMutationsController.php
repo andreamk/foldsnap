@@ -1,16 +1,12 @@
 <?php
 
 /**
- * REST controller for folder write operations
+ * REST controller for folder write operations.
  *
- * Owns create / update / delete on folders, plus media assignment. Each
- * mutation returns a uniform envelope with the affected folder, its full
- * ancestor path (with refreshed totals), and the parents whose has_children
- * may have flipped, so clients can patch their cached tree without a full
- * refetch.
+ * Owns create / update / delete on folders plus media assignment, returning
+ * a uniform mutation envelope. Routes are registered by RestApiController.
  *
- * Routes are registered by RestApiController, which forwards to the methods
- * here as callbacks.
+ * See docs/02_1_API_rest-endpoints.md for the envelope shape and contract.
  *
  * @package FoldSnap
  */
@@ -175,8 +171,6 @@ final class RestApiFolderMutationsController
                 return new WP_REST_Response(['assigned' => true], 200);
             }
 
-            // Each origin folder also needs its ancestor totals refreshed —
-            // a media item just left it and joined the destination chain.
             $affectedParents = array_merge([$folder->getParentId()], $previousFolderIds);
 
             return new WP_REST_Response(
@@ -228,18 +222,16 @@ final class RestApiFolderMutationsController
     }
 
     /**
-     * Build the unified mutation envelope returned by every write endpoint
+     * Build the unified mutation envelope.
      *
-     * `paths` is the list of ancestor chains whose totals the client should
-     * apply. The first chain is always for `$folder`; any IDs in
-     * `$extraPathFolderIds` get their own chain appended (used by assignMedia
-     * to refresh origin folders too). Chains keyed by an unknown / deleted
-     * folder ID are skipped silently.
+     * `paths` always starts with `$folder`'s ancestor chain; each ID in
+     * `$extraPathFolderIds` gets its own chain appended. Chains for unknown
+     * or deleted folder IDs are skipped silently.
      *
-     * @param \FoldSnap\Models\FolderModel $folder             The folder that was created/updated/touched
-     * @param int[]                        $affectedParentIds  Parent IDs whose has_children may have changed
+     * @param \FoldSnap\Models\FolderModel $folder             The folder that was created/updated/touched.
+     * @param int[]                        $affectedParentIds  Parent IDs whose has_children may have changed.
      * @param int[]                        $extraPathFolderIds Additional folder IDs whose ancestor chain
-     *                                                         totals should be included in `paths`.
+     *                                                         should be included in `paths`.
      *
      * @return MutationEnvelope
      */

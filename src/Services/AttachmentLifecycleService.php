@@ -1,15 +1,11 @@
 <?php
 
 /**
- * Attachment lifecycle hooks for incremental counters
+ * Bridges WordPress attachment upload/delete events to folder counters.
  *
- * Bridges WordPress attachment events (upload, delete) to the folder
- * counter system. Both hooks defer their work to `shutdown` so a bulk
- * upload of N files results in a single database round-trip, not N×D.
- *
- * Newly uploaded media are unassigned — only the global Root counters
- * change. Deletions can affect any folder, so we read the media's term
- * before WordPress strips the relationships.
+ * Both hooks queue their work and flush at `shutdown` so bulk uploads
+ * collapse to a single round-trip. See docs/03_1_MEDIA_folder-system.md
+ * for the counter contract.
  *
  * @package FoldSnap
  */
@@ -55,14 +51,10 @@ class AttachmentLifecycleService
     }
 
     /**
-     * Capture filesize when WP finishes generating metadata for a NEW upload
+     * Queue a `(filesize, +1)` Root counter delta for a new upload.
      *
-     * Fires once per upload, after `_wp_attachment_metadata` is in the DB
-     * with `filesize`. The `'create'` context filters out regenerations
-     * (e.g. Regenerate Thumbnails plugin), which must NOT bump the counter.
-     *
-     * Always returns the metadata unchanged — this is a filter, not an
-     * action, but used for its single-fire timing.
+     * Skipped when $context !== 'create' (regenerations must not bump the
+     * counter). Returns $metadata unchanged.
      *
      * @param mixed  $metadata     The attachment metadata array.
      * @param int    $attachmentId Attachment post ID.
@@ -88,11 +80,10 @@ class AttachmentLifecycleService
     }
 
     /**
-     * Snapshot folder + size before WP deletes the attachment
+     * Read the folder assignment + filesize and queue a deletion entry.
      *
-     * `delete_attachment` fires while the post still exists, so we can read
-     * the term assignment and the meta. The actual counter writes happen
-     * in `flushDeletions` on shutdown.
+     * Runs while the post still exists; the queued entry is flushed at
+     * shutdown.
      *
      * @param int $attachmentId Attachment post ID.
      *

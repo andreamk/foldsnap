@@ -1,12 +1,7 @@
 <?php
 
 /**
- * Presenter helpers shared by folder REST controllers
- *
- * `decorateFolders` is just a map over `FolderModel::toArray()`, kept as a
- * named helper for readability at every call site. `buildAffectedParents`
- * carries parent IDs the client must refresh; their `has_children` is
- * looked up in bulk because the IDs are not necessarily already loaded.
+ * Presenter helpers shared by folder REST controllers.
  *
  * @package FoldSnap
  */
@@ -37,10 +32,10 @@ trait RestApiFolderPresenter
     }
 
     /**
-     * Build affected_parents payload for chevron refresh
+     * Build the affected_parents payload.
      *
-     * Each entry: {id: int, has_children: bool}. Parent ID 0 (root) is
-     * skipped because root has no chevron in the tree UI.
+     * Returns one `{id, has_children}` entry per non-root parent ID,
+     * deduplicated. Parent ID 0 (root) is skipped.
      *
      * @param int[] $parentIds Parent term IDs
      *

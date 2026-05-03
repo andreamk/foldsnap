@@ -204,11 +204,9 @@ class FolderRepository
     }
 
     /**
-     * Search folders by name (paginated)
+     * Search folders by name (paginated, flat list).
      *
-     * Uses get_terms() with `name__like` for substring matching. Returns
-     * a flat list of matching folders without their hierarchy — callers
-     * decorate with breadcrumbs separately when needed.
+     * Uses get_terms() with `name__like` for substring matching.
      *
      * @param string $query   Search string (empty returns no results)
      * @param int    $page    1-indexed page number
@@ -440,18 +438,15 @@ class FolderRepository
     }
 
     /**
-     * Assign media items to a folder
+     * Assign media items to a folder.
      *
-     * Replaces any existing folder assignment for each media item. Returns
-     * the list of folder IDs the media were previously assigned to (deduped,
-     * excluding $folderId itself) so callers can refresh their ancestor
-     * totals — those folders just lost media that the destination gained.
+     * Replaces any existing folder assignment for each media item.
      *
      * @param int   $folderId Folder term ID
      * @param int[] $mediaIds Array of attachment post IDs
      *
-     * @return int[] Previous folder IDs the media were assigned to, deduped,
-     *               with $folderId removed.
+     * @return int[] Folder IDs the media were previously assigned to,
+     *               deduped, with $folderId itself removed.
      *
      * @throws InvalidArgumentException If folder does not exist.
      */
@@ -552,9 +547,7 @@ class FolderRepository
     }
 
     /**
-     * Strip every folder term from the given media items
-     *
-     * Used when "assigning" media to the virtual Root folder.
+     * Strip every folder term from the given media items.
      *
      * @param int[] $mediaIds Attachment IDs.
      *
@@ -911,10 +904,7 @@ class FolderRepository
     }
 
     /**
-     * Reject mutations against the virtual Root folder
-     *
-     * Root has no underlying term and is conceptually a fixed anchor for the
-     * tree. Rename, reparent, delete, and removeMedia are forbidden.
+     * Throws if $termId is the virtual Root sentinel (0).
      *
      * @param int $termId Term ID being mutated.
      *
@@ -932,16 +922,11 @@ class FolderRepository
     }
 
     /**
-     * Resolve ancestor chain of a folder, excluding Root
-     *
-     * Returns the list of term IDs whose `total_*` aggregates include this
-     * folder: the folder itself first, then its parent, grandparent, ... up
-     * to the top-level folder. Stops just before the virtual Root (id 0,
-     * which has its own option-backed counters).
+     * Walk the parent chain leaf-first, stopping before Root.
      *
      * @param int $termId Folder term ID (must be > 0).
      *
-     * @return int[] Term IDs from leaf up to top-level (no Root).
+     * @return int[] Term IDs from $termId up to top-level (Root excluded).
      */
     private function ancestorChainIncluding(int $termId): array
     {
@@ -986,11 +971,7 @@ class FolderRepository
     }
 
     /**
-     * Adjust the global Root counters (option-backed)
-     *
-     * Used only by attachment lifecycle hooks (add/delete attachment) — folder
-     * mutations leave the global Root totals invariant because media stays in
-     * the site, only the sub-folder it lives in changes.
+     * Apply signed deltas to the option-backed global Root counters.
      *
      * @param int $sizeDelta  Signed bytes delta.
      * @param int $countDelta Signed media-count delta.
@@ -1032,11 +1013,7 @@ class FolderRepository
     }
 
     /**
-     * Read an option as an int with a safe default
-     *
-     * Wraps the inherently-mixed return of get_option in a typed access so
-     * PHPStan doesn't flag the cast — and so a corrupted option string
-     * never propagates as 0 silently when the value should fall back.
+     * Read an option as an int, with a default for missing/non-numeric values.
      *
      * @param string $optionName Option key.
      * @param int    $default    Fallback value when the option is missing or non-numeric.
