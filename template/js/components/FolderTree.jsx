@@ -1,12 +1,8 @@
 import { useState, useEffect, useRef } from '@wordpress/element';
 import { TextControl, Button, Spinner, Notice } from '@wordpress/components';
 import { useSelect, useDispatch } from '@wordpress/data';
-import {
-	SortableContext,
-	verticalListSortingStrategy,
-} from '@dnd-kit/sortable';
 import { __ } from '@wordpress/i18n';
-import { STORE_NAME } from '../store/constants';
+import { STORE_NAME, ROOT_PARENT_ID } from '../store/constants';
 import FolderItem from './FolderItem';
 import CreateFolderModal from './CreateFolderModal';
 import SearchResultsList from './SearchResultsList';
@@ -32,21 +28,20 @@ const FolderTree = () => {
 	const debounceRef = useRef( null );
 
 	const {
-		rootFolders,
+		rootHydrated,
 		isRootLoading,
 		selectedFolderId,
 		error,
-		rootMediaCount,
 		searchQuery,
 	} = useSelect( ( select ) => {
 		const store = select( STORE_NAME );
 		return {
-			rootFolders: store.getRootFolders(),
+			rootHydrated: store.getFolderById( ROOT_PARENT_ID ) !== undefined,
 			isRootLoading:
-				! store.isFolderLoaded( 0 ) && store.isFolderFetching( 0 ),
+				! store.isFolderLoaded( ROOT_PARENT_ID ) &&
+				store.isFolderFetching( ROOT_PARENT_ID ),
 			selectedFolderId: store.getSelectedFolderId(),
 			error: store.getError(),
-			rootMediaCount: store.getRootMediaCount(),
 			searchQuery: store.getSearchQuery(),
 		};
 	}, [] );
@@ -88,27 +83,24 @@ const FolderTree = () => {
 		}, SEARCH_DEBOUNCE_MS );
 	};
 
-	const handleRootSelect = () => {
-		setSelectedFolder( null );
-	};
-
-	const handleOpenModal = ( parentId = 0 ) => {
+	const handleOpenModal = ( parentId = ROOT_PARENT_ID ) => {
 		setModalParentId( parentId );
 		setIsModalOpen( true );
 	};
 
 	const handleCloseModal = () => {
 		setIsModalOpen( false );
-		setModalParentId( 0 );
+		setModalParentId( ROOT_PARENT_ID );
 	};
 
 	const isSearching = searchQuery.trim() !== '';
-	const rootFolderIds = rootFolders.map( ( f ) => f.id );
 
 	return (
 		<div className="foldsnap-folder-tree">
 			<div className="foldsnap-folder-tree__search">
 				<TextControl
+					__nextHasNoMarginBottom
+					__next40pxDefaultSize
 					label={ __( 'Search folders', 'foldsnap' ) }
 					hideLabelFromVision
 					placeholder={ __( 'Search folders…', 'foldsnap' ) }
@@ -124,57 +116,24 @@ const FolderTree = () => {
 				</Notice>
 			) }
 
-			{ ! isSearching && (
-				<div
-					className={ [
-						'foldsnap-root-item',
-						selectedFolderId === null
-							? 'foldsnap-root-item--selected'
-							: '',
-					]
-						.filter( Boolean )
-						.join( ' ' ) }
-					role="button"
-					tabIndex={ 0 }
-					onClick={ handleRootSelect }
-					onKeyDown={ ( e ) =>
-						e.key === 'Enter' && handleRootSelect()
-					}
-				>
-					<span className="foldsnap-root-item__label">
-						{ __( 'All Media', 'foldsnap' ) }
-					</span>
-					<span className="foldsnap-root-item__badge">
-						{ rootMediaCount }
-					</span>
-				</div>
-			) }
-
 			{ isSearching ? (
 				<SearchResultsList />
 			) : (
 				<>
-					{ isRootLoading && (
+					{ isRootLoading && ! rootHydrated && (
 						<div className="foldsnap-folder-tree__loading">
 							<Spinner />
 						</div>
 					) }
-					{ ! isRootLoading && (
-						<SortableContext
-							items={ rootFolderIds }
-							strategy={ verticalListSortingStrategy }
-						>
-							{ rootFolders.map( ( folder ) => (
-								<FolderItem
-									key={ folder.id }
-									folderId={ folder.id }
-									selectedFolderId={ selectedFolderId }
-									onSelect={ setSelectedFolder }
-									depth={ 0 }
-									onAddSubfolder={ handleOpenModal }
-								/>
-							) ) }
-						</SortableContext>
+					{ rootHydrated && (
+						<FolderItem
+							key={ ROOT_PARENT_ID }
+							folderId={ ROOT_PARENT_ID }
+							selectedFolderId={ selectedFolderId }
+							onSelect={ setSelectedFolder }
+							depth={ 0 }
+							onAddSubfolder={ handleOpenModal }
+						/>
 					) }
 				</>
 			) }

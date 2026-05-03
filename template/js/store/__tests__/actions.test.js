@@ -199,14 +199,19 @@ describe( 'expandPathTo', () => {
 		expect( yields ).toEqual( [] );
 	} );
 
-	it( 'fetches path, sets expanded ids, applies path totals, and batches children', () => {
+	it( 'fetches path, merges ancestors into expanded ids, and batches children', () => {
 		const yields = drive( expandPathTo( 42 ), [
+			// API_FETCH /path response.
 			{
 				path: [
+					{ id: 0, parent_id: 0, is_root: true },
 					{ id: 5, parent_id: 0 },
 					{ id: 42, parent_id: 5 },
 				],
 			},
+			// SELECT getExpandedIds — caller already had branch [9] open.
+			[ 9 ],
+			// API_FETCH children batch response.
 			{
 				folders: [],
 				root_media_count: 0,
@@ -216,11 +221,11 @@ describe( 'expandPathTo', () => {
 		const setExpanded = yields.find(
 			( y ) => y.type === ACTION_TYPES.SET_EXPANDED_IDS
 		);
-		expect( setExpanded.ids ).toEqual( [ 5 ] );
+		expect( setExpanded.ids.sort() ).toEqual( [ 0, 5, 9 ] );
 		const applyPath = yields.find(
 			( y ) => y.type === ACTION_TYPES.APPLY_PATH_TOTALS
 		);
-		expect( applyPath.path ).toHaveLength( 2 );
+		expect( applyPath.path ).toHaveLength( 3 );
 	} );
 } );
 

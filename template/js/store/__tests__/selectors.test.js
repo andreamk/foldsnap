@@ -7,6 +7,7 @@ import {
 	isFolderFetching,
 	getParentPagination,
 	getSelectedFolderId,
+	isAllMediaActive,
 	getRootMediaCount,
 	getRootTotalSize,
 	getSearchQuery,
@@ -28,6 +29,7 @@ const makeState = ( overrides = {} ) => ( {
 	parentsPagination: {},
 	expandedIds: [],
 	selectedFolderId: null,
+	allMediaActive: false,
 	rootMediaCount: 0,
 	rootTotalSize: 0,
 	searchQuery: '',
@@ -137,6 +139,13 @@ describe( 'selectors', () => {
 			expect( isMediaLoading( state ) ).toBe( true );
 			expect( getMediaTotal( state ) ).toBe( 1 );
 			expect( getMediaTotalPages( state ) ).toBe( 1 );
+		} );
+
+		it( 'isAllMediaActive returns the flag', () => {
+			expect( isAllMediaActive( makeState() ) ).toBe( false );
+			expect(
+				isAllMediaActive( makeState( { allMediaActive: true } ) )
+			).toBe( true );
 		} );
 	} );
 } );

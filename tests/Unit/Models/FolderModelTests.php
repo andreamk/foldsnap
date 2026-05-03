@@ -115,11 +115,11 @@ class FolderModelTests extends WP_UnitTestCase
     }
 
     /**
-     * Test toArray returns the 7 core properties only
+     * Test toArray returns the core properties
      *
      * @return void
      */
-    public function test_to_array_returns_core_properties_only(): void
+    public function test_to_array_returns_core_properties(): void
     {
         $model = new FolderModel(5, 'Music', 'music', 0, 10, '#0000ff', 1);
 
@@ -131,9 +131,70 @@ class FolderModelTests extends WP_UnitTestCase
             'media_count' => 10,
             'color'       => '#0000ff',
             'position'    => 1,
+            'is_root'     => false,
         ];
 
         $this->assertSame($expected, $model->toArray());
+    }
+
+    /**
+     * Test root() factory builds the virtual Root folder
+     *
+     * @return void
+     */
+    public function test_root_factory_builds_virtual_root(): void
+    {
+        $root = FolderModel::root(7);
+
+        $this->assertSame(0, $root->getId());
+        $this->assertSame(0, $root->getParentId());
+        $this->assertSame('Root', $root->getName());
+        $this->assertSame(7, $root->getMediaCount());
+        $this->assertTrue($root->isRoot());
+    }
+
+    /**
+     * Test root() factory defaults media count to zero
+     *
+     * @return void
+     */
+    public function test_root_factory_defaults_media_count_to_zero(): void
+    {
+        $root = FolderModel::root();
+
+        $this->assertSame(0, $root->getMediaCount());
+    }
+
+    /**
+     * Test toArray exposes is_root true for the Root folder
+     *
+     * @return void
+     */
+    public function test_to_array_marks_root_with_is_root_true(): void
+    {
+        $root  = FolderModel::root(3);
+        $array = $root->toArray();
+
+        $this->assertTrue($array['is_root']);
+        $this->assertSame(0, $array['id']);
+        $this->assertSame('Root', $array['name']);
+    }
+
+    /**
+     * Test fromTerm() never marks a folder as Root
+     *
+     * @return void
+     */
+    public function test_from_term_is_not_root(): void
+    {
+        $termData = wp_insert_term('Real', TaxonomyService::TAXONOMY_NAME);
+        $termId   = (int) $termData['term_id'];
+        $term     = get_term($termId, TaxonomyService::TAXONOMY_NAME);
+
+        $model = FolderModel::fromTerm($term);
+
+        $this->assertFalse($model->isRoot());
+        $this->assertFalse($model->toArray()['is_root']);
     }
 
     /**

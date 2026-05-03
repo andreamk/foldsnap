@@ -1,4 +1,11 @@
-import { loadExpandedIds, saveExpandedIds, STORAGE_KEY } from '../persistence';
+import {
+	loadExpandedIds,
+	saveExpandedIds,
+	STORAGE_KEY,
+	loadAllMediaActive,
+	saveAllMediaActive,
+	ALL_MEDIA_KEY,
+} from '../persistence';
 
 describe( 'persistence', () => {
 	beforeEach( () => {
@@ -71,6 +78,28 @@ describe( 'persistence', () => {
 			} );
 			expect( () => saveExpandedIds( [ 1 ] ) ).not.toThrow();
 			window.localStorage.setItem = original;
+		} );
+	} );
+
+	describe( 'allMedia toggle', () => {
+		it( 'defaults to false when nothing is stored', () => {
+			expect( loadAllMediaActive() ).toBe( false );
+		} );
+
+		it( 'returns true when set to "1"', () => {
+			window.localStorage.setItem( ALL_MEDIA_KEY, '1' );
+			expect( loadAllMediaActive() ).toBe( true );
+		} );
+
+		it( 'persists true', () => {
+			saveAllMediaActive( true );
+			expect( window.localStorage.getItem( ALL_MEDIA_KEY ) ).toBe( '1' );
+		} );
+
+		it( 'removes the key when persisting false', () => {
+			window.localStorage.setItem( ALL_MEDIA_KEY, '1' );
+			saveAllMediaActive( false );
+			expect( window.localStorage.getItem( ALL_MEDIA_KEY ) ).toBeNull();
 		} );
 	} );
 } );

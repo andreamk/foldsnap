@@ -53,6 +53,8 @@ const CreateFolderModal = ( { parentId = ROOT_PARENT_ID, onClose } ) => {
 			className="foldsnap-create-folder-modal"
 		>
 			<TextControl
+				__nextHasNoMarginBottom
+				__next40pxDefaultSize
 				label={ __( 'Folder name', 'foldsnap' ) }
 				value={ name }
 				onChange={ setName }

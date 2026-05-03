@@ -1,4 +1,5 @@
 const STORAGE_KEY = 'foldsnap.expandedFolders';
+const ALL_MEDIA_KEY = 'foldsnap.allMedia';
 
 /**
  * Read the persisted set of expanded folder IDs from localStorage.
@@ -48,4 +49,36 @@ export const saveExpandedIds = ( ids ) => {
 	}
 };
 
-export { STORAGE_KEY };
+/**
+ * Read the persisted "All Media" toggle state.
+ *
+ * Defaults to false (folder-tree mode active). Tolerates malformed payloads.
+ *
+ * @return {boolean} True when the user has switched the sidebar off.
+ */
+export const loadAllMediaActive = () => {
+	try {
+		return window.localStorage?.getItem( ALL_MEDIA_KEY ) === '1';
+	} catch {
+		return false;
+	}
+};
+
+/**
+ * Persist the "All Media" toggle state.
+ *
+ * @param {boolean} active Whether the toggle is on.
+ */
+export const saveAllMediaActive = ( active ) => {
+	try {
+		if ( active ) {
+			window.localStorage?.setItem( ALL_MEDIA_KEY, '1' );
+		} else {
+			window.localStorage?.removeItem( ALL_MEDIA_KEY );
+		}
+	} catch {
+		// localStorage unavailable — degrade silently.
+	}
+};
+
+export { STORAGE_KEY, ALL_MEDIA_KEY };

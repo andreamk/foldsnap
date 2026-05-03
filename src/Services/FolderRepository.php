@@ -38,12 +38,19 @@ class FolderRepository
     /**
      * Retrieve a single folder by term ID
      *
-     * @param int $termId Term ID
+     * Term ID 0 yields the synthetic Root folder (no database row backs it);
+     * its direct media count is the number of unassigned attachments.
+     *
+     * @param int $termId Term ID (0 = virtual Root)
      *
      * @return FolderModel|null
      */
     public function getById(int $termId): ?FolderModel
     {
+        if (FolderModel::ROOT_ID === $termId) {
+            return FolderModel::root($this->getRootMediaCount());
+        }
+
         $term = get_term($termId, TaxonomyService::TAXONOMY_NAME);
 
         if (! $term instanceof WP_Term) {
@@ -68,19 +75,35 @@ class FolderRepository
             return [];
         }
 
+        $models = [];
+
+        // Inject the virtual Root if requested; get_terms() can't return it.
+        if (in_array(FolderModel::ROOT_ID, $termIds, true)) {
+            $models[] = FolderModel::root($this->getRootMediaCount());
+        }
+
+        $realIds = array_values(array_filter(
+            $termIds,
+            static fn (int $id): bool => $id > 0
+        ));
+
+        if (empty($realIds)) {
+            return $models;
+        }
+
         $terms = get_terms(
             [
                 'taxonomy'   => TaxonomyService::TAXONOMY_NAME,
                 'hide_empty' => false,
-                'include'    => $termIds,
+                'include'    => $realIds,
             ]
         );
 
         if (is_wp_error($terms) || ! is_array($terms)) {
-            return [];
+            return $models;
         }
 
-        return $this->termsToModels($terms);
+        return array_merge($models, $this->termsToModels($terms));
     }
 
     /**
@@ -300,6 +323,8 @@ class FolderRepository
         string $color = '',
         int $position = -1
     ): FolderModel {
+        $this->guardNotRoot($termId);
+
         $folder = $this->getByIdOrFail($termId);
 
         $args = [];
@@ -351,6 +376,8 @@ class FolderRepository
      */
     public function delete(int $termId): bool
     {
+        $this->guardNotRoot($termId);
+
         $this->getByIdOrFail($termId);
 
         $result = wp_delete_term($termId, TaxonomyService::TAXONOMY_NAME);
@@ -380,6 +407,13 @@ class FolderRepository
      */
     public function assignMedia(int $folderId, array $mediaIds): array
     {
+        // Assigning to Root is semantically "unassign from any folder" —
+        // Root has no term, so the media simply lose their existing folder
+        // relationships and surface as unassigned.
+        if (FolderModel::ROOT_ID === $folderId) {
+            return $this->unassignMedia($mediaIds);
+        }
+
         $this->getByIdOrFail($folderId);
         $this->validateAttachmentIds($mediaIds);
 
@@ -419,6 +453,51 @@ class FolderRepository
     }
 
     /**
+     * Strip every folder term from the given media items
+     *
+     * Used when "assigning" media to the virtual Root folder.
+     *
+     * @param int[] $mediaIds Attachment IDs.
+     *
+     * @return int[] Folder IDs the media were previously assigned to.
+     *
+     * @throws InvalidArgumentException If any ID is not a valid attachment.
+     */
+    private function unassignMedia(array $mediaIds): array
+    {
+        $this->validateAttachmentIds($mediaIds);
+
+        if (empty($mediaIds)) {
+            return [];
+        }
+
+        $previousFolderIds = [];
+        foreach ($mediaIds as $mediaId) {
+            $current = wp_get_object_terms($mediaId, TaxonomyService::TAXONOMY_NAME, ['fields' => 'ids']);
+            if (is_array($current)) {
+                foreach ($current as $cid) {
+                    if (is_numeric($cid)) {
+                        $previousFolderIds[] = (int) $cid;
+                    }
+                }
+            }
+            // Clearing all terms by passing an empty array.
+            wp_set_object_terms($mediaId, [], TaxonomyService::TAXONOMY_NAME, false);
+        }
+
+        $previousFolderIds = array_values(array_unique($previousFolderIds));
+
+        if (! empty($previousFolderIds)) {
+            wp_update_term_count_now($previousFolderIds, TaxonomyService::TAXONOMY_NAME);
+            clean_term_cache($previousFolderIds, TaxonomyService::TAXONOMY_NAME);
+        }
+
+        $this->invalidateRootCache();
+
+        return $previousFolderIds;
+    }
+
+    /**
      * Remove media items from a folder
      *
      * @param int   $folderId Folder term ID
@@ -430,6 +509,7 @@ class FolderRepository
      */
     public function removeMedia(int $folderId, array $mediaIds): void
     {
+        $this->guardNotRoot($folderId);
         $this->getByIdOrFail($folderId);
 
         foreach ($mediaIds as $mediaId) {
@@ -692,5 +772,26 @@ class FolderRepository
         }
 
         return $model;
+    }
+
+    /**
+     * Reject mutations against the virtual Root folder
+     *
+     * Root has no underlying term and is conceptually a fixed anchor for the
+     * tree. Rename, reparent, delete, and removeMedia are forbidden.
+     *
+     * @param int $termId Term ID being mutated.
+     *
+     * @return void
+     *
+     * @throws InvalidArgumentException If $termId is the Root sentinel.
+     */
+    private function guardNotRoot(int $termId): void
+    {
+        if (FolderModel::ROOT_ID === $termId) {
+            throw new InvalidArgumentException(
+                esc_html__('Root folder cannot be modified.', 'foldsnap')
+            );
+        }
     }
 }

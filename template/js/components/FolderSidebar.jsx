@@ -1,3 +1,4 @@
+import { ToggleControl } from '@wordpress/components';
 import { useDispatch, useSelect } from '@wordpress/data';
 import {
 	DndContext,
@@ -5,15 +6,17 @@ import {
 	useSensor,
 	useSensors,
 } from '@dnd-kit/core';
+import { __ } from '@wordpress/i18n';
 import { STORE_NAME } from '../store/constants';
 import FolderTree from './FolderTree';
 
 /**
  * Root sidebar component mounted inside the native WordPress Media Library.
  *
- * Wraps FolderTree in a DndContext that handles:
- * - Folder reordering (drag folder onto a sibling position)
- * - Folder reparenting (drag folder onto a drop zone of another folder)
+ * Wraps FolderTree in a DndContext for folder reorder/reparent and exposes
+ * the "All Media" toggle that disables the folder UI entirely. When the
+ * toggle is on, the folder tree is rendered inert (greyed out, not
+ * interactive) and the native media grid stops being filtered.
  *
  * The dnd-kit data payload only carries folder IDs — the active folder's
  * current name (required by `updateFolder`) is read from the store via
@@ -22,11 +25,14 @@ import FolderTree from './FolderTree';
  * @return {JSX.Element} The rendered sidebar.
  */
 const FolderSidebar = () => {
-	const { updateFolder } = useDispatch( STORE_NAME );
-	const { getFolderById } = useSelect(
-		( select ) => select( STORE_NAME ),
-		[]
-	);
+	const { updateFolder, setAllMedia } = useDispatch( STORE_NAME );
+	const { getFolderById, allMediaActive } = useSelect( ( select ) => {
+		const store = select( STORE_NAME );
+		return {
+			getFolderById: store.getFolderById,
+			allMediaActive: store.isAllMediaActive(),
+		};
+	}, [] );
 
 	const sensors = useSensors(
 		useSensor( PointerSensor, {
@@ -35,6 +41,9 @@ const FolderSidebar = () => {
 	);
 
 	const handleDragEnd = ( event ) => {
+		if ( allMediaActive ) {
+			return;
+		}
 		const { active, over } = event;
 		if ( ! over || active.id === over.id ) {
 			return;
@@ -75,8 +84,33 @@ const FolderSidebar = () => {
 
 	return (
 		<DndContext sensors={ sensors } onDragEnd={ handleDragEnd }>
-			<div className="foldsnap-sidebar">
-				<FolderTree />
+			<div
+				className={ [
+					'foldsnap-sidebar',
+					allMediaActive ? 'foldsnap-sidebar--all-media' : '',
+				]
+					.filter( Boolean )
+					.join( ' ' ) }
+			>
+				<div className="foldsnap-sidebar__all-media-toggle">
+					<ToggleControl
+						__nextHasNoMarginBottom
+						label={ __( 'All Media', 'foldsnap' ) }
+						help={ __(
+							'Bypass the folder sidebar and show every media item.',
+							'foldsnap'
+						) }
+						checked={ allMediaActive }
+						onChange={ setAllMedia }
+					/>
+				</div>
+				<div
+					className="foldsnap-sidebar__tree"
+					inert={ allMediaActive ? '' : undefined }
+					aria-hidden={ allMediaActive ? 'true' : undefined }
+				>
+					<FolderTree />
+				</div>
 			</div>
 		</DndContext>
 	);

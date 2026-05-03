@@ -38,11 +38,6 @@ jest.mock( '../SearchResultsList', () => {
 	return MockSearchResultsList;
 } );
 
-jest.mock( '@dnd-kit/sortable', () => ( {
-	SortableContext: ( { children } ) => <div>{ children }</div>,
-	verticalListSortingStrategy: 'verticalListSortingStrategy',
-} ) );
-
 jest.mock( '@wordpress/components', () => ( {
 	TextControl: ( { value, onChange, placeholder } ) => (
 		<input
@@ -61,18 +56,14 @@ jest.mock( '@wordpress/components', () => ( {
 	),
 } ) );
 
-const ROOT_FOLDERS = [
-	{ id: 1, name: 'Photos' },
-	{ id: 2, name: 'Documents' },
-];
+const ROOT_FOLDER = { id: 0, name: 'Root', is_root: true };
 
 const makeStoreState = ( overrides = {} ) => ( {
-	rootFolders: ROOT_FOLDERS,
+	rootFolder: ROOT_FOLDER,
 	loadedRoot: true,
 	fetchingRoot: false,
 	selectedFolderId: null,
 	error: null,
-	rootMediaCount: 10,
 	searchQuery: '',
 	...overrides,
 } );
@@ -80,12 +71,12 @@ const makeStoreState = ( overrides = {} ) => ( {
 const setupSelect = ( storeState ) => {
 	useSelect.mockImplementation( ( fn ) =>
 		fn( () => ( {
-			getRootFolders: () => storeState.rootFolders,
+			getFolderById: ( id ) =>
+				id === 0 ? storeState.rootFolder : undefined,
 			isFolderLoaded: () => storeState.loadedRoot,
 			isFolderFetching: () => storeState.fetchingRoot,
 			getSelectedFolderId: () => storeState.selectedFolderId,
 			getError: () => storeState.error,
-			getRootMediaCount: () => storeState.rootMediaCount,
 			getSearchQuery: () => storeState.searchQuery,
 		} ) )
 	);
@@ -115,26 +106,25 @@ describe( 'FolderTree', () => {
 		jest.useRealTimers();
 	} );
 
-	it( 'renders All Media root with media count', () => {
-		setupSelect( makeStoreState( { rootMediaCount: 42 } ) );
-		render( <FolderTree /> );
-		expect( screen.getByText( 'All Media' ) ).toBeInTheDocument();
-		expect( screen.getByText( '42' ) ).toBeInTheDocument();
-	} );
-
-	it( 'renders one mocked FolderItem per root folder', () => {
+	it( 'renders the Root FolderItem when Root is hydrated', () => {
 		setupSelect( makeStoreState() );
 		render( <FolderTree /> );
-		expect( screen.getByTestId( 'folder-item-1' ) ).toBeInTheDocument();
-		expect( screen.getByTestId( 'folder-item-2' ) ).toBeInTheDocument();
+		expect( screen.getByTestId( 'folder-item-0' ) ).toBeInTheDocument();
 	} );
 
-	it( 'shows root spinner when root is fetching for the first time', () => {
+	it( 'shows root spinner before Root is hydrated and a fetch is in flight', () => {
 		setupSelect(
-			makeStoreState( { loadedRoot: false, fetchingRoot: true } )
+			makeStoreState( {
+				rootFolder: undefined,
+				loadedRoot: false,
+				fetchingRoot: true,
+			} )
 		);
 		render( <FolderTree /> );
 		expect( screen.getByTestId( 'spinner' ) ).toBeInTheDocument();
+		expect(
+			screen.queryByTestId( 'folder-item-0' )
+		).not.toBeInTheDocument();
 	} );
 
 	it( 'shows error notice when there is an error', () => {
@@ -142,13 +132,6 @@ describe( 'FolderTree', () => {
 		render( <FolderTree /> );
 		expect( screen.getByTestId( 'error-notice' ) ).toBeInTheDocument();
 		expect( screen.getByText( 'Network failure' ) ).toBeInTheDocument();
-	} );
-
-	it( 'selects root when All Media is clicked', () => {
-		setupSelect( makeStoreState() );
-		render( <FolderTree /> );
-		fireEvent.click( screen.getByText( 'All Media' ) );
-		expect( mockSetSelectedFolder ).toHaveBeenCalledWith( null );
 	} );
 
 	it( 'opens and closes the create folder modal', () => {
@@ -181,9 +164,9 @@ describe( 'FolderTree', () => {
 	it( 'clears search when input becomes empty', () => {
 		setupSelect( makeStoreState( { searchQuery: 'photo' } ) );
 		render( <FolderTree /> );
-		fireEvent.change( screen.getByTestId( 'search-input' ), {
-			target: { value: '' },
-		} );
+		const input = screen.getByTestId( 'search-input' );
+		fireEvent.change( input, { target: { value: 'foo' } } );
+		fireEvent.change( input, { target: { value: '' } } );
 		act( () => {
 			jest.advanceTimersByTime( 300 );
 		} );
@@ -195,15 +178,7 @@ describe( 'FolderTree', () => {
 		render( <FolderTree /> );
 		expect( screen.getByTestId( 'search-results' ) ).toBeInTheDocument();
 		expect(
-			screen.queryByTestId( 'folder-item-1' )
+			screen.queryByTestId( 'folder-item-0' )
 		).not.toBeInTheDocument();
-	} );
-
-	it( 'applies selected class to All Media when selection is null', () => {
-		setupSelect( makeStoreState() );
-		const { container } = render( <FolderTree /> );
-		expect(
-			container.querySelector( '.foldsnap-root-item--selected' )
-		).toBeInTheDocument();
 	} );
 } );

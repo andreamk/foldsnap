@@ -51,7 +51,20 @@ class FolderTreeNavigator
             return $result;
         }
 
-        $rootIds           = array_map(static fn (FolderModel $f): int => $f->getId(), $folders);
+        $realFolders = [];
+        foreach ($folders as $folder) {
+            if ($folder->isRoot()) {
+                $result[$folder->getId()] = $this->computeRootTotals();
+                continue;
+            }
+            $realFolders[] = $folder;
+        }
+
+        if (empty($realFolders)) {
+            return $result;
+        }
+
+        $rootIds           = array_map(static fn (FolderModel $f): int => $f->getId(), $realFolders);
         $descendantsByRoot = Database::getDescendantIds($rootIds, TaxonomyService::TAXONOMY_NAME);
 
         // Collect every folder ID we need a direct size for: each requested folder + every descendant.
@@ -67,7 +80,7 @@ class FolderTreeNavigator
         $directSizeMap  = Database::getDirectSizesForFolders($allIds, TaxonomyService::TAXONOMY_NAME);
         $directCountMap = Database::getDirectCountsForFolders($allIds, TaxonomyService::TAXONOMY_NAME);
 
-        foreach ($folders as $folder) {
+        foreach ($realFolders as $folder) {
             $rootId    = $folder->getId();
             $totalSize = $directSizeMap[$rootId] ?? 0;
             // Read root count from the same fresh DB map for consistency, falling
@@ -87,6 +100,23 @@ class FolderTreeNavigator
         }
 
         return $result;
+    }
+
+    /**
+     * Compute the totals for the virtual Root folder
+     *
+     * The Root contains every attachment in the site: its `total_media_count`
+     * is the global attachment count, its `total_size` the global filesize
+     * sum. Both come from the Database service.
+     *
+     * @return array{total_media_count:int,total_size:int}
+     */
+    private function computeRootTotals(): array
+    {
+        return [
+            'total_media_count' => Database::getGlobalMediaCount(TaxonomyService::POST_TYPE),
+            'total_size'        => Database::getGlobalTotalSize(TaxonomyService::POST_TYPE),
+        ];
     }
 
     /**
@@ -110,15 +140,31 @@ class FolderTreeNavigator
     }
 
     /**
-     * Resolve the path from root to the given folder (inclusive)
+     * Resolve the path from Root to the given folder (inclusive)
      *
-     * @param int $folderId Target folder term ID
+     * The first entry is always the virtual Root folder, even when the
+     * target is Root itself (the chain is then `[Root]`). For a real folder
+     * id, the chain runs `[Root, ancestor1, ..., target]`.
      *
-     * @return FolderModel[] Ordered list: root → ... → target
+     * Returns an empty array only when a non-Root id refers to a folder that
+     * does not exist.
+     *
+     * @param int $folderId Target folder term ID (0 = Root).
+     *
+     * @return FolderModel[] Ordered list from Root to target.
      */
     public function resolvePath(int $folderId): array
     {
-        if ($folderId <= 0) {
+        $root = $this->repository->getById(FolderModel::ROOT_ID);
+        if (null === $root) {
+            return [];
+        }
+
+        if (FolderModel::ROOT_ID === $folderId) {
+            return [$root];
+        }
+
+        if ($folderId < 0) {
             return [];
         }
 
@@ -138,6 +184,6 @@ class FolderTreeNavigator
             $currentId = $folder->getParentId();
         }
 
-        return array_reverse($reverse);
+        return array_merge([$root], array_reverse($reverse));
     }
 }

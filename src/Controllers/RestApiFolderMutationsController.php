@@ -133,11 +133,16 @@ final class RestApiFolderMutationsController
 
             $this->repository->delete($id);
 
+            $rootFolder = $this->repository->getById(\FoldSnap\Models\FolderModel::ROOT_ID);
+
             return new WP_REST_Response(
                 [
                     'deleted'          => true,
                     'id'               => $id,
                     'affected_parents' => $this->buildAffectedParents([$oldParentId]),
+                    'root'             => null !== $rootFolder
+                        ? $this->decorateFolders([$rootFolder])[0]
+                        : null,
                     'root_media_count' => $this->repository->getRootMediaCount(),
                     'root_total_size'  => $this->repository->getRootTotalSize(),
                 ],
@@ -263,10 +268,15 @@ final class RestApiFolderMutationsController
             }
         }
 
+        $rootFolder = $this->repository->getById(\FoldSnap\Models\FolderModel::ROOT_ID);
+
         return [
             'folder'           => $folderArray,
             'paths'            => $paths,
             'affected_parents' => $this->buildAffectedParents($affectedParentIds),
+            'root'             => null !== $rootFolder
+                ? $this->decorateFolders([$rootFolder])[0]
+                : null,
             'root_media_count' => $this->repository->getRootMediaCount(),
             'root_total_size'  => $this->repository->getRootTotalSize(),
         ];

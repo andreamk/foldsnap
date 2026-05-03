@@ -100,6 +100,29 @@ class RestApiControllerTests extends WP_UnitTestCase
     }
 
     /**
+     * Test GET /folders includes the decorated Root folder in the envelope
+     *
+     * Root is exposed alongside the children list so the client can hydrate
+     * `foldersById[0]` without a separate round-trip.
+     *
+     * @return void
+     */
+    public function test_get_folders_envelope_includes_root_folder(): void
+    {
+        $this->repository->create('Alpha');
+
+        $response = $this->dispatchRequest(new WP_REST_Request('GET', '/foldsnap/v1/folders'));
+        $data     = $response->get_data();
+
+        $this->assertArrayHasKey('root', $data);
+        $this->assertNotNull($data['root']);
+        $this->assertSame(0, $data['root']['id']);
+        $this->assertTrue($data['root']['is_root']);
+        $this->assertArrayHasKey('total_media_count', $data['root']);
+        $this->assertArrayHasKey('has_children', $data['root']);
+    }
+
+    /**
      * Test GET /folders does NOT return nested children inline
      *
      * @return void
@@ -231,8 +254,10 @@ class RestApiControllerTests extends WP_UnitTestCase
             }
         }
         $this->assertNotNull($nested);
-        $this->assertCount(1, $nested['breadcrumb']);
-        $this->assertSame('Photos', $nested['breadcrumb'][0]['name']);
+        // Breadcrumb is ancestors (Root + Photos), excluding the folder itself.
+        $this->assertCount(2, $nested['breadcrumb']);
+        $this->assertTrue($nested['breadcrumb'][0]['is_root']);
+        $this->assertSame('Photos', $nested['breadcrumb'][1]['name']);
     }
 
     /**
@@ -260,14 +285,14 @@ class RestApiControllerTests extends WP_UnitTestCase
     // -------------------------------------------------------------------------
 
     /**
-     * Test path endpoint returns ancestor chain
+     * Test path endpoint returns ancestor chain (Root → ... → target)
      *
      * @return void
      */
     public function test_get_folder_path_returns_chain(): void
     {
-        $root  = $this->repository->create('Root');
-        $child = $this->repository->create('Child', $root->getId());
+        $top   = $this->repository->create('Top');
+        $child = $this->repository->create('Child', $top->getId());
         $grand = $this->repository->create('Grand', $child->getId());
 
         $request  = new WP_REST_Request('GET', '/foldsnap/v1/folders/' . $grand->getId() . '/path');
@@ -275,10 +300,28 @@ class RestApiControllerTests extends WP_UnitTestCase
         $data     = $response->get_data();
 
         $this->assertSame(200, $response->get_status());
-        $this->assertCount(3, $data['path']);
-        $this->assertSame($root->getId(), $data['path'][0]['id']);
-        $this->assertSame($child->getId(), $data['path'][1]['id']);
-        $this->assertSame($grand->getId(), $data['path'][2]['id']);
+        $this->assertCount(4, $data['path']);
+        $this->assertSame(0, $data['path'][0]['id']);
+        $this->assertTrue($data['path'][0]['is_root']);
+        $this->assertSame($top->getId(), $data['path'][1]['id']);
+        $this->assertSame($child->getId(), $data['path'][2]['id']);
+        $this->assertSame($grand->getId(), $data['path'][3]['id']);
+    }
+
+    /**
+     * Test path endpoint returns just Root for id=0
+     *
+     * @return void
+     */
+    public function test_get_folder_path_for_root(): void
+    {
+        $request  = new WP_REST_Request('GET', '/foldsnap/v1/folders/0/path');
+        $response = $this->dispatchRequest($request);
+        $data     = $response->get_data();
+
+        $this->assertSame(200, $response->get_status());
+        $this->assertCount(1, $data['path']);
+        $this->assertTrue($data['path'][0]['is_root']);
     }
 
     /**
@@ -318,9 +361,11 @@ class RestApiControllerTests extends WP_UnitTestCase
         $this->assertArrayHasKey('paths', $data);
         $this->assertArrayHasKey('affected_parents', $data);
         $this->assertArrayHasKey('root_media_count', $data);
+        // Path is [Root, MyFolder] — Root is always the first ancestor.
         $this->assertCount(1, $data['paths']);
-        $this->assertCount(1, $data['paths'][0]);
-        $this->assertSame('My Folder', $data['paths'][0][0]['name']);
+        $this->assertCount(2, $data['paths'][0]);
+        $this->assertTrue($data['paths'][0][0]['is_root']);
+        $this->assertSame('My Folder', $data['paths'][0][1]['name']);
     }
 
     /**
@@ -490,14 +535,15 @@ class RestApiControllerTests extends WP_UnitTestCase
 
         $this->assertSame(200, $response->get_status());
         $this->assertTrue($data['assigned']);
-        // Media was unassigned before, so only the destination chain shows up.
+        // Chain is Root → Parent → Child.
         $this->assertCount(1, $data['paths']);
-        $this->assertCount(2, $data['paths'][0]);
-        $this->assertSame($parent->getId(), $data['paths'][0][0]['id']);
-        $this->assertSame($child->getId(), $data['paths'][0][1]['id']);
+        $this->assertCount(3, $data['paths'][0]);
+        $this->assertTrue($data['paths'][0][0]['is_root']);
+        $this->assertSame($parent->getId(), $data['paths'][0][1]['id']);
+        $this->assertSame($child->getId(), $data['paths'][0][2]['id']);
         // Parent's total includes the just-assigned media.
-        $this->assertSame(1, $data['paths'][0][0]['total_media_count']);
-        $this->assertSame(800, $data['paths'][0][0]['total_size']);
+        $this->assertSame(1, $data['paths'][0][1]['total_media_count']);
+        $this->assertSame(800, $data['paths'][0][1]['total_size']);
     }
 
     /**
@@ -529,19 +575,23 @@ class RestApiControllerTests extends WP_UnitTestCase
         $this->assertSame(200, $response->get_status());
         $this->assertCount(2, $data['paths'], 'expected destination + origin chains');
 
-        // First chain is always the destination: DestParent → Dest.
+        // First chain is always the destination: Root → DestParent → Dest.
         $destChain = $data['paths'][0];
-        $this->assertSame($destParent->getId(), $destChain[0]['id']);
-        $this->assertSame($dest->getId(), $destChain[1]['id']);
-        $this->assertSame(1, $destChain[0]['total_media_count']);
-        $this->assertSame(500, $destChain[0]['total_size']);
+        $this->assertCount(3, $destChain);
+        $this->assertTrue($destChain[0]['is_root']);
+        $this->assertSame($destParent->getId(), $destChain[1]['id']);
+        $this->assertSame($dest->getId(), $destChain[2]['id']);
+        $this->assertSame(1, $destChain[1]['total_media_count']);
+        $this->assertSame(500, $destChain[1]['total_size']);
 
-        // Second chain is the origin: OriginParent → Origin, with totals at 0.
+        // Second chain is the origin: Root → OriginParent → Origin, totals at 0.
         $originChain = $data['paths'][1];
-        $this->assertSame($originParent->getId(), $originChain[0]['id']);
-        $this->assertSame($origin->getId(), $originChain[1]['id']);
-        $this->assertSame(0, $originChain[0]['total_media_count']);
-        $this->assertSame(0, $originChain[0]['total_size']);
+        $this->assertCount(3, $originChain);
+        $this->assertTrue($originChain[0]['is_root']);
+        $this->assertSame($originParent->getId(), $originChain[1]['id']);
+        $this->assertSame($origin->getId(), $originChain[2]['id']);
+        $this->assertSame(0, $originChain[1]['total_media_count']);
+        $this->assertSame(0, $originChain[1]['total_size']);
 
         // Origin's parent should also appear in affected_parents so the UI
         // can refresh its has_children chevron if needed.

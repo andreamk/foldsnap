@@ -13,16 +13,36 @@
 }
 
 .foldsnap-sidebar {
-	width: 220px;
-	min-width: 220px;
+	width: 280px;
+	min-width: 200px;
+	max-width: 600px;
 	flex-shrink: 0;
 	border-right: 1px solid #dcdcde;
 	background: #f6f7f7;
 	padding: 10px;
 	box-sizing: border-box;
 	min-height: 400px;
-	overflow-y: auto;
+	overflow: auto;
+	resize: horizontal;
 	align-self: stretch;
+}
+
+.foldsnap-sidebar__all-media-toggle {
+	margin-bottom: 8px;
+	padding-bottom: 8px;
+	border-bottom: 1px solid #dcdcde;
+}
+
+.foldsnap-sidebar--all-media .foldsnap-sidebar__tree {
+	opacity: 0.45;
+	pointer-events: none;
+	user-select: none;
+}
+
+.foldsnap-folder-item__icon {
+	display: inline-flex;
+	align-items: center;
+	color: #50575e;
 }
 
 .upload-php #wpbody-content {

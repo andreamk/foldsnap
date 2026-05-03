@@ -1,10 +1,23 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { useDispatch, useSelect } from '@wordpress/data';
 import FolderSidebar from '../FolderSidebar';
 
 jest.mock( '@wordpress/data', () => ( {
 	useDispatch: jest.fn(),
 	useSelect: jest.fn(),
+} ) );
+
+jest.mock( '@wordpress/components', () => ( {
+	ToggleControl: ( { label, checked, onChange } ) => (
+		<div data-testid="all-media-toggle">
+			<input
+				type="checkbox"
+				aria-label={ label }
+				checked={ checked }
+				onChange={ ( e ) => onChange( e.target.checked ) }
+			/>
+		</div>
+	),
 } ) );
 
 jest.mock( '../FolderTree', () => {
@@ -30,15 +43,27 @@ const FOLDER_BY_ID = {
 	20: { id: 20, name: 'Documents', position: 3 },
 };
 
+const setupSelect = ( { allMediaActive = false } = {} ) => {
+	useSelect.mockImplementation( ( fn ) =>
+		fn( () => ( {
+			getFolderById: ( id ) => FOLDER_BY_ID[ id ],
+			isAllMediaActive: () => allMediaActive,
+		} ) )
+	);
+};
+
 describe( 'FolderSidebar', () => {
 	let mockUpdateFolder;
+	let mockSetAllMedia;
 
 	beforeEach( () => {
 		mockUpdateFolder = jest.fn();
-		useDispatch.mockReturnValue( { updateFolder: mockUpdateFolder } );
-		useSelect.mockReturnValue( {
-			getFolderById: ( id ) => FOLDER_BY_ID[ id ],
+		mockSetAllMedia = jest.fn();
+		useDispatch.mockReturnValue( {
+			updateFolder: mockUpdateFolder,
+			setAllMedia: mockSetAllMedia,
 		} );
+		setupSelect();
 		mockOnDragEnd.mockClear();
 	} );
 
@@ -48,11 +73,43 @@ describe( 'FolderSidebar', () => {
 		expect( screen.getByTestId( 'folder-tree' ) ).toBeInTheDocument();
 	} );
 
-	it( 'renders the sidebar container', () => {
+	it( 'renders the All Media toggle in the off state by default', () => {
+		render( <FolderSidebar /> );
+		const toggle = screen.getByTestId( 'all-media-toggle' );
+		const input = toggle.querySelector( 'input' );
+		expect( input.checked ).toBe( false );
+	} );
+
+	it( 'dispatches setAllMedia when the toggle is flipped', () => {
+		render( <FolderSidebar /> );
+		fireEvent.click(
+			screen.getByTestId( 'all-media-toggle' ).querySelector( 'input' )
+		);
+		expect( mockSetAllMedia ).toHaveBeenCalledWith( true );
+	} );
+
+	it( 'applies the all-media modifier class when active', () => {
+		setupSelect( { allMediaActive: true } );
 		const { container } = render( <FolderSidebar /> );
 		expect(
-			container.querySelector( '.foldsnap-sidebar' )
+			container.querySelector( '.foldsnap-sidebar--all-media' )
 		).toBeInTheDocument();
+	} );
+
+	it( 'no-ops on drag end when All Media is active', () => {
+		setupSelect( { allMediaActive: true } );
+		render( <FolderSidebar /> );
+		mockOnDragEnd( {
+			active: {
+				id: 10,
+				data: { current: { type: 'folder', folderId: 10 } },
+			},
+			over: {
+				id: 'folder-drop-20',
+				data: { current: { type: 'folder', folderId: 20 } },
+			},
+		} );
+		expect( mockUpdateFolder ).not.toHaveBeenCalled();
 	} );
 
 	it( 'no-ops when over is null', () => {

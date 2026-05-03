@@ -46,6 +46,9 @@ export function* fetchChildren(
 			page: response.page ?? page,
 			totalPages: response.total_pages ?? 1,
 		};
+		if ( response.root ) {
+			yield { type: ACTION_TYPES.UPSERT_FOLDER, folder: response.root };
+		}
 		yield {
 			type: ACTION_TYPES.SET_ROOT_TOTALS,
 			rootMediaCount: response.root_media_count,
@@ -154,6 +157,9 @@ export function* fetchChildrenBatch(
 				totalPages: 1,
 			};
 		}
+		if ( response.root ) {
+			yield { type: ACTION_TYPES.UPSERT_FOLDER, folder: response.root };
+		}
 		yield {
 			type: ACTION_TYPES.SET_ROOT_TOTALS,
 			rootMediaCount: response.root_media_count,
@@ -226,15 +232,27 @@ export function* expandPathTo( folderId ) {
 		if ( path.length === 0 ) {
 			return;
 		}
-		const ancestorIds = path
-			.slice( 0, -1 )
-			.map( ( f ) => f.id )
-			.filter( ( id ) => id > 0 );
-		const parentsToFetch = [ ROOT_PARENT_ID, ...ancestorIds ];
+		// Ancestors of the target = path minus the target itself. Root
+		// (id 0) sits at the head of every path and is always considered
+		// "expanded" in the new tree model since it is the visible root.
+		const ancestorIds = path.slice( 0, -1 ).map( ( f ) => f.id );
+		const parentsToFetch = ancestorIds.includes( ROOT_PARENT_ID )
+			? ancestorIds
+			: [ ROOT_PARENT_ID, ...ancestorIds ];
 
+		// Merge into existing expandedIds so unrelated branches the user
+		// already opened do not collapse when surfacing a deep-linked folder.
+		const currentExpanded = yield {
+			type: 'SELECT',
+			selector: 'getExpandedIds',
+			args: [],
+		};
+		const merged = Array.from(
+			new Set( [ ...( currentExpanded ?? [] ), ...ancestorIds ] )
+		);
 		yield {
 			type: ACTION_TYPES.SET_EXPANDED_IDS,
-			ids: ancestorIds,
+			ids: merged,
 		};
 		yield {
 			type: ACTION_TYPES.APPLY_PATH_TOTALS,
@@ -491,6 +509,9 @@ export function* deleteFolder( id ) {
 		folderId: id,
 		parentId: oldParentId,
 	};
+	if ( response.root ) {
+		yield { type: ACTION_TYPES.UPSERT_FOLDER, folder: response.root };
+	}
 	if ( Array.isArray( response.affected_parents ) ) {
 		yield {
 			type: ACTION_TYPES.APPLY_AFFECTED_PARENTS,
@@ -501,6 +522,9 @@ export function* deleteFolder( id ) {
 		typeof response.root_media_count === 'number' &&
 		typeof response.root_total_size === 'number'
 	) {
+		if ( response.root ) {
+			yield { type: ACTION_TYPES.UPSERT_FOLDER, folder: response.root };
+		}
 		yield {
 			type: ACTION_TYPES.SET_ROOT_TOTALS,
 			rootMediaCount: response.root_media_count,
@@ -552,6 +576,20 @@ export function* removeMedia( folderId, mediaIds ) {
 export const setSelectedFolder = ( folderId ) => ( {
 	type: ACTION_TYPES.SET_SELECTED_FOLDER,
 	folderId,
+} );
+
+/**
+ * Toggle the "All Media" mode that bypasses the folder sidebar.
+ *
+ * When active, the sidebar is rendered inert and the native WordPress media
+ * grid stops being filtered by `foldsnap_folder_id`.
+ *
+ * @param {boolean} active Whether the toggle is on.
+ * @return {Object} Action object.
+ */
+export const setAllMedia = ( active ) => ( {
+	type: ACTION_TYPES.SET_ALL_MEDIA,
+	active: Boolean( active ),
 } );
 
 /**

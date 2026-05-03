@@ -10,6 +10,7 @@ declare(strict_types=1);
 
 namespace FoldSnap\Tests\Feature\Services;
 
+use FoldSnap\Models\FolderModel;
 use FoldSnap\Services\FolderRepository;
 use FoldSnap\Services\FolderTreeNavigator;
 use FoldSnap\Services\TaxonomyService;
@@ -133,22 +134,23 @@ class FolderTreeNavigatorTests extends WP_UnitTestCase
     }
 
     /**
-     * Test resolvePath returns ordered chain root → target
+     * Test resolvePath returns ordered chain Root → target
      *
      * @return void
      */
     public function test_resolve_path_full_chain(): void
     {
-        $rootId  = $this->createTerm('Root');
-        $childId = $this->createTerm('Child', ['parent' => $rootId]);
+        $topId   = $this->createTerm('Top');
+        $childId = $this->createTerm('Child', ['parent' => $topId]);
         $grandId = $this->createTerm('Grand', ['parent' => $childId]);
 
         $path = $this->navigator->resolvePath($grandId);
 
-        $this->assertCount(3, $path);
-        $this->assertSame($rootId, $path[0]->getId());
-        $this->assertSame($childId, $path[1]->getId());
-        $this->assertSame($grandId, $path[2]->getId());
+        $this->assertCount(4, $path);
+        $this->assertTrue($path[0]->isRoot());
+        $this->assertSame($topId, $path[1]->getId());
+        $this->assertSame($childId, $path[2]->getId());
+        $this->assertSame($grandId, $path[3]->getId());
     }
 
     /**
@@ -162,13 +164,25 @@ class FolderTreeNavigatorTests extends WP_UnitTestCase
     }
 
     /**
-     * Test resolvePath returns empty for invalid folder ID
+     * Test resolvePath(0) returns just the Root folder
+     *
+     * @return void
+     */
+    public function test_resolve_path_for_root(): void
+    {
+        $path = $this->navigator->resolvePath(0);
+
+        $this->assertCount(1, $path);
+        $this->assertTrue($path[0]->isRoot());
+    }
+
+    /**
+     * Test resolvePath returns empty for invalid (negative) folder ID
      *
      * @return void
      */
     public function test_resolve_path_invalid_id(): void
     {
-        $this->assertSame([], $this->navigator->resolvePath(0));
         $this->assertSame([], $this->navigator->resolvePath(-1));
     }
 
@@ -198,5 +212,29 @@ class FolderTreeNavigatorTests extends WP_UnitTestCase
         $attachmentId = $this->factory()->attachment->create();
         update_post_meta($attachmentId, '_wp_attachment_metadata', ['filesize' => $fileSize]);
         return $attachmentId;
+    }
+
+    /**
+     * Test computeTotals on the virtual Root sums every attachment globally
+     *
+     * @return void
+     */
+    public function test_compute_totals_for_root_uses_global_aggregates(): void
+    {
+        $folder = $this->createTerm('Photos');
+        $att1   = $this->createAttachmentWithSize(100); // assigned
+        $att2   = $this->createAttachmentWithSize(250); // unassigned
+        $att3   = $this->createAttachmentWithSize(700); // unassigned
+        $this->repository->assignMedia($folder, [$att1]);
+
+        $root = $this->repository->getById(FolderModel::ROOT_ID);
+        $this->assertNotNull($root);
+        $totals = $this->navigator->computeTotals([$root]);
+
+        $this->assertArrayHasKey(0, $totals);
+        $this->assertSame(3, $totals[0]['total_media_count']);
+        $this->assertSame(1050, $totals[0]['total_size']);
+        // Silence unused-var warnings.
+        $this->assertNotSame($att2, $att3);
     }
 }

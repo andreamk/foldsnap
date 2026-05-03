@@ -49,6 +49,7 @@ jest.mock( '@wordpress/components', () => ( {
 		</div>
 	),
 	Spinner: () => <div data-testid="spinner" />,
+	Icon: ( { icon } ) => <span data-testid={ `icon-${ icon }` } />,
 } ) );
 
 const makeFolder = ( overrides = {} ) => ( {
@@ -345,5 +346,62 @@ describe( 'FolderItem', () => {
 			screen.queryByTestId( 'confirm-modal' )
 		).not.toBeInTheDocument();
 		expect( mockDeleteFolder ).not.toHaveBeenCalled();
+	} );
+
+	describe( 'when rendering the virtual Root folder', () => {
+		const rootFolder = {
+			id: 0,
+			name: 'Root',
+			parent_id: 0,
+			color: '',
+			total_media_count: 50,
+			total_size: 0,
+			has_children: true,
+			is_root: true,
+		};
+
+		it( 'shows the home icon', () => {
+			setupSelect( { folder: rootFolder } );
+			render(
+				<FolderItem
+					folderId={ 0 }
+					selectedFolderId={ null }
+					onSelect={ jest.fn() }
+					onAddSubfolder={ jest.fn() }
+				/>
+			);
+			expect(
+				screen.getByTestId( 'icon-admin-home' )
+			).toBeInTheDocument();
+		} );
+
+		it( 'omits the Delete option from the dropdown', () => {
+			setupSelect( { folder: rootFolder } );
+			render(
+				<FolderItem
+					folderId={ 0 }
+					selectedFolderId={ null }
+					onSelect={ jest.fn() }
+					onAddSubfolder={ jest.fn() }
+				/>
+			);
+			expect( screen.queryByText( 'Delete' ) ).not.toBeInTheDocument();
+			expect( screen.getByText( 'Add subfolder' ) ).toBeInTheDocument();
+		} );
+
+		it( 'does not render the drag handle', () => {
+			setupSelect( { folder: rootFolder } );
+			const { container } = render(
+				<FolderItem
+					folderId={ 0 }
+					selectedFolderId={ null }
+					onSelect={ jest.fn() }
+					onAddSubfolder={ jest.fn() }
+				/>
+			);
+			expect(
+				container.querySelector( '.foldsnap-folder-item__drag-handle' )
+			).not.toBeInTheDocument();
+		} );
 	} );
 } );

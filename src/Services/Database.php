@@ -134,6 +134,85 @@ class Database
     }
 
     /**
+     * Count every attachment of the given post type, regardless of folder
+     *
+     * Used to compute the Root folder's `total_media_count`. Mirrors the
+     * post-status filter (`inherit`) used by the unassigned variant.
+     *
+     * @param string $postType Post type to filter
+     *
+     * @return int Total number of attachments
+     */
+    public static function getGlobalMediaCount(string $postType): int
+    {
+        /** @var \wpdb $wpdb */
+        global $wpdb;
+
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+        $count = $wpdb->get_var(
+            $wpdb->prepare(
+                'SELECT COUNT(*) FROM %i WHERE post_type = %s AND post_status = %s',
+                $wpdb->posts,
+                $postType,
+                'inherit'
+            )
+        );
+
+        return is_numeric($count) ? (int) $count : 0;
+    }
+
+    /**
+     * Sum filesize across every attachment of the given post type
+     *
+     * Used to compute the Root folder's `total_size`. Reads filesize from
+     * `_wp_attachment_metadata` (available since WP 6.0; FoldSnap requires
+     * 6.5+).
+     *
+     * @param string $postType Post type to filter
+     *
+     * @return int Total bytes
+     */
+    public static function getGlobalTotalSize(string $postType): int
+    {
+        /** @var \wpdb $wpdb */
+        global $wpdb;
+
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+        $results = $wpdb->get_col(
+            $wpdb->prepare(
+                'SELECT pm.meta_value
+                FROM %i p
+                INNER JOIN %i pm ON p.ID = pm.post_id
+                WHERE p.post_type = %s
+                AND p.post_status = %s
+                AND pm.meta_key = %s',
+                $wpdb->posts,
+                $wpdb->postmeta,
+                $postType,
+                'inherit',
+                '_wp_attachment_metadata'
+            )
+        );
+
+        if (! is_array($results)) {
+            return 0;
+        }
+
+        $total = 0;
+        foreach ($results as $serialized) {
+            if (! is_string($serialized) || '' === $serialized) {
+                continue;
+            }
+            $meta = maybe_unserialize($serialized);
+            if (is_array($meta) && isset($meta['filesize']) && is_numeric($meta['filesize'])) {
+                $total += (int) $meta['filesize'];
+            }
+        }
+
+        return $total;
+    }
+
+    /**
      * Count media items not assigned to any folder
      *
      * Single COUNT query — does not load post IDs into memory.

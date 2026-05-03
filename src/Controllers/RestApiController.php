@@ -476,6 +476,8 @@ final class RestApiController
         $offset     = ($page - 1) * $perPage;
         $pageSlice  = array_slice($allChildren, $offset, $perPage);
 
+        $rootFolder = $this->repository->getById(FolderModel::ROOT_ID);
+
         $response = new WP_REST_Response(
             [
                 'mode'                 => 'children',
@@ -483,6 +485,9 @@ final class RestApiController
                 'requested_parent_ids' => array_values($parentIds),
                 'total'                => $total,
                 'total_pages'          => $totalPages,
+                'root'                 => null !== $rootFolder
+                    ? $this->decorateFolders([$rootFolder])[0]
+                    : null,
                 'root_media_count'     => $this->repository->getRootMediaCount(),
                 'root_total_size'      => $this->repository->getRootTotalSize(),
             ],
@@ -522,8 +527,9 @@ final class RestApiController
                 'breadcrumb' => array_map(
                     static function (FolderModel $f): array {
                         return [
-                            'id'   => $f->getId(),
-                            'name' => $f->getName(),
+                            'id'      => $f->getId(),
+                            'name'    => $f->getName(),
+                            'is_root' => $f->isRoot(),
                         ];
                     },
                     $ancestors

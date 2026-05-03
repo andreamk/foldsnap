@@ -1,5 +1,10 @@
 import { ACTION_TYPES, ROOT_PARENT_ID } from './constants';
-import { loadExpandedIds, saveExpandedIds } from './persistence';
+import {
+	loadExpandedIds,
+	saveExpandedIds,
+	loadAllMediaActive,
+	saveAllMediaActive,
+} from './persistence';
 import {
 	setChildrenForParent,
 	appendChildrenForParent,
@@ -34,6 +39,7 @@ const DEFAULT_STATE = {
 	expandedIds: loadExpandedIds(),
 
 	selectedFolderId: null,
+	allMediaActive: loadAllMediaActive(),
 	rootMediaCount: 0,
 	rootTotalSize: 0,
 
@@ -147,6 +153,14 @@ const reducer = ( state = DEFAULT_STATE, action ) => {
 		case ACTION_TYPES.SET_SELECTED_FOLDER:
 			return { ...state, selectedFolderId: action.folderId };
 
+		case ACTION_TYPES.SET_ALL_MEDIA: {
+			if ( state.allMediaActive === action.active ) {
+				return state;
+			}
+			saveAllMediaActive( action.active );
+			return { ...state, allMediaActive: action.active };
+		}
+
 		case ACTION_TYPES.SET_SEARCH_QUERY:
 			return { ...state, searchQuery: action.query };
 
@@ -228,8 +242,9 @@ const reducer = ( state = DEFAULT_STATE, action ) => {
 			const foldersById = { ...state.foldersById, [ folder.id ]: folder };
 
 			let foldersByParent = state.foldersByParent;
-			// If parent already loaded, insert/replace child in its slot.
-			if ( foldersByParent[ parentId ] ) {
+			// Root has parent_id = 0 by convention but is not its own child;
+			// only mutate parent slots for non-root folders.
+			if ( ! folder.is_root && foldersByParent[ parentId ] ) {
 				const slot = foldersByParent[ parentId ];
 				const idx = slot.findIndex( ( f ) => f.id === folder.id );
 				const next = idx === -1 ? [ ...slot, folder ] : slot.slice();

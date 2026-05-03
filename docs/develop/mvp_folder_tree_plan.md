@@ -615,6 +615,50 @@ Quando si supera la soglia definita in TODO-4 (search < 300ms), valutare:
 
 I contatori incrementali non possono essere "buggati" nel senso di rompere il sistema: nel caso peggiore producono valori non coerenti con la realtà. La funzionalità di **recalculate chunked** è il rollback: può essere lanciata manualmente (endpoint REST con `manage_options`) o automaticamente via cron (TODO-1). Non serve un feature flag o un fallback al calcolo on-demand — il recalculate è la safety net definitiva.
 
+### TODO-9 — Selezione multipla media per drag & drop bulk
+
+**Stato attuale**: il drag&drop sposta un media alla volta. La griglia nativa di WordPress in `upload.php` espone già un `Bulk Select` mode (bottone "Bulk select"), e ogni `li.attachment` ha la classe `selected` quando l'utente lo seleziona.
+
+**Da fare**:
+1. **Detection**: in `template/js/foldsnap-dragdrop.js` (bridge jQuery UI sulla griglia nativa), al `dragstart` su un `li.attachment`, controllare se è `.selected` E se la griglia è in bulk-select mode. Se sì, raccogliere TUTTI gli `li.attachment.selected` come payload del drag.
+2. **Visual feedback**: durante il drag, mostrare un badge col conteggio (es. "5 items") sull'helper drag invece di una sola thumbnail. jQuery UI lo permette via `helper: () => $('<div class="foldsnap-drag-ghost">5 items</div>')`.
+3. **Drop**: al drop su una folder della sidebar, dispatchare `assignMedia(folderId, mediaIds[])` con l'intero array invece di un solo id. La REST API lo supporta già (`media_ids` accetta array).
+4. **Sicurezza UX**: se l'utente prova a draggare un `.selected` non in bulk mode, fallback al single-item drag (oggi).
+5. **Test manuali**: verificare con 1 / 2 / 50+ media selezionati che assignMedia non saturi il payload e che la response envelope (`paths[]` con catene origine) refreshi correttamente tutte le folder origine toccate (l'envelope è già pronto per questo).
+
+**Per la MediaGrid React** (sidebar interna, non quella di `upload.php`): vedere TODO-6 — la `useDraggable` su `MediaItem` è oggi dead code. Prima decidere se la MediaGrid React serve davvero, poi eventualmente cablare la stessa logica bulk via dnd-kit (`useSortable`/`useDraggable` su set di id).
+
+Rinviato perché non bloccante per l'MVP single-drag e perché richiede di chiarire prima TODO-6.
+
+### TODO-8 — Resize sidebar: handle full-height + persistenza larghezza
+
+**Stato attuale**: la sidebar ha `resize: horizontal` CSS, che disegna solo la maniglia nell'angolo in basso-destra (default browser). Larghezza default 280px, clamp 200–600px. La larghezza non è persistita: ad ogni reload torna a 280px.
+
+**Da fare**:
+1. Sostituire la maniglia CSS con una drag handle dedicata sul bordo destro della sidebar, full-height, larga ~4px, con cursor `col-resize` e hover state visibile (es. background azzurrino). Pattern stile VSCode/Finder.
+2. Implementazione: hook custom `useResizableSidebar` (`template/js/hooks/use-resizable-sidebar.js`) che gestisce `mousedown` sulla handle → `mousemove` su window → `mouseup`. Calcola la larghezza dal `clientX - sidebar.left` e la applica via `style.width`.
+3. Aggiungere supporto touch (`touchstart`/`touchmove`/`touchend`) per trackpad e touchscreen.
+4. Persistenza in localStorage: chiave `foldsnap.sidebarWidth`, helper `loadSidebarWidth`/`saveSidebarWidth` in `persistence.js`. Ripristinata al boot.
+5. Test JS per l'hook (mock di mousedown/move/up + verifica setStyle).
+
+Rinviato per non gonfiare il fix del Root: la maniglia angolare di default basta come MVP funzionale.
+
+### TODO-7 — Persistenza completa dello stato sidebar (expansion + selezione + "All Media")
+
+**Contesto**: lo Step 8B introduce `loadExpandedIds`/`saveExpandedIds` (set di folder espanse) e `loadAllMediaActive`/`saveAllMediaActive` (toggle "All Media"). Sono già persistiti, ma il quadro è ancora parziale e la riapertura della Media Library non sempre ricostruisce lo stato che l'utente aveva.
+
+**Da fare** (raccolto in un unico TODO perché tutto lo stato sidebar è correlato e va affrontato in una passata):
+
+1. **Root espansa di default al primo boot**. Se `localStorage` è vuoto, la sidebar deve aprirsi con Root espansa (così l'utente vede subito le top-level folders senza dover cliccare la chevron).
+2. **Selezione folder corrente**. Oggi `selectedFolderId` non è persistito: ad ogni reload si torna a `null`. Va salvato in localStorage e ripristinato al boot, con priorità al `?foldsnap_folder_id` da URL (deep link batte memoria).
+3. **Sincronizzazione cross-tab**. Se l'utente espande una folder in una tab e apre una seconda tab, le due dovrebbero condividere expansion + selezione. Valutare `storage` event listener su `window` per propagare i cambiamenti.
+4. **Garbage collection delle folder cancellate**. `expandedIds` può accumulare ID di folder che non esistono più (cancellate da un'altra sessione, da un altro utente, o via uninstall parziale). Filtrare al boot rispetto a `foldersById` dopo il primo fetch.
+5. **TTL / versioning**. Cambi di schema o reset dei dati richiedono un modo per invalidare la cache. Aggiungere una chiave `foldsnap.stateVersion` e azzerare se non corrisponde.
+
+**Verifica**: test di integrazione che simula reload, deep link, multi-tab, e folder cancellate.
+
+Rinviato per non gonfiare lo Step 8B: la persistenza minima (set espansione + toggle All Media) è già attiva, gli altri pezzi sono raffinamenti UX da fare in una passata dedicata dopo aver verificato l'esperienza reale.
+
 ### TODO-6 — Chiarire `MediaItem` `useDraggable`: completare o rimuovere
 
 **Problema**: `template/js/components/MediaItem.jsx` usa `useDraggable` di `@dnd-kit/core` per rendere draggable i media della `MediaGrid` interna (sidebar React). Ma:

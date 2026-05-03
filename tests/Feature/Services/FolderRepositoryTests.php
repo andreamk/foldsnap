@@ -116,18 +116,21 @@ class FolderRepositoryTests extends WP_UnitTestCase
     }
 
     /**
-     * Test getByIds skips invalid (non-positive) IDs
+     * Test getByIds skips negative IDs but accepts 0 as virtual Root
      *
      * @return void
      */
-    public function test_get_by_ids_skips_invalid(): void
+    public function test_get_by_ids_skips_negative_and_includes_root(): void
     {
         $a = $this->createTerm('A');
 
         $result = $this->repository->getByIds([$a, 0, -5]);
 
-        $this->assertCount(1, $result);
-        $this->assertSame($a, $result[0]->getId());
+        // 0 = Root, -5 = invalid → 2 results: Root + A.
+        $this->assertCount(2, $result);
+        $ids = array_map(static fn ($m): int => $m->getId(), $result);
+        $this->assertContains(0, $ids);
+        $this->assertContains($a, $ids);
     }
 
     /**
@@ -297,37 +300,53 @@ class FolderRepositoryTests extends WP_UnitTestCase
     }
 
     /**
-     * Test getPath returns ancestor chain root → target
+     * Test getPath returns ancestor chain Root → target
      *
      * @return void
      */
     public function test_get_path_returns_ancestor_chain(): void
     {
-        $rootId       = $this->createTerm('Root');
-        $childId      = $this->createTerm('Child', ['parent' => $rootId]);
+        $topId        = $this->createTerm('Top');
+        $childId      = $this->createTerm('Child', ['parent' => $topId]);
         $grandchildId = $this->createTerm('GC', ['parent' => $childId]);
 
         $path = $this->repository->getPath($grandchildId);
 
-        $this->assertCount(3, $path);
-        $this->assertSame($rootId, $path[0]->getId());
-        $this->assertSame($childId, $path[1]->getId());
-        $this->assertSame($grandchildId, $path[2]->getId());
+        // Root is always the first entry, before the user-created folders.
+        $this->assertCount(4, $path);
+        $this->assertTrue($path[0]->isRoot());
+        $this->assertSame($topId, $path[1]->getId());
+        $this->assertSame($childId, $path[2]->getId());
+        $this->assertSame($grandchildId, $path[3]->getId());
     }
 
     /**
-     * Test getPath returns single-element list for root folder
+     * Test getPath returns Root + folder for a top-level folder
      *
      * @return void
      */
-    public function test_get_path_for_root_folder(): void
+    public function test_get_path_for_top_level_folder(): void
     {
-        $rootId = $this->createTerm('Root');
+        $topId = $this->createTerm('Top');
 
-        $path = $this->repository->getPath($rootId);
+        $path = $this->repository->getPath($topId);
+
+        $this->assertCount(2, $path);
+        $this->assertTrue($path[0]->isRoot());
+        $this->assertSame($topId, $path[1]->getId());
+    }
+
+    /**
+     * Test getPath for the virtual Root returns just Root
+     *
+     * @return void
+     */
+    public function test_get_path_for_virtual_root(): void
+    {
+        $path = $this->repository->getPath(0);
 
         $this->assertCount(1, $path);
-        $this->assertSame($rootId, $path[0]->getId());
+        $this->assertTrue($path[0]->isRoot());
     }
 
     /**
@@ -1021,5 +1040,129 @@ class FolderRepositoryTests extends WP_UnitTestCase
         );
 
         return $attachmentId;
+    }
+
+    // -------------------------------------------------------------------------
+    // Virtual Root behavior
+    // -------------------------------------------------------------------------
+
+    /**
+     * Test getById(0) returns the virtual Root folder
+     *
+     * @return void
+     */
+    public function test_get_by_id_returns_virtual_root(): void
+    {
+        $root = $this->repository->getById(0);
+
+        $this->assertNotNull($root);
+        $this->assertSame(0, $root->getId());
+        $this->assertTrue($root->isRoot());
+    }
+
+    /**
+     * Test Root's direct media count equals the unassigned count
+     *
+     * @return void
+     */
+    public function test_root_media_count_matches_unassigned_count(): void
+    {
+        $folder = $this->createTerm('Photos');
+        $att1   = $this->factory()->attachment->create(); // assigned
+        $att2   = $this->factory()->attachment->create(); // unassigned
+        $att3   = $this->factory()->attachment->create(); // unassigned
+        $this->repository->assignMedia($folder, [$att1]);
+
+        $root = $this->repository->getById(0);
+
+        $this->assertNotNull($root);
+        $this->assertSame(2, $root->getMediaCount());
+        // Silence unused-var warnings.
+        $this->assertNotSame($att2, $att3);
+    }
+
+    /**
+     * Test update() on Root throws InvalidArgumentException
+     *
+     * @return void
+     */
+    public function test_update_root_throws(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->repository->update(0, 'New Name');
+    }
+
+    /**
+     * Test delete() on Root throws InvalidArgumentException
+     *
+     * @return void
+     */
+    public function test_delete_root_throws(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->repository->delete(0);
+    }
+
+    /**
+     * Test removeMedia() on Root throws InvalidArgumentException
+     *
+     * @return void
+     */
+    public function test_remove_media_from_root_throws(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->repository->removeMedia(0, [1]);
+    }
+
+    /**
+     * Test assignMedia(0) acts as "unassign" — strips every folder term
+     *
+     * @return void
+     */
+    public function test_assign_media_to_root_unassigns(): void
+    {
+        $folder1 = $this->createTerm('A');
+        $folder2 = $this->createTerm('B');
+        $att1    = $this->factory()->attachment->create();
+        $att2    = $this->factory()->attachment->create();
+
+        $this->repository->assignMedia($folder1, [$att1]);
+        $this->repository->assignMedia($folder2, [$att2]);
+
+        $previous = $this->repository->assignMedia(0, [$att1, $att2]);
+
+        // Both attachments should now have zero terms.
+        $this->assertSame(
+            [],
+            wp_get_object_terms($att1, TaxonomyService::TAXONOMY_NAME, ['fields' => 'ids'])
+        );
+        $this->assertSame(
+            [],
+            wp_get_object_terms($att2, TaxonomyService::TAXONOMY_NAME, ['fields' => 'ids'])
+        );
+
+        sort($previous);
+        $expected = [
+            $folder1,
+            $folder2,
+        ];
+        sort($expected);
+        $this->assertSame($expected, $previous);
+    }
+
+    /**
+     * Test getByIds includes the Root entry when 0 is requested
+     *
+     * @return void
+     */
+    public function test_get_by_ids_includes_root_when_requested(): void
+    {
+        $a = $this->createTerm('A');
+
+        $result = $this->repository->getByIds([0, $a]);
+        $ids    = array_map(static fn ($m): int => $m->getId(), $result);
+
+        $this->assertContains(0, $ids);
+        $this->assertContains($a, $ids);
     }
 }

@@ -184,6 +184,25 @@ describe( 'reducer', () => {
 		} );
 	} );
 
+	describe( 'SET_ALL_MEDIA', () => {
+		it( 'flips allMediaActive on', () => {
+			const state = reducer( baseState(), {
+				type: ACTION_TYPES.SET_ALL_MEDIA,
+				active: true,
+			} );
+			expect( state.allMediaActive ).toBe( true );
+		} );
+
+		it( 'is a no-op when already in the requested state', () => {
+			const state = baseState();
+			const after = reducer( state, {
+				type: ACTION_TYPES.SET_ALL_MEDIA,
+				active: false,
+			} );
+			expect( after ).toBe( state );
+		} );
+	} );
+
 	describe( 'SET_SELECTED_FOLDER / SET_SEARCH_QUERY', () => {
 		it( 'updates selectedFolderId', () => {
 			const state = reducer( baseState(), {

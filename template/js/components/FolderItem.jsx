@@ -1,5 +1,11 @@
 import { useState } from '@wordpress/element';
-import { Button, DropdownMenu, Modal, Spinner } from '@wordpress/components';
+import {
+	Button,
+	DropdownMenu,
+	Modal,
+	Spinner,
+	Icon,
+} from '@wordpress/components';
 import { useDispatch, useSelect } from '@wordpress/data';
 import { useSortable } from '@dnd-kit/sortable';
 import { useDroppable } from '@dnd-kit/core';
@@ -74,7 +80,8 @@ const FolderItem = ( {
 		return null;
 	}
 
-	const hasChildren = folder.has_children === true;
+	const isRoot = folder.is_root === true;
+	const hasChildren = isRoot || folder.has_children === true;
 	const isSelected = selectedFolderId === folder.id;
 
 	const sortableStyle = {
@@ -101,10 +108,16 @@ const FolderItem = ( {
 			title: __( 'Add subfolder', 'foldsnap' ),
 			onClick: () => onAddSubfolder( folder.id ),
 		},
-		{
-			title: __( 'Delete', 'foldsnap' ),
-			onClick: () => setShowDeleteConfirm( true ),
-		},
+		// Root cannot be deleted; omit the entry entirely so the menu hides
+		// the option instead of showing it greyed out.
+		...( isRoot
+			? []
+			: [
+					{
+						title: __( 'Delete', 'foldsnap' ),
+						onClick: () => setShowDeleteConfirm( true ),
+					},
+			  ] ),
 	];
 
 	const indentStyle = { paddingLeft: depth * 16 + 'px' };
@@ -127,17 +140,19 @@ const FolderItem = ( {
 				onClick={ handleSelect }
 				onKeyDown={ ( e ) => e.key === 'Enter' && handleSelect() }
 			>
-				<span
-					className="foldsnap-folder-item__drag-handle"
-					{ ...listeners }
-					role="button"
-					tabIndex={ 0 }
-					aria-label={ __( 'Drag to reorder', 'foldsnap' ) }
-					onClick={ ( e ) => e.stopPropagation() }
-					onKeyDown={ ( e ) => e.stopPropagation() }
-				>
-					⠿
-				</span>
+				{ ! isRoot && (
+					<span
+						className="foldsnap-folder-item__drag-handle"
+						{ ...listeners }
+						role="button"
+						tabIndex={ 0 }
+						aria-label={ __( 'Drag to reorder', 'foldsnap' ) }
+						onClick={ ( e ) => e.stopPropagation() }
+						onKeyDown={ ( e ) => e.stopPropagation() }
+					>
+						⠿
+					</span>
+				) }
 
 				{ hasChildren ? (
 					<button
@@ -154,6 +169,19 @@ const FolderItem = ( {
 					</button>
 				) : (
 					<span className="foldsnap-folder-item__chevron foldsnap-folder-item__chevron--empty" />
+				) }
+
+				{ isRoot && (
+					<span
+						className="foldsnap-folder-item__icon"
+						aria-label={ __( 'Root folder', 'foldsnap' ) }
+						title={ __(
+							'Root holds all media and folders in your library.',
+							'foldsnap'
+						) }
+					>
+						<Icon icon="admin-home" size={ 16 } />
+					</span>
 				) }
 
 				{ folder.color && (

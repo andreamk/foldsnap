@@ -45,6 +45,14 @@ export const isFolderExpanded = ( state, folderId ) =>
 	state.expandedIds.includes( folderId );
 
 /**
+ * Returns the full set of expanded folder IDs.
+ *
+ * @param {Object} state Store state.
+ * @return {number[]} Expanded folder IDs.
+ */
+export const getExpandedIds = ( state ) => state.expandedIds;
+
+/**
  * Whether the children of this parent have been fetched at least once.
  *
  * @param {Object} state    Store state.
@@ -81,6 +89,17 @@ export const getParentPagination = ( state, parentId ) =>
  * @return {number|null} Selected ID.
  */
 export const getSelectedFolderId = ( state ) => state.selectedFolderId;
+
+/**
+ * Whether the "All Media" override is active.
+ *
+ * When true the sidebar is rendered inert and the native media grid stops
+ * being filtered by folder.
+ *
+ * @param {Object} state Store state.
+ * @return {boolean} Active flag.
+ */
+export const isAllMediaActive = ( state ) => state.allMediaActive;
 
 /**
  * Cached root media count (unassigned attachments).
