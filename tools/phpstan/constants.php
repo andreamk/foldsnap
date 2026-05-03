@@ -8,8 +8,8 @@
  * @package FoldSnap
  */
 
-define('FOLDSNAP_PATH', '/tmp/foldsnap');
-define('FOLDSNAP_FILE', '/tmp/foldsnap/foldsnap.php');
+define('FOLDSNAP_PATH', dirname(__DIR__, 2));
+define('FOLDSNAP_FILE', dirname(__DIR__, 2) . '/foldsnap.php');
 define('FOLDSNAP_PLUGIN_URL', 'https://example.com/wp-content/plugins/foldsnap');
 define('FOLDSNAP_VERSION', '0.1.0');
 define('FOLDSNAP_BASENAME', 'foldsnap/foldsnap.php');
