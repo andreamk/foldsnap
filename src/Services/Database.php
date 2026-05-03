@@ -406,10 +406,11 @@ class Database
                 continue;
             }
 
-            $parentId = property_exists($row, 'parent') && is_numeric($row->parent) ? (int) $row->parent : 0;
+            $parentId = property_exists($row, 'parent') && is_numeric($row->parent) ? (int) $row->parent : -1;
             $count    = property_exists($row, 'child_count') && is_numeric($row->child_count) ? (int) $row->child_count : 0;
 
-            if ($parentId > 0) {
+            // parent=0 is valid: it's the top-level (children of the virtual Root).
+            if ($parentId >= 0 && array_key_exists($parentId, $counts)) {
                 $counts[$parentId] = $count;
             }
         }

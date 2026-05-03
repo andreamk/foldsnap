@@ -94,19 +94,19 @@ trait RestApiRequestUtils
     }
 
     /**
-     * Get an optional integer parameter, returning -1 (sentinel) if absent
+     * Get an optional integer parameter, or null if absent.
      *
      * @param WP_REST_Request $request   REST request object
      * @param string          $paramName Parameter name
      *
-     * @return int Parameter value, or -1 if not provided
+     * @return int|null
      */
-    private function getOptionalIntParam(WP_REST_Request $request, string $paramName): int
+    private function getOptionalIntParam(WP_REST_Request $request, string $paramName): ?int
     {
         $value = $request->get_param($paramName);
 
         if (null === $value) {
-            return -1;
+            return null;
         }
 
         return absint(is_scalar($value) ? (string) $value : '');

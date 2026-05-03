@@ -53,7 +53,7 @@ class FolderRepository
     public function getById(int $termId): ?FolderModel
     {
         if (FolderModel::ROOT_ID === $termId) {
-            return FolderModel::root($this->getRootMediaCount());
+            return $this->buildRootModel();
         }
 
         $term = get_term($termId, TaxonomyService::TAXONOMY_NAME);
@@ -62,7 +62,25 @@ class FolderRepository
             return null;
         }
 
-        return FolderModel::fromTerm($term);
+        return $this->termsToModels([$term])[0];
+    }
+
+    /**
+     * Build the virtual Root model with current global counters and has_children
+     *
+     * @return FolderModel
+     */
+    private function buildRootModel(): FolderModel
+    {
+        $topLevelCounts = Database::getChildrenCounts([0], TaxonomyService::TAXONOMY_NAME);
+        $hasChildren    = ($topLevelCounts[0] ?? 0) > 0;
+
+        return FolderModel::root(
+            $this->getRootMediaCount(),
+            $this->getRootGlobalMediaCount(),
+            $this->getRootGlobalTotalSize(),
+            $hasChildren
+        );
     }
 
     /**
@@ -84,7 +102,7 @@ class FolderRepository
 
         // Inject the virtual Root if requested; get_terms() can't return it.
         if (in_array(FolderModel::ROOT_ID, $termIds, true)) {
-            $models[] = FolderModel::root($this->getRootMediaCount());
+            $models[] = $this->buildRootModel();
         }
 
         $realIds = array_values(array_filter(
@@ -305,16 +323,13 @@ class FolderRepository
     }
 
     /**
-     * Update an existing folder
+     * Update an existing folder. Pass null for any field to leave it unchanged.
      *
-     * Uses -1 as sentinel value for parentId and position to indicate
-     * "do not change". This allows callers to update only specific fields.
-     *
-     * @param int    $termId   Term ID to update
-     * @param string $name     New name (empty string = no change)
-     * @param int    $parentId New parent ID (-1 = no change)
-     * @param string $color    New color (empty string = no change)
-     * @param int    $position New position (-1 = no change)
+     * @param int         $termId   Term ID
+     * @param string|null $name     New name, or null to keep
+     * @param int|null    $parentId New parent ID, or null to keep
+     * @param string|null $color    New color, or null to keep
+     * @param int|null    $position New position, or null to keep
      *
      * @return FolderModel
      *
@@ -323,43 +338,35 @@ class FolderRepository
      */
     public function update(
         int $termId,
-        string $name = '',
-        int $parentId = -1,
-        string $color = '',
-        int $position = -1
+        ?string $name = null,
+        ?int $parentId = null,
+        ?string $color = null,
+        ?int $position = null
     ): FolderModel {
         $this->guardNotRoot($termId);
 
         $folder = $this->getByIdOrFail($termId);
 
         $args = [];
-        if ('' !== $name) {
+        if (null !== $name) {
             $name              = $this->sanitizeName($name);
-            $effectiveParentId = -1 !== $parentId ? $parentId : $folder->getParentId();
+            $effectiveParentId = $parentId ?? $folder->getParentId();
             $name              = $this->ensureUniqueName($name, $effectiveParentId, $termId);
             $args['name']      = $name;
         }
 
         $oldParentId = $folder->getParentId();
-        $isReparent  = -1 !== $parentId && $parentId !== $oldParentId;
+        $isReparent  = null !== $parentId && $parentId !== $oldParentId;
 
-        if (-1 !== $parentId) {
+        if (null !== $parentId) {
             if (0 < $parentId) {
                 $this->getByIdOrFail($parentId);
             }
             $args['parent'] = $parentId;
         }
 
-        // Read this subtree's totals BEFORE the term row is mutated. They're
-        // the deltas to apply against the old/new ancestor chains.
-        $subtreeSize  = 0;
-        $subtreeCount = 0;
-        if ($isReparent) {
-            $rawSize      = get_term_meta($termId, FolderModel::META_SIZE, true);
-            $rawCount     = get_term_meta($termId, FolderModel::META_COUNT, true);
-            $subtreeSize  = is_numeric($rawSize) ? (int) $rawSize : 0;
-            $subtreeCount = is_numeric($rawCount) ? (int) $rawCount : 0;
-        }
+        $subtreeSize  = $isReparent ? $folder->getTotalSize() : 0;
+        $subtreeCount = $isReparent ? $folder->getTotalMediaCount() : 0;
 
         if (count($args) > 0) {
             $result = wp_update_term($termId, TaxonomyService::TAXONOMY_NAME, $args);
@@ -369,30 +376,19 @@ class FolderRepository
             }
         }
 
-        if ('' !== $color) {
-            $color = Sanitize::hexColor($color);
-            update_term_meta($termId, FolderModel::META_COLOR, $color);
+        if (null !== $color) {
+            update_term_meta($termId, FolderModel::META_COLOR, Sanitize::hexColor($color));
         }
 
-        if (-1 !== $position) {
+        if (null !== $position) {
             update_term_meta($termId, FolderModel::META_POSITION, (string) $position);
         }
 
         if ($isReparent && ($subtreeSize > 0 || $subtreeCount > 0)) {
-            // Old chain: ancestors of $termId at the time of the call. We need
-            // the chain EXCLUDING the moved folder itself (its meta is intact).
-            $oldChain = [];
-            if ($oldParentId > 0) {
-                $oldChain = $this->ancestorChainIncluding($oldParentId);
-            }
+            $oldChain = $oldParentId > 0 ? $this->ancestorChainIncluding($oldParentId) : [];
             $this->applyChainDelta($oldChain, -$subtreeSize, -$subtreeCount);
 
-            // New chain: ancestors of the new parent. The folder itself keeps
-            // its own counters unchanged.
-            $newChain = [];
-            if ($parentId > 0) {
-                $newChain = $this->ancestorChainIncluding($parentId);
-            }
+            $newChain = ($parentId ?? 0) > 0 ? $this->ancestorChainIncluding((int) $parentId) : [];
             $this->applyChainDelta($newChain, $subtreeSize, $subtreeCount);
         }
 
@@ -750,8 +746,8 @@ class FolderRepository
     /**
      * Convert a list of WP_Term objects to FolderModel instances
      *
-     * Pre-fetches term meta in bulk to avoid N+1 queries when models
-     * read their color/position via FolderModel::fromTerm.
+     * Pre-fetches term meta and children counts in bulk to avoid N+1
+     * queries when populating models.
      *
      * @param WP_Term[] $terms WP_Term objects
      *
@@ -760,13 +756,18 @@ class FolderRepository
     private function termsToModels(array $terms): array
     {
         $termIds = array_map(static fn (WP_Term $t): int => $t->term_id, $terms);
-        if (! empty($termIds)) {
-            update_termmeta_cache($termIds);
+
+        if (empty($termIds)) {
+            return [];
         }
+
+        update_termmeta_cache($termIds);
+        $childrenCounts = Database::getChildrenCounts($termIds, TaxonomyService::TAXONOMY_NAME);
 
         $models = [];
         foreach ($terms as $term) {
-            $models[] = FolderModel::fromTerm($term);
+            $hasChildren = ($childrenCounts[$term->term_id] ?? 0) > 0;
+            $models[]    = FolderModel::fromTerm($term, $hasChildren);
         }
         return $models;
     }

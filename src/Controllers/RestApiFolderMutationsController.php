@@ -20,7 +20,6 @@ declare(strict_types=1);
 namespace FoldSnap\Controllers;
 
 use FoldSnap\Services\FolderRepository;
-use FoldSnap\Services\FolderTreeNavigator;
 use WP_Error;
 use WP_REST_Request;
 use WP_REST_Response;
@@ -31,28 +30,15 @@ final class RestApiFolderMutationsController
     use RestApiFolderPresenter;
 
     private FolderRepository $repository;
-    private FolderTreeNavigator $navigatorInstance;
 
     /**
      * Constructor
      *
-     * @param FolderRepository    $repository Folder repository instance
-     * @param FolderTreeNavigator $navigator  Tree navigator instance
+     * @param FolderRepository $repository Folder repository instance
      */
-    public function __construct(FolderRepository $repository, FolderTreeNavigator $navigator)
+    public function __construct(FolderRepository $repository)
     {
-        $this->repository        = $repository;
-        $this->navigatorInstance = $navigator;
-    }
-
-    /**
-     * Get navigator instance (used by RestApiFolderPresenter)
-     *
-     * @return FolderTreeNavigator
-     */
-    protected function navigator(): FolderTreeNavigator
-    {
-        return $this->navigatorInstance;
+        $this->repository = $repository;
     }
 
     /**
@@ -93,19 +79,21 @@ final class RestApiFolderMutationsController
     public function updateFolder(WP_REST_Request $request)
     {
         $id       = absint($this->getStringParam($request, 'id'));
-        $name     = sanitize_text_field($this->getStringParam($request, 'name'));
-        $color    = sanitize_text_field($this->getStringParam($request, 'color'));
+        $rawName  = $request->get_param('name');
+        $rawColor = $request->get_param('color');
+        $name     = is_string($rawName) ? sanitize_text_field($rawName) : null;
+        $color    = is_string($rawColor) ? sanitize_text_field($rawColor) : null;
         $parentId = $this->getOptionalIntParam($request, 'parent_id');
         $position = $this->getOptionalIntParam($request, 'position');
 
         return $this->handleRestRequest(function () use ($id, $name, $parentId, $color, $position): WP_REST_Response {
             $before      = $this->repository->getById($id);
-            $oldParentId = null !== $before ? $before->getParentId() : -1;
+            $oldParentId = null !== $before ? $before->getParentId() : null;
 
             $folder = $this->repository->update($id, $name, $parentId, $color, $position);
 
             $affectedParents = [$folder->getParentId()];
-            if (-1 !== $oldParentId && $oldParentId !== $folder->getParentId()) {
+            if (null !== $oldParentId && $oldParentId !== $folder->getParentId()) {
                 $affectedParents[] = $oldParentId;
             }
 

@@ -3,9 +3,10 @@
 /**
  * Presenter helpers shared by folder REST controllers
  *
- * Decorates pure FolderModel DTOs with computed view fields (totals,
- * has_children) before they hit the wire, and builds the affected_parents
- * envelope used by mutation responses to drive client-side chevron refresh.
+ * `decorateFolders` is just a map over `FolderModel::toArray()`, kept as a
+ * named helper for readability at every call site. `buildAffectedParents`
+ * carries parent IDs the client must refresh; their `has_children` is
+ * looked up in bulk because the IDs are not necessarily already loaded.
  *
  * @package FoldSnap
  */
@@ -15,48 +16,21 @@ declare(strict_types=1);
 namespace FoldSnap\Controllers;
 
 use FoldSnap\Models\FolderModel;
-use FoldSnap\Services\FolderTreeNavigator;
+use FoldSnap\Services\Database;
+use FoldSnap\Services\TaxonomyService;
 
 trait RestApiFolderPresenter
 {
     /**
-     * Get the navigator instance to use for total/has_children computation
+     * Serialize folders for the wire
      *
-     * @return FolderTreeNavigator
-     */
-    abstract protected function navigator(): FolderTreeNavigator;
-
-    /**
-     * Decorate FolderModel instances with totals and has_children
+     * @param FolderModel[] $folders Folders to serialize
      *
-     * @param FolderModel[] $folders Folders to decorate
-     *
-     * @return array<int, array<string, mixed>> Indexed by position in $folders
+     * @return array<array<string, bool|int|string>>
      */
     private function decorateFolders(array $folders): array
     {
-        if (empty($folders)) {
-            return [];
-        }
-
-        $totals      = $this->navigator()->computeTotals($folders);
-        $hasChildren = $this->navigator()->hasChildren(
-            array_map(static fn (FolderModel $f): int => $f->getId(), $folders)
-        );
-
-        $decorated = [];
-        foreach ($folders as $folder) {
-            $id    = $folder->getId();
-            $array = $folder->toArray();
-
-            $array['total_media_count'] = $totals[$id]['total_media_count'] ?? $folder->getMediaCount();
-            $array['total_size']        = $totals[$id]['total_size'] ?? 0;
-            $array['has_children']      = $hasChildren[$id] ?? false;
-
-            $decorated[] = $array;
-        }
-
-        return $decorated;
+        return array_map(static fn (FolderModel $f): array => $f->toArray(), $folders);
     }
 
     /**
@@ -77,13 +51,13 @@ trait RestApiFolderPresenter
             return [];
         }
 
-        $hasChildren = $this->navigator()->hasChildren($parentIds);
+        $counts = Database::getChildrenCounts($parentIds, TaxonomyService::TAXONOMY_NAME);
 
         $result = [];
         foreach ($parentIds as $id) {
             $result[] = [
                 'id'           => $id,
-                'has_children' => $hasChildren[$id] ?? false,
+                'has_children' => ($counts[$id] ?? 0) > 0,
             ];
         }
 

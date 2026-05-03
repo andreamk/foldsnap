@@ -3,9 +3,14 @@
 /**
  * Tree navigation utilities for folder hierarchy
  *
- * Computes recursive aggregates (total media count, total size) and
- * walks the parent chain to resolve paths. Pure read service: it does
- * not mutate any state.
+ * Walks the parent chain to resolve paths and answers "does folder X have
+ * direct children?" via a single GROUP BY query. Pure read service: it
+ * does not mutate any state.
+ *
+ * Recursive aggregates (total_media_count, total_size) are no longer the
+ * navigator's concern — they live on the FolderModel itself, populated
+ * from term meta by `FolderModel::fromTerm`, maintained incrementally by
+ * FolderRepository on every mutation.
  *
  * @package FoldSnap
  */
@@ -28,82 +33,6 @@ class FolderTreeNavigator
     public function __construct(FolderRepository $repository)
     {
         $this->repository = $repository;
-    }
-
-    /**
-     * Compute total_media_count and total_size for each requested folder
-     *
-     * Reads pre-computed aggregates from term meta (foldsnap_folder_count,
-     * foldsnap_folder_size) maintained incrementally by FolderRepository.
-     * Pre-fetches both keys in bulk through update_termmeta_cache to avoid
-     * N+1 queries. Root reads its option-backed global totals.
-     *
-     * @param FolderModel[] $folders Folders to compute totals for
-     *
-     * @return array<int, array{total_media_count:int,total_size:int}>
-     */
-    public function computeTotals(array $folders): array
-    {
-        /** @var array<int, array{total_media_count:int,total_size:int}> $result */
-        $result = [];
-
-        if (empty($folders)) {
-            return $result;
-        }
-
-        $realFolderIds = [];
-        foreach ($folders as $folder) {
-            if ($folder->isRoot()) {
-                $result[$folder->getId()] = $this->computeRootTotals();
-                continue;
-            }
-            $realFolderIds[] = $folder->getId();
-        }
-
-        if (! empty($realFolderIds)) {
-            update_termmeta_cache($realFolderIds);
-
-            foreach ($realFolderIds as $id) {
-                $rawCount = get_term_meta($id, FolderModel::META_COUNT, true);
-                $rawSize  = get_term_meta($id, FolderModel::META_SIZE, true);
-
-                $result[$id] = [
-                    'total_media_count' => is_numeric($rawCount) ? (int) $rawCount : 0,
-                    'total_size'        => is_numeric($rawSize) ? (int) $rawSize : 0,
-                ];
-            }
-        }
-
-        return $result;
-    }
-
-    /**
-     * Compute the totals for the virtual Root folder
-     *
-     * The Root represents every attachment on the site. Totals are read from
-     * the cached options (foldsnap_opt_root_count / foldsnap_opt_root_size)
-     * maintained by attachment-lifecycle hooks. If the options are missing
-     * (e.g. before the first migration run), falls back to a one-shot global
-     * query so the UI never shows zero pre-recalculate.
-     *
-     * @return array{total_media_count:int,total_size:int}
-     */
-    private function computeRootTotals(): array
-    {
-        $countOpt = get_option(FolderRepository::OPT_ROOT_COUNT, null);
-        $sizeOpt  = get_option(FolderRepository::OPT_ROOT_SIZE, null);
-
-        $count = is_numeric($countOpt)
-            ? (int) $countOpt
-            : Database::getGlobalMediaCount(TaxonomyService::POST_TYPE);
-        $size  = is_numeric($sizeOpt)
-            ? (int) $sizeOpt
-            : Database::getGlobalTotalSize(TaxonomyService::POST_TYPE);
-
-        return [
-            'total_media_count' => $count,
-            'total_size'        => $size,
-        ];
     }
 
     /**

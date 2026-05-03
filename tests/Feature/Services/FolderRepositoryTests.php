@@ -499,7 +499,7 @@ class FolderRepositoryTests extends WP_UnitTestCase
         $parentId = $this->createTerm('New Parent');
         $model    = $this->repository->create('Child');
 
-        $updated = $this->repository->update($model->getId(), '', $parentId);
+        $updated = $this->repository->update($model->getId(), null, $parentId);
 
         $this->assertSame($parentId, $updated->getParentId());
     }
@@ -513,7 +513,7 @@ class FolderRepositoryTests extends WP_UnitTestCase
     {
         $model = $this->repository->create('Folder');
 
-        $updated = $this->repository->update($model->getId(), '', -1, '#00ff00');
+        $updated = $this->repository->update($model->getId(), null, null, '#00ff00');
 
         $this->assertSame('#00ff00', $updated->getColor());
     }
@@ -527,7 +527,7 @@ class FolderRepositoryTests extends WP_UnitTestCase
     {
         $model = $this->repository->create('Folder');
 
-        $updated = $this->repository->update($model->getId(), '', -1, '', 10);
+        $updated = $this->repository->update($model->getId(), null, null, null, 10);
 
         $this->assertSame(10, $updated->getPosition());
     }
@@ -893,7 +893,7 @@ class FolderRepositoryTests extends WP_UnitTestCase
 
         $this->expectException(InvalidArgumentException::class);
 
-        $this->repository->update($model->getId(), '', -1, 'invalid');
+        $this->repository->update($model->getId(), null, null, 'invalid');
     }
 
     /**
@@ -1277,7 +1277,7 @@ class FolderRepositoryTests extends WP_UnitTestCase
         $this->assertSame('1', get_term_meta($oldParent->getId(), FolderModel::META_COUNT, true));
         $this->assertSame('2000', get_term_meta($oldParent->getId(), FolderModel::META_SIZE, true));
 
-        $this->repository->update($moving->getId(), '', $newParent->getId());
+        $this->repository->update($moving->getId(), null, $newParent->getId());
 
         $this->assertSame('0', get_term_meta($oldParent->getId(), FolderModel::META_COUNT, true));
         $this->assertSame('0', get_term_meta($oldParent->getId(), FolderModel::META_SIZE, true));

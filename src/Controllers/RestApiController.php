@@ -19,7 +19,6 @@ namespace FoldSnap\Controllers;
 use FoldSnap\Models\FolderModel;
 use FoldSnap\Services\CountersRecalculator;
 use FoldSnap\Services\FolderRepository;
-use FoldSnap\Services\FolderTreeNavigator;
 use FoldSnap\Services\TaxonomyService;
 use WP_Error;
 use WP_REST_Request;
@@ -37,7 +36,6 @@ final class RestApiController
     private static ?self $instance = null;
 
     private FolderRepository $repository;
-    private FolderTreeNavigator $navigatorInstance;
     private RestApiFolderMutationsController $mutations;
 
     /**
@@ -49,9 +47,8 @@ final class RestApiController
     {
         if (null === self::$instance) {
             $repository     = new FolderRepository();
-            $navigator      = new FolderTreeNavigator($repository);
-            $mutations      = new RestApiFolderMutationsController($repository, $navigator);
-            self::$instance = new self($repository, $navigator, $mutations);
+            $mutations      = new RestApiFolderMutationsController($repository);
+            self::$instance = new self($repository, $mutations);
         }
 
         return self::$instance;
@@ -61,28 +58,15 @@ final class RestApiController
      * Constructor
      *
      * @param FolderRepository                 $repository Folder repository instance
-     * @param FolderTreeNavigator              $navigator  Tree navigator instance
      * @param RestApiFolderMutationsController $mutations  Write-endpoints controller
      */
     private function __construct(
         FolderRepository $repository,
-        FolderTreeNavigator $navigator,
         RestApiFolderMutationsController $mutations
     ) {
-        $this->repository        = $repository;
-        $this->navigatorInstance = $navigator;
-        $this->mutations         = $mutations;
+        $this->repository = $repository;
+        $this->mutations  = $mutations;
         add_action('rest_api_init', [$this, 'registerRoutes']);
-    }
-
-    /**
-     * Get navigator instance (used by RestApiFolderPresenter)
-     *
-     * @return FolderTreeNavigator
-     */
-    protected function navigator(): FolderTreeNavigator
-    {
-        return $this->navigatorInstance;
     }
 
     /**

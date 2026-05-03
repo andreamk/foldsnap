@@ -34,15 +34,18 @@ class FolderModelTests extends WP_UnitTestCase
      */
     public function test_constructor_sets_all_properties(): void
     {
-        $model = new FolderModel(10, 'Photos', 'photos', 0, 5, '#ff0000', 3);
+        $model = new FolderModel(10, 'Photos', 'photos', 0, 5, 12, 4096, '#ff0000', 3, true);
 
         $this->assertSame(10, $model->getId());
         $this->assertSame('Photos', $model->getName());
         $this->assertSame('photos', $model->getSlug());
         $this->assertSame(0, $model->getParentId());
         $this->assertSame(5, $model->getMediaCount());
+        $this->assertSame(12, $model->getTotalMediaCount());
+        $this->assertSame(4096, $model->getTotalSize());
         $this->assertSame('#ff0000', $model->getColor());
         $this->assertSame(3, $model->getPosition());
+        $this->assertTrue($model->hasChildren());
     }
 
     /**
@@ -58,6 +61,8 @@ class FolderModelTests extends WP_UnitTestCase
 
         update_term_meta($termId, FolderModel::META_COLOR, '#00ff00');
         update_term_meta($termId, FolderModel::META_POSITION, '2');
+        update_term_meta($termId, FolderModel::META_COUNT, '7');
+        update_term_meta($termId, FolderModel::META_SIZE, '8192');
 
         $term  = get_term($termId, TaxonomyService::TAXONOMY_NAME);
         $model = FolderModel::fromTerm($term);
@@ -67,6 +72,8 @@ class FolderModelTests extends WP_UnitTestCase
         $this->assertSame('documents', $model->getSlug());
         $this->assertSame(0, $model->getParentId());
         $this->assertSame(0, $model->getMediaCount());
+        $this->assertSame(7, $model->getTotalMediaCount());
+        $this->assertSame(8192, $model->getTotalSize());
         $this->assertSame('#00ff00', $model->getColor());
         $this->assertSame(2, $model->getPosition());
     }
@@ -87,6 +94,8 @@ class FolderModelTests extends WP_UnitTestCase
 
         $this->assertSame('', $model->getColor());
         $this->assertSame(0, $model->getPosition());
+        $this->assertSame(0, $model->getTotalMediaCount());
+        $this->assertSame(0, $model->getTotalSize());
     }
 
     /**
@@ -121,17 +130,20 @@ class FolderModelTests extends WP_UnitTestCase
      */
     public function test_to_array_returns_core_properties(): void
     {
-        $model = new FolderModel(5, 'Music', 'music', 0, 10, '#0000ff', 1);
+        $model = new FolderModel(5, 'Music', 'music', 0, 10, 25, 51200, '#0000ff', 1, false);
 
         $expected = [
-            'id'          => 5,
-            'name'        => 'Music',
-            'slug'        => 'music',
-            'parent_id'   => 0,
-            'media_count' => 10,
-            'color'       => '#0000ff',
-            'position'    => 1,
-            'is_root'     => false,
+            'id'                => 5,
+            'name'              => 'Music',
+            'slug'              => 'music',
+            'parent_id'         => 0,
+            'media_count'       => 10,
+            'total_media_count' => 25,
+            'total_size'        => 51200,
+            'color'             => '#0000ff',
+            'position'          => 1,
+            'has_children'      => false,
+            'is_root'           => false,
         ];
 
         $this->assertSame($expected, $model->toArray());
@@ -144,25 +156,30 @@ class FolderModelTests extends WP_UnitTestCase
      */
     public function test_root_factory_builds_virtual_root(): void
     {
-        $root = FolderModel::root(7);
+        $root = FolderModel::root(7, 42, 99999);
 
         $this->assertSame(0, $root->getId());
-        $this->assertSame(0, $root->getParentId());
+        $this->assertSame(FolderModel::NO_PARENT, $root->getParentId());
         $this->assertSame('Root', $root->getName());
         $this->assertSame(7, $root->getMediaCount());
+        $this->assertSame(42, $root->getTotalMediaCount());
+        $this->assertSame(99999, $root->getTotalSize());
         $this->assertTrue($root->isRoot());
     }
 
     /**
-     * Test root() factory defaults media count to zero
+     * Test root() factory defaults all counts to zero
      *
      * @return void
      */
-    public function test_root_factory_defaults_media_count_to_zero(): void
+    public function test_root_factory_defaults_to_zero(): void
     {
         $root = FolderModel::root();
 
         $this->assertSame(0, $root->getMediaCount());
+        $this->assertSame(0, $root->getTotalMediaCount());
+        $this->assertSame(0, $root->getTotalSize());
+        $this->assertFalse($root->hasChildren());
     }
 
     /**
@@ -177,6 +194,7 @@ class FolderModelTests extends WP_UnitTestCase
 
         $this->assertTrue($array['is_root']);
         $this->assertSame(0, $array['id']);
+        $this->assertSame(FolderModel::NO_PARENT, $array['parent_id']);
         $this->assertSame('Root', $array['name']);
     }
 
@@ -198,20 +216,22 @@ class FolderModelTests extends WP_UnitTestCase
     }
 
     /**
-     * Test toArray does not include children, totals, or size fields
+     * Test toArray does not include presenter-only or removed fields
+     *
+     * `total_media_count` and `total_size` ARE on the model now (they're
+     * just term meta, like color/position). `children`, `direct_size`,
+     * `has_children` are not — they're either gone or decorated by the
+     * REST presenter on the way out.
      *
      * @return void
      */
-    public function test_to_array_excludes_decorated_fields(): void
+    public function test_to_array_excludes_legacy_fields(): void
     {
-        $model  = new FolderModel(1, 'Folder', 'folder', 0, 5, '', 0);
+        $model  = new FolderModel(1, 'Folder', 'folder', 0, 5, 5, 0, '', 0);
         $result = $model->toArray();
 
         $this->assertArrayNotHasKey('children', $result);
-        $this->assertArrayNotHasKey('total_media_count', $result);
-        $this->assertArrayNotHasKey('total_size', $result);
         $this->assertArrayNotHasKey('direct_size', $result);
-        $this->assertArrayNotHasKey('has_children', $result);
     }
 
     /**
@@ -223,6 +243,29 @@ class FolderModelTests extends WP_UnitTestCase
     {
         $this->assertSame('foldsnap_folder_color', FolderModel::META_COLOR);
         $this->assertSame('foldsnap_folder_position', FolderModel::META_POSITION);
+        $this->assertSame('foldsnap_folder_size', FolderModel::META_SIZE);
+        $this->assertSame('foldsnap_folder_count', FolderModel::META_COUNT);
+    }
+
+    /**
+     * Test fromTerm tolerates non-numeric size/count meta
+     *
+     * @return void
+     */
+    public function test_from_term_handles_non_numeric_totals(): void
+    {
+        $termData = wp_insert_term('Bad Totals', TaxonomyService::TAXONOMY_NAME);
+        /** @var int $termId */
+        $termId = $termData['term_id'];
+
+        update_term_meta($termId, FolderModel::META_COUNT, 'oops');
+        update_term_meta($termId, FolderModel::META_SIZE, 'oops');
+
+        $term  = get_term($termId, TaxonomyService::TAXONOMY_NAME);
+        $model = FolderModel::fromTerm($term);
+
+        $this->assertSame(0, $model->getTotalMediaCount());
+        $this->assertSame(0, $model->getTotalSize());
     }
 
     /**
