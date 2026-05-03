@@ -301,7 +301,7 @@ class RestApiControllerTests extends WP_UnitTestCase
     // -------------------------------------------------------------------------
 
     /**
-     * Test create folder returns mutation envelope (folder + path + affected_parents)
+     * Test create folder returns mutation envelope (folder + paths + affected_parents)
      *
      * @return void
      */
@@ -315,11 +315,12 @@ class RestApiControllerTests extends WP_UnitTestCase
 
         $this->assertSame(201, $response->get_status());
         $this->assertSame('My Folder', $data['folder']['name']);
-        $this->assertArrayHasKey('path', $data);
+        $this->assertArrayHasKey('paths', $data);
         $this->assertArrayHasKey('affected_parents', $data);
         $this->assertArrayHasKey('root_media_count', $data);
-        $this->assertCount(1, $data['path']);
-        $this->assertSame('My Folder', $data['path'][0]['name']);
+        $this->assertCount(1, $data['paths']);
+        $this->assertCount(1, $data['paths'][0]);
+        $this->assertSame('My Folder', $data['paths'][0][0]['name']);
     }
 
     /**
@@ -471,11 +472,11 @@ class RestApiControllerTests extends WP_UnitTestCase
     // -------------------------------------------------------------------------
 
     /**
-     * Test assignMedia returns mutation envelope with updated path
+     * Test assignMedia returns mutation envelope with destination chain
      *
      * @return void
      */
-    public function test_assign_media_returns_envelope_with_path(): void
+    public function test_assign_media_returns_envelope_with_destination_chain(): void
     {
         $parent = $this->repository->create('Parent');
         $child  = $this->repository->create('Child', $parent->getId());
@@ -489,12 +490,63 @@ class RestApiControllerTests extends WP_UnitTestCase
 
         $this->assertSame(200, $response->get_status());
         $this->assertTrue($data['assigned']);
-        $this->assertCount(2, $data['path']);
-        $this->assertSame($parent->getId(), $data['path'][0]['id']);
-        $this->assertSame($child->getId(), $data['path'][1]['id']);
+        // Media was unassigned before, so only the destination chain shows up.
+        $this->assertCount(1, $data['paths']);
+        $this->assertCount(2, $data['paths'][0]);
+        $this->assertSame($parent->getId(), $data['paths'][0][0]['id']);
+        $this->assertSame($child->getId(), $data['paths'][0][1]['id']);
         // Parent's total includes the just-assigned media.
-        $this->assertSame(1, $data['path'][0]['total_media_count']);
-        $this->assertSame(800, $data['path'][0]['total_size']);
+        $this->assertSame(1, $data['paths'][0][0]['total_media_count']);
+        $this->assertSame(800, $data['paths'][0][0]['total_size']);
+    }
+
+    /**
+     * Test assignMedia includes origin chains so previous folders refresh
+     *
+     * Moving a media from one folder to another must surface BOTH ancestor
+     * chains in `paths`: the destination chain (gained the media) and the
+     * origin chain (lost it). Without this the origin's total_media_count
+     * stays stale until a full refetch.
+     *
+     * @return void
+     */
+    public function test_assign_media_includes_origin_chain_when_reassigning(): void
+    {
+        $originParent = $this->repository->create('OriginParent');
+        $origin       = $this->repository->create('Origin', $originParent->getId());
+        $destParent   = $this->repository->create('DestParent');
+        $dest         = $this->repository->create('Dest', $destParent->getId());
+
+        $att = $this->createAttachmentWithSize(500);
+        $this->repository->assignMedia($origin->getId(), [$att]);
+
+        $request = new WP_REST_Request('POST', '/foldsnap/v1/folders/' . $dest->getId() . '/media');
+        $request->set_param('media_ids', [$att]);
+
+        $response = $this->dispatchRequest($request);
+        $data     = $response->get_data();
+
+        $this->assertSame(200, $response->get_status());
+        $this->assertCount(2, $data['paths'], 'expected destination + origin chains');
+
+        // First chain is always the destination: DestParent → Dest.
+        $destChain = $data['paths'][0];
+        $this->assertSame($destParent->getId(), $destChain[0]['id']);
+        $this->assertSame($dest->getId(), $destChain[1]['id']);
+        $this->assertSame(1, $destChain[0]['total_media_count']);
+        $this->assertSame(500, $destChain[0]['total_size']);
+
+        // Second chain is the origin: OriginParent → Origin, with totals at 0.
+        $originChain = $data['paths'][1];
+        $this->assertSame($originParent->getId(), $originChain[0]['id']);
+        $this->assertSame($origin->getId(), $originChain[1]['id']);
+        $this->assertSame(0, $originChain[0]['total_media_count']);
+        $this->assertSame(0, $originChain[0]['total_size']);
+
+        // Origin's parent should also appear in affected_parents so the UI
+        // can refresh its has_children chevron if needed.
+        $affectedIds = array_column($data['affected_parents'], 'id');
+        $this->assertContains($origin->getId(), $affectedIds);
     }
 
     /**

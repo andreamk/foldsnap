@@ -79,9 +79,12 @@ export default function initMediaModeBridge() {
 		'foldsnap_folder_id'
 	);
 	if ( urlFolderId !== null ) {
-		window.wp?.data
-			?.dispatch( STORE_NAME )
-			?.setSelectedFolder( parseInt( urlFolderId, 10 ) );
+		const parsedId = parseInt( urlFolderId, 10 );
+		const dispatch = window.wp?.data?.dispatch( STORE_NAME );
+		dispatch?.setSelectedFolder( parsedId );
+		// Inflate the breadcrumb so the deep-linked folder is visible (and
+		// its ancestors expanded) on first paint of the tree.
+		dispatch?.expandPathTo?.( parsedId );
 	}
 
 	let lastFolderId =

@@ -1,6 +1,6 @@
 import { useState } from '@wordpress/element';
-import { Button, DropdownMenu, Modal } from '@wordpress/components';
-import { useDispatch } from '@wordpress/data';
+import { Button, DropdownMenu, Modal, Spinner } from '@wordpress/components';
+import { useDispatch, useSelect } from '@wordpress/data';
 import { useSortable } from '@dnd-kit/sortable';
 import { useDroppable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
@@ -9,35 +9,49 @@ import { STORE_NAME } from '../store/constants';
 import formatSize from '../utils/format-size';
 
 /**
- * Renders a single folder node in the tree.
+ * Renders a single folder node in the lazy-loaded tree.
  *
- * Uses @dnd-kit for folder reorder/reparent. Media assignment via drag
- * is handled externally by jQuery UI (see foldsnap-dragdrop.js) which
- * reads the data-folder-id attribute on the droppable div.
+ * Reads the folder, expansion, fetch state and children list directly from
+ * the store via `folderId` (no folder object passed down) so a parent's
+ * mutation doesn't force an unrelated subtree to re-render.
+ *
+ * Children list is rendered only when `isExpanded` AND children have been
+ * loaded; while a fetch is in flight a small spinner stands in.
  *
  * @param {Object}      props                  Component props.
- * @param {Object}      props.folder           Folder data object.
+ * @param {number}      props.folderId         Folder term ID.
  * @param {number|null} props.selectedFolderId Currently selected folder ID.
- * @param {Function}    props.onSelect         Callback when folder is selected.
+ * @param {Function}    props.onSelect         Selection callback.
  * @param {number}      props.depth            Nesting depth (0 = root).
- * @param {Function}    props.onAddSubfolder   Callback to open modal with a parent pre-set.
- * @return {JSX.Element} The rendered folder item.
+ * @param {Function}    props.onAddSubfolder   Open create-modal with parent pre-set.
+ * @return {JSX.Element|null} Rendered folder item, or null if folder not in store.
  */
 const FolderItem = ( {
-	folder,
+	folderId,
 	selectedFolderId,
 	onSelect,
 	depth = 0,
 	onAddSubfolder,
 } ) => {
-	const [ isExpanded, setIsExpanded ] = useState( true );
 	const [ showDeleteConfirm, setShowDeleteConfirm ] = useState( false );
-	const { deleteFolder } = useDispatch( STORE_NAME );
 
-	const hasChildren = folder.children && folder.children.length > 0;
-	const isSelected = selectedFolderId === folder.id;
+	const { folder, isExpanded, isFetching, children } = useSelect(
+		( select ) => {
+			const store = select( STORE_NAME );
+			return {
+				folder: store.getFolderById( folderId ),
+				isExpanded: store.isFolderExpanded( folderId ),
+				isFetching: store.isFolderFetching( folderId ),
+				children: store.getChildrenOf( folderId ),
+			};
+		},
+		[ folderId ]
+	);
 
-	// Sortable: drag to reorder among siblings
+	const { deleteFolder, expandFolder, collapseFolder } =
+		useDispatch( STORE_NAME );
+
+	// Sortable drag for reordering folders among siblings.
 	const {
 		attributes,
 		listeners,
@@ -46,15 +60,22 @@ const FolderItem = ( {
 		transition,
 		isDragging,
 	} = useSortable( {
-		id: folder.id,
-		data: { type: 'folder', folder },
+		id: folderId,
+		data: { type: 'folder', folderId },
 	} );
 
-	// Droppable: accept @dnd-kit drops (folder reparenting)
+	// Droppable target for folder reparenting.
 	const { isOver, setNodeRef: setDroppableRef } = useDroppable( {
-		id: `folder-drop-${ folder.id }`,
-		data: { type: 'folder', folderId: folder.id },
+		id: `folder-drop-${ folderId }`,
+		data: { type: 'folder', folderId },
 	} );
+
+	if ( ! folder ) {
+		return null;
+	}
+
+	const hasChildren = folder.has_children === true;
+	const isSelected = selectedFolderId === folder.id;
 
 	const sortableStyle = {
 		transform: CSS.Transform.toString( transform ),
@@ -64,20 +85,15 @@ const FolderItem = ( {
 
 	const handleToggleExpand = ( e ) => {
 		e.stopPropagation();
-		setIsExpanded( ( prev ) => ! prev );
+		if ( isExpanded ) {
+			collapseFolder( folder.id );
+		} else {
+			expandFolder( folder.id );
+		}
 	};
 
 	const handleSelect = () => {
 		onSelect( folder.id );
-	};
-
-	const handleDelete = () => {
-		setShowDeleteConfirm( true );
-	};
-
-	const confirmDelete = async () => {
-		setShowDeleteConfirm( false );
-		await deleteFolder( folder.id );
 	};
 
 	const dropdownControls = [
@@ -87,7 +103,7 @@ const FolderItem = ( {
 		},
 		{
 			title: __( 'Delete', 'foldsnap' ),
-			onClick: handleDelete,
+			onClick: () => setShowDeleteConfirm( true ),
 		},
 	];
 
@@ -111,7 +127,6 @@ const FolderItem = ( {
 				onClick={ handleSelect }
 				onKeyDown={ ( e ) => e.key === 'Enter' && handleSelect() }
 			>
-				{ /* Drag handle */ }
 				<span
 					className="foldsnap-folder-item__drag-handle"
 					{ ...listeners }
@@ -124,7 +139,6 @@ const FolderItem = ( {
 					⠿
 				</span>
 
-				{ /* Expand/collapse chevron */ }
 				{ hasChildren ? (
 					<button
 						type="button"
@@ -142,7 +156,6 @@ const FolderItem = ( {
 					<span className="foldsnap-folder-item__chevron foldsnap-folder-item__chevron--empty" />
 				) }
 
-				{ /* Color dot */ }
 				{ folder.color && (
 					<span
 						className="foldsnap-folder-item__color-dot"
@@ -151,26 +164,22 @@ const FolderItem = ( {
 					/>
 				) }
 
-				{ /* Folder name */ }
 				<span className="foldsnap-folder-item__name">
 					{ folder.name }
 				</span>
 
-				{ /* Media count badge */ }
 				{ folder.total_media_count !== undefined && (
 					<span className="foldsnap-folder-item__badge">
 						{ folder.total_media_count }
 					</span>
 				) }
 
-				{ /* Size label */ }
 				{ folder.total_size !== undefined && folder.total_size > 0 && (
 					<span className="foldsnap-folder-item__size">
 						{ formatSize( folder.total_size ) }
 					</span>
 				) }
 
-				{ /* Actions dropdown */ }
 				<DropdownMenu
 					icon="ellipsis"
 					label={ __( 'Folder actions', 'foldsnap' ) }
@@ -182,13 +191,17 @@ const FolderItem = ( {
 				/>
 			</div>
 
-			{ /* Recursive children */ }
-			{ hasChildren && isExpanded && (
+			{ isExpanded && (
 				<div className="foldsnap-folder-item__children">
-					{ folder.children.map( ( child ) => (
+					{ isFetching && children.length === 0 && (
+						<div className="foldsnap-folder-item__loading">
+							<Spinner />
+						</div>
+					) }
+					{ children.map( ( child ) => (
 						<FolderItem
 							key={ child.id }
-							folder={ child }
+							folderId={ child.id }
 							selectedFolderId={ selectedFolderId }
 							onSelect={ onSelect }
 							depth={ depth + 1 }
@@ -220,7 +233,10 @@ const FolderItem = ( {
 						<Button
 							variant="primary"
 							isDestructive
-							onClick={ confirmDelete }
+							onClick={ async () => {
+								setShowDeleteConfirm( false );
+								await deleteFolder( folder.id );
+							} }
 						>
 							{ __( 'Delete', 'foldsnap' ) }
 						</Button>

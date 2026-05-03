@@ -365,25 +365,30 @@ class FolderRepository
     /**
      * Assign media items to a folder
      *
-     * Replaces any existing folder assignment for each media item.
+     * Replaces any existing folder assignment for each media item. Returns
+     * the list of folder IDs the media were previously assigned to (deduped,
+     * excluding $folderId itself) so callers can refresh their ancestor
+     * totals — those folders just lost media that the destination gained.
      *
      * @param int   $folderId Folder term ID
      * @param int[] $mediaIds Array of attachment post IDs
      *
-     * @return void
+     * @return int[] Previous folder IDs the media were assigned to, deduped,
+     *               with $folderId removed.
      *
      * @throws InvalidArgumentException If folder does not exist.
      */
-    public function assignMedia(int $folderId, array $mediaIds): void
+    public function assignMedia(int $folderId, array $mediaIds): array
     {
         $this->getByIdOrFail($folderId);
         $this->validateAttachmentIds($mediaIds);
 
         if (empty($mediaIds)) {
-            return;
+            return [];
         }
 
-        // Track previous folder IDs so we can flush their cache too.
+        // Track previous folder IDs so we can flush their cache too and
+        // surface them to the caller for path-totals refresh.
         $previousFolderIds = [];
         foreach ($mediaIds as $mediaId) {
             $current = wp_get_object_terms($mediaId, TaxonomyService::TAXONOMY_NAME, ['fields' => 'ids']);
@@ -406,6 +411,11 @@ class FolderRepository
         clean_term_cache($idsToRecount, TaxonomyService::TAXONOMY_NAME);
 
         $this->invalidateRootCache();
+
+        return array_values(array_unique(array_filter(
+            $previousFolderIds,
+            static fn (int $id): bool => $id !== $folderId
+        )));
     }
 
     /**

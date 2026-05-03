@@ -614,6 +614,66 @@ class FolderRepositoryTests extends WP_UnitTestCase
     }
 
     /**
+     * Test assignMedia returns previous folder IDs for cache refresh
+     *
+     * @return void
+     */
+    public function test_assign_media_returns_previous_folder_ids(): void
+    {
+        $origin1Id = $this->createTerm('Origin 1');
+        $origin2Id = $this->createTerm('Origin 2');
+        $destId    = $this->createTerm('Dest');
+        $att1      = $this->factory()->attachment->create();
+        $att2      = $this->factory()->attachment->create();
+
+        $this->repository->assignMedia($origin1Id, [$att1]);
+        $this->repository->assignMedia($origin2Id, [$att2]);
+
+        $previous = $this->repository->assignMedia($destId, [$att1, $att2]);
+
+        sort($previous);
+        $expected = [
+            $origin1Id,
+            $origin2Id,
+        ];
+        sort($expected);
+        $this->assertSame($expected, $previous);
+    }
+
+    /**
+     * Test assignMedia returns empty array for unassigned media
+     *
+     * @return void
+     */
+    public function test_assign_media_returns_empty_for_unassigned(): void
+    {
+        $folderId = $this->createTerm('Folder');
+        $att      = $this->factory()->attachment->create();
+
+        $this->assertSame([], $this->repository->assignMedia($folderId, [$att]));
+    }
+
+    /**
+     * Test assignMedia excludes destination folder from returned IDs
+     *
+     * Reassigning a media to the same folder it already lives in must not
+     * surface that folder as a "previous" ID — there's no origin chain to
+     * refresh in that case.
+     *
+     * @return void
+     */
+    public function test_assign_media_excludes_destination_from_previous(): void
+    {
+        $folderId = $this->createTerm('Folder');
+        $att      = $this->factory()->attachment->create();
+
+        $this->repository->assignMedia($folderId, [$att]);
+        $previous = $this->repository->assignMedia($folderId, [$att]);
+
+        $this->assertSame([], $previous);
+    }
+
+    /**
      * Test assignMedia handles multiple media items
      *
      * @return void

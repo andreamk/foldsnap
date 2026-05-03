@@ -167,17 +167,21 @@ final class RestApiFolderMutationsController
         }
 
         return $this->handleRestRequest(function () use ($folderId, $mediaIds): WP_REST_Response {
-            $this->repository->assignMedia($folderId, $mediaIds);
+            $previousFolderIds = $this->repository->assignMedia($folderId, $mediaIds);
 
             $folder = $this->repository->getById($folderId);
             if (null === $folder) {
                 return new WP_REST_Response(['assigned' => true], 200);
             }
 
+            // Each origin folder also needs its ancestor totals refreshed —
+            // a media item just left it and joined the destination chain.
+            $affectedParents = array_merge([$folder->getParentId()], $previousFolderIds);
+
             return new WP_REST_Response(
                 array_merge(
                     ['assigned' => true],
-                    $this->buildMutationResponse($folder, [$folder->getParentId()])
+                    $this->buildMutationResponse($folder, $affectedParents, $previousFolderIds)
                 ),
                 200
             );
@@ -225,19 +229,43 @@ final class RestApiFolderMutationsController
     /**
      * Build the unified mutation envelope returned by every write endpoint
      *
-     * @param \FoldSnap\Models\FolderModel $folder            The folder that was created/updated/touched
-     * @param int[]                        $affectedParentIds Parent IDs whose has_children may have changed
+     * `paths` is the list of ancestor chains whose totals the client should
+     * apply. The first chain is always for `$folder`; any IDs in
+     * `$extraPathFolderIds` get their own chain appended (used by assignMedia
+     * to refresh origin folders too). Chains keyed by an unknown / deleted
+     * folder ID are skipped silently.
+     *
+     * @param \FoldSnap\Models\FolderModel $folder             The folder that was created/updated/touched
+     * @param int[]                        $affectedParentIds  Parent IDs whose has_children may have changed
+     * @param int[]                        $extraPathFolderIds Additional folder IDs whose ancestor chain
+     *                                                         totals should be included in `paths`.
      *
      * @return array<string, mixed>
      */
-    private function buildMutationResponse(\FoldSnap\Models\FolderModel $folder, array $affectedParentIds): array
-    {
+    private function buildMutationResponse(
+        \FoldSnap\Models\FolderModel $folder,
+        array $affectedParentIds,
+        array $extraPathFolderIds = []
+    ): array {
         $folderArray = $this->decorateFolders([$folder])[0];
-        $path        = $this->repository->getPath($folder->getId());
+
+        $pathFolderIds = array_merge([$folder->getId()], $extraPathFolderIds);
+        $pathFolderIds = array_values(array_unique(array_filter(
+            $pathFolderIds,
+            static fn (int $id): bool => $id > 0
+        )));
+
+        $paths = [];
+        foreach ($pathFolderIds as $id) {
+            $chain = $this->repository->getPath($id);
+            if (! empty($chain)) {
+                $paths[] = $this->decorateFolders($chain);
+            }
+        }
 
         return [
             'folder'           => $folderArray,
-            'path'             => $this->decorateFolders($path),
+            'paths'            => $paths,
             'affected_parents' => $this->buildAffectedParents($affectedParentIds),
             'root_media_count' => $this->repository->getRootMediaCount(),
             'root_total_size'  => $this->repository->getRootTotalSize(),
