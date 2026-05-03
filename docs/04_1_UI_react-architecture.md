@@ -7,14 +7,20 @@
 ## Component hierarchy
 
 ```
-FolderSidebar          (DndContext provider for folder reordering)
-└── FolderTree         (search box, root item, folder list, "New Folder" button)
-    ├── FolderItem     (single folder node, recursive for children)
-    │   └── FolderItem (nested children)
-    ├── CreateFolderModal
-    └── MediaGrid      (paginated media grid for the selected folder)
-        └── MediaItem  (single thumbnail, draggable via jQuery UI)
+FolderSidebar              (DndContext + All Media toggle)
+└── FolderTree             (search box, root item, folder list, "New Folder" button)
+    ├── FolderItem         (single folder node, recursive for children)
+    │   └── FolderItem     (nested children)
+    ├── SearchResultsList  (rendered instead of the tree while a query is active)
+    ├── CreateFolderModal  (lazy-loaded; uses FolderPicker for parent selection)
+    │   └── FolderPicker   (mini-tree + search, also reusable elsewhere)
+    └── MediaGrid          (paginated media grid for the selected folder)
+        └── MediaItem      (single thumbnail, draggable via jQuery UI)
 ```
+
+`FolderPicker` is a self-contained mini-tree that reads the same `foldsnap/folders` store: it lists root folders, allows expanding any branch, and exposes its own debounced search. It is rendered inside `CreateFolderModal` to pick a parent and is reusable for any future "pick a folder" flow.
+
+`SearchResultsList` replaces the tree (not the whole sidebar) whenever `getSearchQuery()` is non-empty, so the search input in `FolderTree` stays mounted. Clicking a result selects the folder, calls `expandPathTo`, and clears the search so the tree comes back focused on the chosen folder.
 
 ## State management
 
@@ -72,6 +78,21 @@ Direct slice access (`getFolderById`, `getChildrenOf`, `getExpandedIds`, `isFold
 ### Resolvers
 
 `getChildrenOf(0)` is wired to a resolver that triggers `fetchChildren(0)` on first read, so the root's children load automatically without a manual call.
+
+### Persistence
+
+Two independent slices survive page reloads via `localStorage` (see [`template/js/store/persistence.js`](../template/js/store/persistence.js)):
+
+- `expandedIds` — written under `foldsnap_expanded_ids` whenever the set changes.
+- `allMediaActive` — written under a separate key (only when `true`; cleared when toggled off).
+
+On store init, both keys are read and dispatched as a single `HYDRATE` action that merges them into the initial state. `localStorage` failures (unavailable, quota exceeded) degrade silently — the store stays usable, just non-persistent for that session.
+
+## Hooks
+
+The `template/js/hooks/` directory holds reusable hooks consumed by multiple components.
+
+- **`useDebouncedCallback(callback, delay)`** — returns a stable wrapper that resets a shared timer on every call and only fires `callback(...args)` once `delay` ms have passed without further calls. Pending timer is cleared on unmount. Used by `FolderTree` and `FolderPicker` for the search input (`SEARCH_DEBOUNCE_MS = 300`).
 
 ## Drag and drop
 

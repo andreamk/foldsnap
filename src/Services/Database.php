@@ -350,6 +350,64 @@ class Database
     }
 
     /**
+     * Get direct child term IDs for a set of parent terms
+     *
+     * One query that returns the union of direct children across every
+     * requested parent (used by the recalculate stack builder to walk the
+     * tree top-down, one level at a time). Children are returned in
+     * `term_id ASC` order; duplicates are not possible because a term has
+     * exactly one parent.
+     *
+     * @param int[]  $parentIds Parent term IDs (0 = top-level)
+     * @param string $taxonomy  Taxonomy name
+     *
+     * @return int[] Child term IDs across all requested parents
+     */
+    public static function getChildTermIdsForParents(array $parentIds, string $taxonomy): array
+    {
+        $parentIds = array_map('intval', $parentIds);
+
+        if (empty($parentIds)) {
+            return [];
+        }
+
+        /** @var \wpdb $wpdb */
+        global $wpdb;
+
+        $placeholders = implode(',', array_fill(0, count($parentIds), '%d'));
+
+        // phpcs:disable WordPress.DB
+        $rows = $wpdb->get_col(
+            $wpdb->prepare(
+                'SELECT term_id
+                FROM %i
+                WHERE taxonomy = %s
+                AND parent IN (' . $placeholders . ')
+                ORDER BY term_id ASC',
+                array_merge([$wpdb->term_taxonomy, $taxonomy], $parentIds)
+            )
+        );
+        // phpcs:enable WordPress.DB
+
+        if (! is_array($rows)) {
+            return [];
+        }
+
+        $ids = [];
+        foreach ($rows as $val) {
+            if (! is_numeric($val)) {
+                continue;
+            }
+            $tid = (int) $val;
+            if ($tid > 0) {
+                $ids[] = $tid;
+            }
+        }
+
+        return $ids;
+    }
+
+    /**
      * Count direct children for each parent term
      *
      * Single GROUP BY query covering all requested parents. Returns 0 for

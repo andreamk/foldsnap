@@ -21,17 +21,32 @@ FoldSnap adds folder management to the WordPress admin Media Library. Folders ar
 │  PHP  │              │                │         │
 │  RestApiController + Mutations  MediaLibraryCtl │
 │       │                                         │
-│  FolderRepository ── AttachmentLifecycleService │
+│  FolderRepository    AttachmentLifecycleService │
 │       │                       │                 │
-│       └──── FolderModel ──────┘                 │
-│       │                                         │
+│       ├── FolderNameSanitizer │                 │
+│       ├── FolderTreeNavigator │                 │
+│       ├── MediaFolderAssignmentService          │
+│       └── FolderCounterService ◄────────────────┤
+│                       │                         │
+│       FolderModel     │                         │
+│                       │                         │
+│  CountersRecalculator │  (WP-Cron, first boot)  │
+│       │               │                         │
 │  Database (raw $wpdb queries) + TaxonomyService │
 │       │                                         │
 │  WP DB (wp_terms, wp_term_taxonomy,             │
 │          wp_term_relationships, wp_termmeta,    │
-│          wp_options for Root counters)          │
+│          wp_options for Root counters + recalc) │
 └─────────────────────────────────────────────────┘
 ```
+
+**WP-Cron bootstrap.** On every admin request `Bootstrap` checks the
+`foldsnap_opt_counters_initialized` option. If unset, it schedules a
+`foldsnap_recalc_chunk` event 5 seconds out; the cron callback runs one
+chunk via `CountersRecalculator::processChunk()` and self-reschedules
+30 seconds later until the bottom-up walk drains. This is the only
+automatic entry point for the recalculate; the REST endpoint is for
+manual recovery.
 
 **Frontend.** React sidebar mounted before `#wpbody-content`. Uses `@wordpress/data` for state management (lazy children-by-parent map, see [React UI](04_1_UI_react-architecture.md)) and `@wordpress/api-fetch` for REST. A bridge module synchronises folder selection with the native Backbone media grid in grid mode, or with `upload.php` URL parameters in list mode.
 
@@ -40,7 +55,12 @@ FoldSnap adds folder management to the WordPress admin Media Library. Folders ar
 - `RestApiController` registers all `foldsnap/v1` routes and serves the read endpoints (children fetch, search, path, media listing, recalculate).
 - `RestApiFolderMutationsController` serves the write endpoints (create / update / delete / assign / remove media). Every write returns the same [mutation envelope](02_1_API_rest-endpoints.md#mutation-envelope).
 - `MediaLibraryController` enqueues assets and filters the native grid/list by folder via the WordPress hooks.
-- `FolderRepository` is the single point of access to the taxonomy. It owns folder CRUD, media assignment, the incremental counter math, and the option-backed Root counters.
+- `FolderRepository` is the focused CRUD surface for the taxonomy: lookup, create, update, delete. It composes the helpers below for everything else.
+- `FolderNameSanitizer` validates and uniquifies folder names. Stateless so the rules are testable without touching the taxonomy.
+- `FolderTreeNavigator` walks the parent chain (instance: path resolution to `FolderModel[]`; static: ancestor-id list for delta math). Read-only.
+- `MediaFolderAssignmentService` owns every code path that changes which folder an attachment lives in (assign, remove, "assign to Root"), keeping ancestor-chain counters coherent via `FolderCounterService`.
+- `FolderCounterService` is the single write path for counter math: applies signed `(size, count)` deltas to ancestor chains, owns the two `wp_options` rows backing the virtual Root totals, and invalidates the wp_cache entries that memoize Root unassigned counters.
+- `CountersRecalculator` rebuilds drifted counters via a bottom-up chunked walk. Used on first boot (WP-Cron) and as a manual recovery tool (REST `POST /folders/recalculate`).
 - `Database` holds the raw `$wpdb` queries that have no high-level WordPress equivalent (children counts, descendant BFS, bulk meta UPDATE, file-size lookups, etc.).
 - `AttachmentLifecycleService` hooks the WordPress upload and delete lifecycle, queuing counter updates to flush at `shutdown` so bulk uploads collapse to a single round-trip.
 

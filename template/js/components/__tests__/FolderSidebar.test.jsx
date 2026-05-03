@@ -1,4 +1,5 @@
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { useDispatch, useSelect } from '@wordpress/data';
 import FolderSidebar from '../FolderSidebar';
 
@@ -80,9 +81,10 @@ describe( 'FolderSidebar', () => {
 		expect( input.checked ).toBe( false );
 	} );
 
-	it( 'dispatches setAllMedia when the toggle is flipped', () => {
+	it( 'dispatches setAllMedia when the toggle is flipped', async () => {
+		const user = userEvent.setup();
 		render( <FolderSidebar /> );
-		fireEvent.click(
+		await user.click(
 			screen.getByTestId( 'all-media-toggle' ).querySelector( 'input' )
 		);
 		expect( mockSetAllMedia ).toHaveBeenCalledWith( true );

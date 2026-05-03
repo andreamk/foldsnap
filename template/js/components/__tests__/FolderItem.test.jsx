@@ -1,4 +1,5 @@
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { useDispatch, useSelect } from '@wordpress/data';
 import FolderItem from '../FolderItem';
 
@@ -85,6 +86,7 @@ describe( 'FolderItem', () => {
 	let mockDeleteFolder;
 	let mockExpandFolder;
 	let mockCollapseFolder;
+	let user;
 
 	beforeEach( () => {
 		mockDeleteFolder = jest.fn();
@@ -95,6 +97,7 @@ describe( 'FolderItem', () => {
 			expandFolder: mockExpandFolder,
 			collapseFolder: mockCollapseFolder,
 		} );
+		user = userEvent.setup();
 	} );
 
 	it( 'returns null when folder not in store', () => {
@@ -126,7 +129,7 @@ describe( 'FolderItem', () => {
 		).toHaveAttribute( 'data-folder-id', '42' );
 	} );
 
-	it( 'fires onSelect when row is clicked', () => {
+	it( 'fires onSelect when row is clicked', async () => {
 		const onSelect = jest.fn();
 		setupSelect( { folder: makeFolder( { id: 42 } ) } );
 		render(
@@ -137,7 +140,7 @@ describe( 'FolderItem', () => {
 				onAddSubfolder={ jest.fn() }
 			/>
 		);
-		fireEvent.click( screen.getByText( 'Photos' ) );
+		await user.click( screen.getByText( 'Photos' ) );
 		expect( onSelect ).toHaveBeenCalledWith( 42 );
 	} );
 
@@ -169,7 +172,7 @@ describe( 'FolderItem', () => {
 		expect( screen.getByLabelText( 'Expand' ) ).toBeInTheDocument();
 	} );
 
-	it( 'expandFolder is dispatched when chevron is clicked while collapsed', () => {
+	it( 'expandFolder is dispatched when chevron is clicked while collapsed', async () => {
 		setupSelect( {
 			folder: makeFolder( { id: 1, has_children: true } ),
 			isExpanded: false,
@@ -182,11 +185,11 @@ describe( 'FolderItem', () => {
 				onAddSubfolder={ jest.fn() }
 			/>
 		);
-		fireEvent.click( screen.getByLabelText( 'Expand' ) );
+		await user.click( screen.getByLabelText( 'Expand' ) );
 		expect( mockExpandFolder ).toHaveBeenCalledWith( 1 );
 	} );
 
-	it( 'collapseFolder is dispatched when chevron is clicked while expanded', () => {
+	it( 'collapseFolder is dispatched when chevron is clicked while expanded', async () => {
 		setupSelect( {
 			folder: makeFolder( { id: 1, has_children: true } ),
 			isExpanded: true,
@@ -200,7 +203,7 @@ describe( 'FolderItem', () => {
 				onAddSubfolder={ jest.fn() }
 			/>
 		);
-		fireEvent.click( screen.getByLabelText( 'Collapse' ) );
+		await user.click( screen.getByLabelText( 'Collapse' ) );
 		expect( mockCollapseFolder ).toHaveBeenCalledWith( 1 );
 	} );
 
@@ -298,7 +301,7 @@ describe( 'FolderItem', () => {
 		expect( screen.getByText( '2.0 KB' ) ).toBeInTheDocument();
 	} );
 
-	it( 'fires onAddSubfolder from dropdown', () => {
+	it( 'fires onAddSubfolder from dropdown', async () => {
 		const onAddSubfolder = jest.fn();
 		setupSelect( { folder: makeFolder( { id: 5 } ) } );
 		render(
@@ -309,11 +312,11 @@ describe( 'FolderItem', () => {
 				onAddSubfolder={ onAddSubfolder }
 			/>
 		);
-		fireEvent.click( screen.getByText( 'Add subfolder' ) );
+		await user.click( screen.getByText( 'Add subfolder' ) );
 		expect( onAddSubfolder ).toHaveBeenCalledWith( 5 );
 	} );
 
-	it( 'shows confirmation modal then calls deleteFolder on confirm', () => {
+	it( 'shows confirmation modal then calls deleteFolder on confirm', async () => {
 		setupSelect( { folder: makeFolder( { id: 7 } ) } );
 		render(
 			<FolderItem
@@ -323,14 +326,14 @@ describe( 'FolderItem', () => {
 				onAddSubfolder={ jest.fn() }
 			/>
 		);
-		fireEvent.click( screen.getByText( 'Delete' ) );
+		await user.click( screen.getByText( 'Delete' ) );
 		expect( screen.getByTestId( 'confirm-modal' ) ).toBeInTheDocument();
 		const deleteButtons = screen.getAllByText( 'Delete' );
-		fireEvent.click( deleteButtons[ deleteButtons.length - 1 ] );
+		await user.click( deleteButtons[ deleteButtons.length - 1 ] );
 		expect( mockDeleteFolder ).toHaveBeenCalledWith( 7 );
 	} );
 
-	it( 'cancel closes modal without deleting', () => {
+	it( 'cancel closes modal without deleting', async () => {
 		setupSelect( { folder: makeFolder() } );
 		render(
 			<FolderItem
@@ -340,8 +343,8 @@ describe( 'FolderItem', () => {
 				onAddSubfolder={ jest.fn() }
 			/>
 		);
-		fireEvent.click( screen.getByText( 'Delete' ) );
-		fireEvent.click( screen.getByText( 'Cancel' ) );
+		await user.click( screen.getByText( 'Delete' ) );
+		await user.click( screen.getByText( 'Cancel' ) );
 		expect(
 			screen.queryByTestId( 'confirm-modal' )
 		).not.toBeInTheDocument();

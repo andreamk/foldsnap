@@ -1,4 +1,5 @@
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, act } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { useDispatch, useSelect } from '@wordpress/data';
 import FolderPicker from '../FolderPicker';
 
@@ -47,9 +48,13 @@ describe( 'FolderPicker', () => {
 	let fetchChildren;
 	let searchFolders;
 	let clearSearch;
+	let user;
 
 	beforeEach( () => {
 		jest.useFakeTimers();
+		user = userEvent.setup( {
+			advanceTimers: jest.advanceTimersByTime,
+		} );
 		fetchChildren = jest.fn();
 		searchFolders = jest.fn();
 		clearSearch = jest.fn();
@@ -72,26 +77,26 @@ describe( 'FolderPicker', () => {
 		expect( screen.getByText( 'Docs' ) ).toBeInTheDocument();
 	} );
 
-	it( 'fires onChange with 0 when Root is picked', () => {
+	it( 'fires onChange with 0 when Root is picked', async () => {
 		setup();
 		const onChange = jest.fn();
 		render( <FolderPicker value={ 5 } onChange={ onChange } /> );
-		fireEvent.click( screen.getByText( '— Root —' ) );
+		await user.click( screen.getByText( '— Root —' ) );
 		expect( onChange ).toHaveBeenCalledWith( 0 );
 	} );
 
-	it( 'fires onChange with folder id when a folder is picked', () => {
+	it( 'fires onChange with folder id when a folder is picked', async () => {
 		setup();
 		const onChange = jest.fn();
 		render( <FolderPicker value={ 0 } onChange={ onChange } /> );
-		fireEvent.click( screen.getByText( 'Docs' ) );
+		await user.click( screen.getByText( 'Docs' ) );
 		expect( onChange ).toHaveBeenCalledWith( 2 );
 	} );
 
-	it( 'expand fetches children for that folder', () => {
+	it( 'expand fetches children for that folder', async () => {
 		setup();
 		render( <FolderPicker value={ 0 } onChange={ jest.fn() } /> );
-		fireEvent.click( screen.getByLabelText( 'Expand' ) );
+		await user.click( screen.getByLabelText( 'Expand' ) );
 		expect( fetchChildren ).toHaveBeenCalledWith( 1 );
 	} );
 
@@ -104,7 +109,7 @@ describe( 'FolderPicker', () => {
 		expect( screen.getByText( 'Docs' ) ).toBeInTheDocument();
 	} );
 
-	it( 'switches to results view while a query is active', () => {
+	it( 'switches to results view while a query is active', async () => {
 		setup( {
 			searchResults: [
 				{
@@ -114,9 +119,10 @@ describe( 'FolderPicker', () => {
 			],
 		} );
 		render( <FolderPicker value={ 0 } onChange={ jest.fn() } /> );
-		fireEvent.change( screen.getByPlaceholderText( 'Search folders…' ), {
-			target: { value: 'res' },
-		} );
+		await user.type(
+			screen.getByPlaceholderText( 'Search folders…' ),
+			'res'
+		);
 		act( () => {
 			jest.advanceTimersByTime( 300 );
 		} );
@@ -125,12 +131,12 @@ describe( 'FolderPicker', () => {
 		expect( screen.getByText( 'Result' ) ).toBeInTheDocument();
 	} );
 
-	it( 'clears search when input becomes empty', () => {
+	it( 'clears search when input becomes empty', async () => {
 		setup();
 		render( <FolderPicker value={ 0 } onChange={ jest.fn() } /> );
 		const input = screen.getByPlaceholderText( 'Search folders…' );
-		fireEvent.change( input, { target: { value: 'foo' } } );
-		fireEvent.change( input, { target: { value: '' } } );
+		await user.type( input, 'foo' );
+		await user.clear( input );
 		act( () => {
 			jest.advanceTimersByTime( 300 );
 		} );

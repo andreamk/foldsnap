@@ -82,7 +82,7 @@ class CountersRecalculator
         }
 
         if (empty($batch)) {
-            update_option(self::OPT_STACK, $stack);
+            update_option(self::OPT_STACK, $stack, false);
             return [
                 'processed' => 0,
                 'remaining' => count($stack),
@@ -111,10 +111,10 @@ class CountersRecalculator
 
         $remaining = count($stack);
         if ($remaining > 0) {
-            update_option(self::OPT_STACK, $stack);
+            update_option(self::OPT_STACK, $stack, false);
         } else {
             // Drain pass: the next call will compute Root and finalize.
-            update_option(self::OPT_STACK, []);
+            update_option(self::OPT_STACK, [], false);
         }
 
         return [
@@ -176,7 +176,7 @@ class CountersRecalculator
         // first bulk UPDATE that the live system fires has rows to update.
         Database::ensureFolderCountersInitialized($stack, TaxonomyService::TAXONOMY_NAME);
 
-        update_option(self::OPT_STACK, $stack);
+        update_option(self::OPT_STACK, $stack, false);
 
         return $stack;
     }
@@ -192,47 +192,21 @@ class CountersRecalculator
      */
     private function buildStack(): array
     {
-        /** @var \wpdb $wpdb */
-        global $wpdb;
+        $stack        = [];
+        $currentLevel = [0];
 
-        $stack         = [];
-        $currentLevel  = [0];
-        $maxIterations = 64;
+        for ($depth = 0; $depth < 64; $depth++) {
+            $children = Database::getChildTermIdsForParents($currentLevel, TaxonomyService::TAXONOMY_NAME);
 
-        while (! empty($currentLevel) && $maxIterations-- > 0) {
-            $placeholders = implode(',', array_fill(0, count($currentLevel), '%d'));
-
-            // phpcs:disable WordPress.DB
-            $rows = $wpdb->get_col(
-                $wpdb->prepare(
-                    'SELECT term_id
-                    FROM %i
-                    WHERE taxonomy = %s
-                    AND parent IN (' . $placeholders . ')
-                    ORDER BY term_id ASC',
-                    array_merge([$wpdb->term_taxonomy, TaxonomyService::TAXONOMY_NAME], $currentLevel)
-                )
-            );
-            // phpcs:enable WordPress.DB
-
-            if (! is_array($rows) || empty($rows)) {
+            if (empty($children)) {
                 break;
             }
 
-            $nextLevel = [];
-            foreach ($rows as $val) {
-                if (! is_numeric($val)) {
-                    continue;
-                }
-                $tid = (int) $val;
-                if ($tid <= 0) {
-                    continue;
-                }
-                $stack[]     = $tid;
-                $nextLevel[] = $tid;
+            foreach ($children as $tid) {
+                $stack[] = $tid;
             }
 
-            $currentLevel = $nextLevel;
+            $currentLevel = $children;
         }
 
         return $stack;
@@ -241,33 +215,16 @@ class CountersRecalculator
     /**
      * Compute and persist the global Root counters
      *
-     * Root = direct_unassigned + Σ total(top-level folders). Read from term
-     * meta of top-level folders (already stable after the bottom-up pass).
+     * Root = direct_unassigned + Σ total(top-level folders). The site-wide
+     * sums already include every attachment (assigned or not), so they ARE
+     * the Root totals — no per-top-level read needed.
      *
      * @return void
      */
     private function finalizeRoot(): void
     {
-        /** @var \wpdb $wpdb */
-        global $wpdb;
-
-        // phpcs:disable WordPress.DB
-        $topIds = $wpdb->get_col(
-            $wpdb->prepare(
-                'SELECT term_id FROM %i WHERE taxonomy = %s AND parent = 0',
-                $wpdb->term_taxonomy,
-                TaxonomyService::TAXONOMY_NAME
-            )
-        );
-        // phpcs:enable WordPress.DB
-
         $totalSize  = Database::getGlobalTotalSize(TaxonomyService::POST_TYPE);
         $totalCount = Database::getGlobalMediaCount(TaxonomyService::POST_TYPE);
-
-        // Sanity: above queries already include every attachment (assigned or
-        // not), so totalSize/Count ARE the global figures. Top-level term meta
-        // not needed for Root math — left as a hook for future audit logs.
-        unset($topIds);
 
         $this->counters->setRoot($totalSize, $totalCount);
     }

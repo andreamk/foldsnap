@@ -1,4 +1,5 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { useDispatch } from '@wordpress/data';
 import CreateFolderModal from '../CreateFolderModal';
 
@@ -48,11 +49,13 @@ jest.mock( '@wordpress/components', () => ( {
 describe( 'CreateFolderModal', () => {
 	let mockCreateFolder;
 	let mockOnClose;
+	let user;
 
 	beforeEach( () => {
 		mockCreateFolder = jest.fn().mockResolvedValue( undefined );
 		mockOnClose = jest.fn();
 		useDispatch.mockReturnValue( { createFolder: mockCreateFolder } );
+		user = userEvent.setup();
 	} );
 
 	it( 'renders the modal title', () => {
@@ -78,21 +81,17 @@ describe( 'CreateFolderModal', () => {
 		expect( screen.getByText( 'Create' ) ).toBeDisabled();
 	} );
 
-	it( 'enables Create after typing a name', () => {
+	it( 'enables Create after typing a name', async () => {
 		render( <CreateFolderModal parentId={ 0 } onClose={ mockOnClose } /> );
-		fireEvent.change( screen.getByTestId( 'name-input' ), {
-			target: { value: 'My Folder' },
-		} );
+		await user.type( screen.getByTestId( 'name-input' ), 'My Folder' );
 		expect( screen.getByText( 'Create' ) ).not.toBeDisabled();
 	} );
 
 	it( 'updates the parent on picker change', async () => {
 		render( <CreateFolderModal parentId={ 0 } onClose={ mockOnClose } /> );
-		fireEvent.change( screen.getByTestId( 'name-input' ), {
-			target: { value: 'Photos' },
-		} );
-		fireEvent.click( screen.getByText( 'Pick 5' ) );
-		fireEvent.click( screen.getByText( 'Create' ) );
+		await user.type( screen.getByTestId( 'name-input' ), 'Photos' );
+		await user.click( screen.getByText( 'Pick 5' ) );
+		await user.click( screen.getByText( 'Create' ) );
 		await waitFor( () => {
 			expect( mockCreateFolder ).toHaveBeenCalledWith( {
 				name: 'Photos',
@@ -103,10 +102,11 @@ describe( 'CreateFolderModal', () => {
 
 	it( 'creates and closes on submit', async () => {
 		render( <CreateFolderModal parentId={ 0 } onClose={ mockOnClose } /> );
-		fireEvent.change( screen.getByTestId( 'name-input' ), {
-			target: { value: 'New Folder Name' },
-		} );
-		fireEvent.click( screen.getByText( 'Create' ) );
+		await user.type(
+			screen.getByTestId( 'name-input' ),
+			'New Folder Name'
+		);
+		await user.click( screen.getByText( 'Create' ) );
 		await waitFor( () => {
 			expect( mockCreateFolder ).toHaveBeenCalledWith( {
 				name: 'New Folder Name',
@@ -116,21 +116,17 @@ describe( 'CreateFolderModal', () => {
 		} );
 	} );
 
-	it( 'closes via Cancel without creating', () => {
+	it( 'closes via Cancel without creating', async () => {
 		render( <CreateFolderModal parentId={ 0 } onClose={ mockOnClose } /> );
-		fireEvent.click( screen.getByText( 'Cancel' ) );
+		await user.click( screen.getByText( 'Cancel' ) );
 		expect( mockOnClose ).toHaveBeenCalled();
 		expect( mockCreateFolder ).not.toHaveBeenCalled();
 	} );
 
 	it( 'submits on Enter key in name input', async () => {
 		render( <CreateFolderModal parentId={ 0 } onClose={ mockOnClose } /> );
-		fireEvent.change( screen.getByTestId( 'name-input' ), {
-			target: { value: 'Enter Folder' },
-		} );
-		fireEvent.keyDown( screen.getByTestId( 'name-input' ), {
-			key: 'Enter',
-		} );
+		const input = screen.getByTestId( 'name-input' );
+		await user.type( input, 'Enter Folder{Enter}' );
 		await waitFor( () => {
 			expect( mockCreateFolder ).toHaveBeenCalledWith( {
 				name: 'Enter Folder',
@@ -139,12 +135,10 @@ describe( 'CreateFolderModal', () => {
 		} );
 	} );
 
-	it( 'does not submit when name is whitespace only', () => {
+	it( 'does not submit when name is whitespace only', async () => {
 		render( <CreateFolderModal parentId={ 0 } onClose={ mockOnClose } /> );
-		fireEvent.change( screen.getByTestId( 'name-input' ), {
-			target: { value: '   ' },
-		} );
-		fireEvent.click( screen.getByText( 'Create' ) );
+		await user.type( screen.getByTestId( 'name-input' ), '   ' );
+		await user.click( screen.getByText( 'Create' ) );
 		expect( mockCreateFolder ).not.toHaveBeenCalled();
 	} );
 } );

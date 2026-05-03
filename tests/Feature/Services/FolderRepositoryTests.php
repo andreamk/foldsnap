@@ -835,16 +835,13 @@ class FolderRepositoryTests extends WP_UnitTestCase
     {
         $folder = $this->createTerm('Photos');
         $att1   = $this->factory()->attachment->create(); // assigned
-        $att2   = $this->factory()->attachment->create(); // unassigned
-        $att3   = $this->factory()->attachment->create(); // unassigned
+        $this->factory()->attachment->create_many(2);     // 2 unassigned
         $this->assignments->assign($folder, [$att1]);
 
         $root = $this->repository->getById(0);
 
         $this->assertNotNull($root);
         $this->assertSame(2, $root->getMediaCount());
-        // Silence unused-var warnings.
-        $this->assertNotSame($att2, $att3);
     }
 
     /**

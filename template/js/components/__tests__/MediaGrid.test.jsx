@@ -1,4 +1,5 @@
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { useSelect, useDispatch } from '@wordpress/data';
 import MediaGrid from '../MediaGrid';
 
@@ -80,10 +81,12 @@ const makeStoreState = ( overrides = {} ) => ( {
 
 describe( 'MediaGrid', () => {
 	let mockFetchMedia;
+	let user;
 
 	beforeEach( () => {
 		mockFetchMedia = jest.fn();
 		useDispatch.mockReturnValue( { fetchMedia: mockFetchMedia } );
+		user = userEvent.setup();
 	} );
 
 	const setupUseSelect = ( storeState ) => {
@@ -160,17 +163,17 @@ describe( 'MediaGrid', () => {
 		expect( prevButton ).toBeDisabled();
 	} );
 
-	it( 'calls fetchMedia with next page when Next is clicked', () => {
+	it( 'calls fetchMedia with next page when Next is clicked', async () => {
 		setupUseSelect( makeStoreState( { mediaTotalPages: 3 } ) );
 		render( <MediaGrid /> );
-		fireEvent.click( screen.getByText( 'Next →' ) );
+		await user.click( screen.getByText( 'Next →' ) );
 		expect( mockFetchMedia ).toHaveBeenCalledWith( null, 2 );
 	} );
 
-	it( 'selects a media item when clicked', () => {
+	it( 'selects a media item when clicked', async () => {
 		setupUseSelect( makeStoreState() );
 		render( <MediaGrid /> );
-		fireEvent.click( screen.getAllByText( 'Select' )[ 0 ] );
+		await user.click( screen.getAllByText( 'Select' )[ 0 ] );
 		expect(
 			screen
 				.getByTestId( 'media-item-1' )
@@ -178,14 +181,14 @@ describe( 'MediaGrid', () => {
 		).toBeInTheDocument();
 	} );
 
-	it( 'toggles selection on ctrl-click', () => {
+	it( 'toggles selection on ctrl-click', async () => {
 		setupUseSelect( makeStoreState() );
 		render( <MediaGrid /> );
 
 		const selectButtons = screen.getAllByText( 'Select' );
 
 		// Select item 1 with a normal click.
-		fireEvent.click( selectButtons[ 0 ] );
+		await user.click( selectButtons[ 0 ] );
 		expect(
 			screen
 				.getByTestId( 'media-item-1' )
@@ -193,7 +196,9 @@ describe( 'MediaGrid', () => {
 		).toBeInTheDocument();
 
 		// Ctrl-click item 1 again to deselect it.
-		fireEvent.click( selectButtons[ 0 ], { ctrlKey: true } );
+		await user.keyboard( '{Control>}' );
+		await user.click( selectButtons[ 0 ] );
+		await user.keyboard( '{/Control}' );
 		expect(
 			screen
 				.getByTestId( 'media-item-1' )
@@ -201,14 +206,14 @@ describe( 'MediaGrid', () => {
 		).not.toBeInTheDocument();
 	} );
 
-	it( 'selects range on shift-click', () => {
+	it( 'selects range on shift-click', async () => {
 		setupUseSelect( makeStoreState() );
 		render( <MediaGrid /> );
 
 		const selectButtons = screen.getAllByText( 'Select' );
 
 		// Click item 1 (simple click to set anchor).
-		fireEvent.click( selectButtons[ 0 ] );
+		await user.click( selectButtons[ 0 ] );
 		expect(
 			screen
 				.getByTestId( 'media-item-1' )
@@ -216,7 +221,9 @@ describe( 'MediaGrid', () => {
 		).toBeInTheDocument();
 
 		// Shift-click item 3 to select range 1–3.
-		fireEvent.click( selectButtons[ 2 ], { shiftKey: true } );
+		await user.keyboard( '{Shift>}' );
+		await user.click( selectButtons[ 2 ] );
+		await user.keyboard( '{/Shift}' );
 		expect(
 			screen
 				.getByTestId( 'media-item-1' )

@@ -737,9 +737,9 @@ class RestApiControllerTests extends WP_UnitTestCase
         $data     = $response->get_data();
 
         $this->assertSame(200, $response->get_status());
-        $this->assertArrayHasKey('done', $data);
-        $this->assertArrayHasKey('processed', $data);
-        $this->assertArrayHasKey('remaining', $data);
+        $this->assertTrue($data['done']);
+        $this->assertSame(0, $data['processed']);
+        $this->assertSame(0, $data['remaining']);
     }
 
     /**

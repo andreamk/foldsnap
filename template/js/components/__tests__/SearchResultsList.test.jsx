@@ -1,4 +1,5 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { useDispatch, useSelect } from '@wordpress/data';
 import SearchResultsList from '../SearchResultsList';
 
@@ -86,11 +87,12 @@ describe( 'SearchResultsList', () => {
 	} );
 
 	it( 'on click: selects, expands path, clears search', async () => {
+		const user = userEvent.setup();
 		setup( {
 			results: [ { folder: { id: 7, name: 'Hit' }, breadcrumb: [] } ],
 		} );
 		render( <SearchResultsList /> );
-		fireEvent.click( screen.getByText( 'Hit' ) );
+		await user.click( screen.getByText( 'Hit' ) );
 		expect( setSelectedFolder ).toHaveBeenCalledWith( 7 );
 		await waitFor( () => {
 			expect( expandPathTo ).toHaveBeenCalledWith( 7 );
@@ -99,13 +101,14 @@ describe( 'SearchResultsList', () => {
 		} );
 	} );
 
-	it( 'shows Load more button when more pages available', () => {
+	it( 'shows Load more button when more pages available', async () => {
+		const user = userEvent.setup();
 		setup( {
 			results: [ { folder: { id: 1, name: 'A' }, breadcrumb: [] } ],
 			pagination: { page: 1, totalPages: 3, total: 100 },
 		} );
 		render( <SearchResultsList /> );
-		fireEvent.click( screen.getByText( 'Load more' ) );
+		await user.click( screen.getByText( 'Load more' ) );
 		expect( loadMoreSearchResults ).toHaveBeenCalled();
 	} );
 
