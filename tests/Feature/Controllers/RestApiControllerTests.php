@@ -10,6 +10,7 @@ declare(strict_types=1);
 
 namespace FoldSnap\Tests\Feature\Controllers;
 
+use FoldSnap\Services\CountersRecalculator;
 use FoldSnap\Services\FolderCounterService;
 use FoldSnap\Services\FolderNameSanitizer;
 use FoldSnap\Services\FolderRepository;
@@ -740,6 +741,36 @@ class RestApiControllerTests extends WP_UnitTestCase
         $this->assertTrue($data['done']);
         $this->assertSame(0, $data['processed']);
         $this->assertSame(0, $data['remaining']);
+    }
+
+    /**
+     * Test POST /folders/recalculate with reset=true clears the pending stack
+     *
+     * @return void
+     */
+    public function test_recalculate_endpoint_reset_clears_pending_stack(): void
+    {
+        // Pre-populate the pending stack and the "already initialized" flag
+        // as if a previous run had been interrupted halfway.
+        update_option(CountersRecalculator::OPT_STACK, [42, 99], false);
+        update_option(CountersRecalculator::OPT_INITIALIZED, '1');
+
+        $request = new WP_REST_Request('POST', '/foldsnap/v1/folders/recalculate');
+        $request->set_param('limit', 10);
+        $request->set_param('reset', true);
+
+        $response = $this->dispatchRequest($request);
+        $data     = $response->get_data();
+
+        $this->assertSame(200, $response->get_status());
+        $this->assertTrue($data['done']);
+
+        // After reset on an empty tree the stack is rebuilt from scratch and
+        // immediately drained — and the initialized flag is set back to '1'
+        // by the completion path. The key invariant the reset path
+        // guarantees: the stale [42, 99] entries are gone.
+        $stack = get_option(CountersRecalculator::OPT_STACK, null);
+        $this->assertNotSame([42, 99], $stack);
     }
 
     /**

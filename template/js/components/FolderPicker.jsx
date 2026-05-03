@@ -1,8 +1,14 @@
-import { useState } from '@wordpress/element';
+import { useState, useRef } from '@wordpress/element';
 import { Spinner } from '@wordpress/components';
+import apiFetch from '@wordpress/api-fetch';
 import { useDispatch, useSelect } from '@wordpress/data';
 import { __ } from '@wordpress/i18n';
-import { STORE_NAME, ROOT_PARENT_ID } from '../store/constants';
+import {
+	STORE_NAME,
+	ROOT_PARENT_ID,
+	SEARCH_PER_PAGE,
+} from '../store/constants';
+import { buildSearchPath } from '../store/actions';
 import useDebouncedCallback, {
 	SEARCH_DEBOUNCE_MS,
 } from '../hooks/useDebouncedCallback';
@@ -132,22 +138,21 @@ const FolderPicker = ( { value, onChange, excludeId = 0 } ) => {
 	const [ expandedIds, setExpandedIds ] = useState( [] );
 	const [ searchInput, setSearchInput ] = useState( '' );
 	const [ activeQuery, setActiveQuery ] = useState( '' );
+	const [ searchResults, setSearchResults ] = useState( [] );
+	const [ searchIsLoading, setSearchIsLoading ] = useState( false );
+	const latestQueryRef = useRef( '' );
 
-	const { rootFolders, isRootLoading, searchResults, searchIsLoading } =
-		useSelect( ( select ) => {
-			const store = select( STORE_NAME );
-			return {
-				rootFolders: store.getRootFolders(),
-				isRootLoading:
-					! store.isFolderLoaded( ROOT_PARENT_ID ) &&
-					store.isFolderFetching( ROOT_PARENT_ID ),
-				searchResults: store.getSearchResults(),
-				searchIsLoading: store.isSearchLoading(),
-			};
-		}, [] );
+	const { rootFolders, isRootLoading } = useSelect( ( select ) => {
+		const store = select( STORE_NAME );
+		return {
+			rootFolders: store.getRootFolders(),
+			isRootLoading:
+				! store.isFolderLoaded( ROOT_PARENT_ID ) &&
+				store.isFolderFetching( ROOT_PARENT_ID ),
+		};
+	}, [] );
 
-	const { fetchChildren, searchFolders, clearSearch } =
-		useDispatch( STORE_NAME );
+	const { fetchChildren } = useDispatch( STORE_NAME );
 
 	const handleToggleExpand = ( folderId ) => {
 		setExpandedIds( ( prev ) => {
@@ -159,13 +164,37 @@ const FolderPicker = ( { value, onChange, excludeId = 0 } ) => {
 		} );
 	};
 
+	// Picker keeps its own search state so it does not interfere with the
+	// sidebar search slice in the store. latestQueryRef tracks the most
+	// recent intended query so out-of-order responses can be discarded.
 	const commitSearch = useDebouncedCallback( ( next ) => {
-		setActiveQuery( next.trim() );
-		if ( next.trim() === '' ) {
-			clearSearch();
-		} else {
-			searchFolders( next );
+		const trimmed = next.trim();
+		latestQueryRef.current = trimmed;
+		setActiveQuery( trimmed );
+		if ( trimmed === '' ) {
+			setSearchResults( [] );
+			setSearchIsLoading( false );
+			return;
 		}
+		setSearchIsLoading( true );
+		apiFetch( {
+			path: buildSearchPath( trimmed, 1, SEARCH_PER_PAGE ),
+			method: 'GET',
+		} )
+			.then( ( response ) => {
+				if ( latestQueryRef.current !== trimmed ) {
+					return;
+				}
+				setSearchResults( response?.results ?? [] );
+				setSearchIsLoading( false );
+			} )
+			.catch( () => {
+				if ( latestQueryRef.current !== trimmed ) {
+					return;
+				}
+				setSearchResults( [] );
+				setSearchIsLoading( false );
+			} );
 	}, SEARCH_DEBOUNCE_MS );
 
 	const handleSearchChange = ( next ) => {

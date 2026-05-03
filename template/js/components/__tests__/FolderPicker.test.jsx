@@ -1,7 +1,10 @@
 import { render, screen, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import apiFetch from '@wordpress/api-fetch';
 import { useDispatch, useSelect } from '@wordpress/data';
 import FolderPicker from '../FolderPicker';
+
+jest.mock( '@wordpress/api-fetch', () => jest.fn() );
 
 jest.mock( '@wordpress/data', () => ( {
 	useDispatch: jest.fn(),
@@ -27,8 +30,6 @@ const setup = ( {
 	rootFolders = [ FOLDERS_BY_ID[ 1 ], FOLDERS_BY_ID[ 2 ] ],
 	loaded = true,
 	fetching = false,
-	searchResults = [],
-	searchLoading = false,
 	childrenById = {},
 } = {} ) => {
 	useSelect.mockImplementation( ( fn ) =>
@@ -36,8 +37,6 @@ const setup = ( {
 			getRootFolders: () => rootFolders,
 			isFolderLoaded: () => loaded,
 			isFolderFetching: () => fetching,
-			getSearchResults: () => searchResults,
-			isSearchLoading: () => searchLoading,
 			getFolderById: ( id ) => FOLDERS_BY_ID[ id ],
 			getChildrenOf: ( id ) => childrenById[ id ] ?? [],
 		} ) )
@@ -46,8 +45,6 @@ const setup = ( {
 
 describe( 'FolderPicker', () => {
 	let fetchChildren;
-	let searchFolders;
-	let clearSearch;
 	let user;
 
 	beforeEach( () => {
@@ -56,12 +53,9 @@ describe( 'FolderPicker', () => {
 			advanceTimers: jest.advanceTimersByTime,
 		} );
 		fetchChildren = jest.fn();
-		searchFolders = jest.fn();
-		clearSearch = jest.fn();
+		apiFetch.mockReset();
 		useDispatch.mockReturnValue( {
 			fetchChildren,
-			searchFolders,
-			clearSearch,
 		} );
 	} );
 
@@ -109,9 +103,11 @@ describe( 'FolderPicker', () => {
 		expect( screen.getByText( 'Docs' ) ).toBeInTheDocument();
 	} );
 
-	it( 'switches to results view while a query is active', async () => {
-		setup( {
-			searchResults: [
+	it( 'searches via apiFetch and renders results without touching the store', async () => {
+		setup();
+		apiFetch.mockResolvedValue( {
+			query: 'res',
+			results: [
 				{
 					folder: { id: 99, name: 'Result' },
 					breadcrumb: [ { id: 1, name: 'Photos' } ],
@@ -123,23 +119,73 @@ describe( 'FolderPicker', () => {
 			screen.getByPlaceholderText( 'Search folders…' ),
 			'res'
 		);
-		act( () => {
+		await act( async () => {
 			jest.advanceTimersByTime( 300 );
 		} );
-		expect( searchFolders ).toHaveBeenCalledWith( 'res' );
-		// Now in results mode: tree row "Photos" disappears.
+		expect( apiFetch ).toHaveBeenCalledWith( {
+			path: expect.stringContaining( 'search=res' ),
+			method: 'GET',
+		} );
 		expect( screen.getByText( 'Result' ) ).toBeInTheDocument();
 	} );
 
-	it( 'clears search when input becomes empty', async () => {
+	it( 'returns to tree view when input becomes empty without firing a request', async () => {
 		setup();
 		render( <FolderPicker value={ 0 } onChange={ jest.fn() } /> );
 		const input = screen.getByPlaceholderText( 'Search folders…' );
 		await user.type( input, 'foo' );
 		await user.clear( input );
-		act( () => {
+		await act( async () => {
 			jest.advanceTimersByTime( 300 );
 		} );
-		expect( clearSearch ).toHaveBeenCalled();
+		// Empty query short-circuits: no apiFetch call for the cleared state,
+		// and the tree (Root entry) is visible again.
+		expect( screen.getByText( '— Root —' ) ).toBeInTheDocument();
+	} );
+
+	it( 'drops stale responses if the query changed mid-flight', async () => {
+		setup();
+		// First query "fo" resolves AFTER the user has already typed "foo";
+		// the picker should ignore its results.
+		let resolveFirst;
+		apiFetch.mockImplementationOnce(
+			() =>
+				new Promise( ( resolve ) => {
+					resolveFirst = resolve;
+				} )
+		);
+		apiFetch.mockResolvedValueOnce( {
+			query: 'foo',
+			results: [
+				{
+					folder: { id: 7, name: 'Foobar' },
+					breadcrumb: [],
+				},
+			],
+		} );
+		render( <FolderPicker value={ 0 } onChange={ jest.fn() } /> );
+		const input = screen.getByPlaceholderText( 'Search folders…' );
+		await user.type( input, 'fo' );
+		await act( async () => {
+			jest.advanceTimersByTime( 300 );
+		} );
+		await user.type( input, 'o' );
+		await act( async () => {
+			jest.advanceTimersByTime( 300 );
+		} );
+		// Now resolve the first (stale) request.
+		await act( async () => {
+			resolveFirst( {
+				query: 'fo',
+				results: [
+					{
+						folder: { id: 1, name: 'StaleHit' },
+						breadcrumb: [],
+					},
+				],
+			} );
+		} );
+		expect( screen.queryByText( 'StaleHit' ) ).not.toBeInTheDocument();
+		expect( screen.getByText( 'Foobar' ) ).toBeInTheDocument();
 	} );
 } );

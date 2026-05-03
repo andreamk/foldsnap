@@ -290,7 +290,18 @@ export const setSearchQuery = ( query ) => ( {
  */
 export const clearSearch = () => ( { type: ACTION_TYPES.CLEAR_SEARCH } );
 
-const buildSearchPath = ( query, page, perPage ) => {
+/**
+ * Build the REST path for a folder-search request.
+ *
+ * Exported so consumers that need an isolated search (e.g. the picker)
+ * can hit the same endpoint without going through the shared search slice.
+ *
+ * @param {string} query   Trimmed search query.
+ * @param {number} page    1-based page number.
+ * @param {number} perPage Page size.
+ * @return {string} REST path.
+ */
+export const buildSearchPath = ( query, page, perPage ) => {
 	const params = new URLSearchParams();
 	params.set( 'search', query );
 	params.set( 'page', String( page ) );
