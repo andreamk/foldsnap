@@ -15,6 +15,7 @@ declare(strict_types=1);
 
 namespace FoldSnap\Controllers;
 
+use FoldSnap\Models\FolderModel;
 use FoldSnap\Services\FolderRepository;
 use FoldSnap\Services\MediaFolderAssignmentService;
 use WP_Error;
@@ -22,7 +23,7 @@ use WP_REST_Request;
 use WP_REST_Response;
 
 /**
- * @phpstan-import-type FolderArray from \FoldSnap\Models\FolderModel
+ * @phpstan-import-type FolderArray from FolderModel
  *
  * @phpstan-type MutationEnvelope array{
  *     folder: FolderArray,
@@ -60,10 +61,14 @@ final class RestApiFolderMutationsController
      */
     public function createFolder(WP_REST_Request $request)
     {
-        $name     = sanitize_text_field($this->getStringParam($request, 'name'));
-        $parentId = absint($this->getStringParam($request, 'parent_id'));
-        $color    = sanitize_text_field($this->getStringParam($request, 'color'));
-        $position = absint($this->getStringParam($request, 'position'));
+        /** @var string */
+        $name = $request['name'];
+        /** @var int */
+        $parentId = $request['parent_id'];
+        /** @var string */
+        $color = $request['color'];
+        /** @var int */
+        $position = $request['position'];
 
         if ('' === $name) {
             return new WP_Error('missing_name', __('Folder name is required.', 'foldsnap'), ['status' => 400]);
@@ -88,13 +93,16 @@ final class RestApiFolderMutationsController
      */
     public function updateFolder(WP_REST_Request $request)
     {
-        $id       = absint($this->getStringParam($request, 'id'));
-        $rawName  = $request->get_param('name');
-        $rawColor = $request->get_param('color');
-        $name     = is_string($rawName) ? sanitize_text_field($rawName) : null;
-        $color    = is_string($rawColor) ? sanitize_text_field($rawColor) : null;
-        $parentId = $this->getOptionalIntParam($request, 'parent_id');
-        $position = $this->getOptionalIntParam($request, 'position');
+        /** @var int */
+        $id = $request['id'];
+        /** @var ?string */
+        $name = $request['name'] ?? null;
+        /** @var ?string */
+        $color = $request['color'] ?? null;
+        /** @var ?int */
+        $parentId = $request['parent_id'] ?? null;
+        /** @var ?int */
+        $position = $request['position'] ?? null;
 
         return $this->handleRestRequest(function () use ($id, $name, $parentId, $color, $position): WP_REST_Response {
             $before      = $this->repository->getById($id);
@@ -123,7 +131,8 @@ final class RestApiFolderMutationsController
      */
     public function deleteFolder(WP_REST_Request $request)
     {
-        $id = absint($this->getStringParam($request, 'id'));
+        /** @var int */
+        $id = $request['id'];
 
         return $this->handleRestRequest(function () use ($id): WP_REST_Response {
             $before      = $this->repository->getById($id);
@@ -131,7 +140,7 @@ final class RestApiFolderMutationsController
 
             $this->repository->delete($id);
 
-            $rootFolder = $this->repository->getById(\FoldSnap\Models\FolderModel::ROOT_ID);
+            $rootFolder = $this->repository->getById(FolderModel::ROOT_ID);
 
             return new WP_REST_Response(
                 [
@@ -156,7 +165,8 @@ final class RestApiFolderMutationsController
      */
     public function assignMedia(WP_REST_Request $request)
     {
-        $folderId = absint($this->getStringParam($request, 'id'));
+        /** @var int */
+        $folderId = $request['id'];
         $mediaIds = $this->parseMediaIds($request);
 
         if (empty($mediaIds)) {
@@ -196,7 +206,8 @@ final class RestApiFolderMutationsController
      */
     public function removeMedia(WP_REST_Request $request)
     {
-        $folderId = absint($this->getStringParam($request, 'id'));
+        /** @var int */
+        $folderId = $request['id'];
         $mediaIds = $this->parseMediaIds($request);
 
         if (empty($mediaIds)) {
@@ -232,15 +243,15 @@ final class RestApiFolderMutationsController
      * `$extraPathFolderIds` gets its own chain appended. Chains for unknown
      * or deleted folder IDs are skipped silently.
      *
-     * @param \FoldSnap\Models\FolderModel $folder             The folder that was created/updated/touched.
-     * @param int[]                        $affectedParentIds  Parent IDs whose has_children may have changed.
-     * @param int[]                        $extraPathFolderIds Additional folder IDs whose ancestor chain
-     *                                                         should be included in `paths`.
+     * @param FolderModel $folder             The folder that was created/updated/touched.
+     * @param int[]       $affectedParentIds  Parent IDs whose has_children may have changed.
+     * @param int[]       $extraPathFolderIds Additional folder IDs whose ancestor chain
+     *                                        should be included in `paths`.
      *
      * @return MutationEnvelope
      */
     private function buildMutationResponse(
-        \FoldSnap\Models\FolderModel $folder,
+        FolderModel $folder,
         array $affectedParentIds,
         array $extraPathFolderIds = []
     ): array {
@@ -260,7 +271,7 @@ final class RestApiFolderMutationsController
             }
         }
 
-        $rootFolder = $this->repository->getById(\FoldSnap\Models\FolderModel::ROOT_ID);
+        $rootFolder = $this->repository->getById(FolderModel::ROOT_ID);
 
         return [
             'folder'           => $folderArray,

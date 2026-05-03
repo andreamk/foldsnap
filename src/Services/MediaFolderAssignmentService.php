@@ -21,6 +21,7 @@ namespace FoldSnap\Services;
 
 use FoldSnap\Models\FolderModel;
 use InvalidArgumentException;
+use WP_Term;
 
 class MediaFolderAssignmentService
 {
@@ -73,43 +74,24 @@ class MediaFolderAssignmentService
         // Read current folder for each media. Media already in $folderId are
         // skipped in delta math (idempotent), but we still re-set them so the
         // term relationship is unambiguous.
-        /** @var array<int, int> $currentFolderByMedia */
-        $currentFolderByMedia = [];
-        foreach ($mediaIds as $mediaId) {
-            $current = wp_get_object_terms($mediaId, TaxonomyService::TAXONOMY_NAME, ['fields' => 'ids']);
-            $cid     = 0;
-            if (is_array($current) && ! empty($current) && is_numeric($current[0])) {
-                $cid = (int) $current[0];
-            }
-            $currentFolderByMedia[(int) $mediaId] = $cid;
-        }
+        $currentFolderByMedia = $this->currentFolderByMedia($mediaIds);
 
         // Filesizes for delta math. Single bulk query.
         $sizeByMedia = Database::getMediaFileSizes(array_keys($currentFolderByMedia));
 
         // Group media that actually move: by origin folder ID (0 = was in Root).
-        /** @var array<int, array{count:int, size:int}> $deltaByOrigin */
-        $deltaByOrigin = [];
-        $destAddCount  = 0;
-        $destAddSize   = 0;
+        $deltaByOrigin = $this->aggregateOriginDeltas($currentFolderByMedia, $sizeByMedia, $folderId);
+
+        // Destination delta covers every media that moves, including those
+        // coming from Root (origin 0) which the per-origin aggregation skips.
+        $destAddCount = 0;
+        $destAddSize  = 0;
         foreach ($currentFolderByMedia as $mediaId => $originId) {
             if ($originId === $folderId) {
                 continue;
             }
-            $bytes         = $sizeByMedia[$mediaId] ?? 0;
             $destAddCount += 1;
-            $destAddSize  += $bytes;
-
-            if ($originId > 0) {
-                if (! isset($deltaByOrigin[$originId])) {
-                    $deltaByOrigin[$originId] = [
-                        'count' => 0,
-                        'size'  => 0,
-                    ];
-                }
-                $deltaByOrigin[$originId]['count'] += 1;
-                $deltaByOrigin[$originId]['size']  += $bytes;
-            }
+            $destAddSize  += $sizeByMedia[$mediaId] ?? 0;
         }
 
         $previousFolderIds = [];
@@ -168,35 +150,11 @@ class MediaFolderAssignmentService
         }
 
         // Read current folder per media for delta math.
-        /** @var array<int, int> $currentFolderByMedia */
-        $currentFolderByMedia = [];
-        foreach ($mediaIds as $mediaId) {
-            $current = wp_get_object_terms($mediaId, TaxonomyService::TAXONOMY_NAME, ['fields' => 'ids']);
-            $cid     = 0;
-            if (is_array($current) && ! empty($current) && is_numeric($current[0])) {
-                $cid = (int) $current[0];
-            }
-            $currentFolderByMedia[(int) $mediaId] = $cid;
-        }
+        $currentFolderByMedia = $this->currentFolderByMedia($mediaIds);
 
         $sizeByMedia = Database::getMediaFileSizes(array_keys($currentFolderByMedia));
 
-        /** @var array<int, array{count:int, size:int}> $deltaByOrigin */
-        $deltaByOrigin = [];
-        foreach ($currentFolderByMedia as $mediaId => $originId) {
-            if ($originId <= 0) {
-                continue;
-            }
-            $bytes = $sizeByMedia[$mediaId] ?? 0;
-            if (! isset($deltaByOrigin[$originId])) {
-                $deltaByOrigin[$originId] = [
-                    'count' => 0,
-                    'size'  => 0,
-                ];
-            }
-            $deltaByOrigin[$originId]['count'] += 1;
-            $deltaByOrigin[$originId]['size']  += $bytes;
-        }
+        $deltaByOrigin = $this->aggregateOriginDeltas($currentFolderByMedia, $sizeByMedia);
 
         $previousFolderIds = [];
         foreach ($mediaIds as $mediaId) {
@@ -254,11 +212,11 @@ class MediaFolderAssignmentService
         // Only media currently assigned to $folderId contribute to the delta;
         // wp_remove_object_terms is a no-op for the rest, but we want exact
         // counts.
-        $assigned = [];
-        foreach ($mediaIds as $mediaId) {
-            $current = wp_get_object_terms($mediaId, TaxonomyService::TAXONOMY_NAME, ['fields' => 'ids']);
-            if (is_array($current) && in_array($folderId, array_map('intval', $current), true)) {
-                $assigned[] = (int) $mediaId;
+        $currentFolderByMedia = $this->currentFolderByMedia($mediaIds);
+        $assigned             = [];
+        foreach ($currentFolderByMedia as $mediaId => $currentFolderId) {
+            if ($currentFolderId === $folderId) {
+                $assigned[] = $mediaId;
             }
         }
 
@@ -343,5 +301,101 @@ class MediaFolderAssignmentService
                 )
             );
         }
+    }
+
+    /**
+     * Resolve the current folder term ID for each media in a single query.
+     *
+     * `wp_get_object_terms` accepts an array of object IDs and returns every
+     * (object, term) pair via `'all_with_object_id'`, so we get the full map
+     * without an N+1 loop.
+     *
+     * Each media gets at most one folder; if multiple terms come back for the
+     * same media (legacy data) the first one wins, matching the previous
+     * single-fetch behaviour.
+     *
+     * @param int[] $mediaIds Attachment IDs (already validated as positive).
+     *
+     * @return array<int,int> Map of media ID => folder term ID (0 = unassigned).
+     */
+    private function currentFolderByMedia(array $mediaIds): array
+    {
+        /** @var array<int,int> $byMedia */
+        $byMedia = [];
+        foreach ($mediaIds as $mediaId) {
+            $byMedia[(int) $mediaId] = 0;
+        }
+
+        if (empty($byMedia)) {
+            return [];
+        }
+
+        $terms = wp_get_object_terms(
+            array_keys($byMedia),
+            TaxonomyService::TAXONOMY_NAME,
+            ['fields' => 'all_with_object_id']
+        );
+
+        if (! is_array($terms)) {
+            return $byMedia;
+        }
+
+        foreach ($terms as $term) {
+            if (! ($term instanceof WP_Term)) {
+                continue;
+            }
+            // `object_id` is dynamically attached by 'all_with_object_id'; not
+            // declared on WP_Term so PHPStan sees it as mixed.
+            $rawObjectId = $term->object_id ?? null;
+            $mediaId     = is_numeric($rawObjectId) ? (int) $rawObjectId : 0;
+            if ($mediaId <= 0 || ! isset($byMedia[$mediaId])) {
+                continue;
+            }
+            // First term wins; ignore any duplicates from legacy data.
+            if (0 === $byMedia[$mediaId]) {
+                $byMedia[$mediaId] = (int) $term->term_id;
+            }
+        }
+
+        return $byMedia;
+    }
+
+    /**
+     * Aggregate per-origin (count, size) deltas for a batch of moves.
+     *
+     * @param array<int,int> $currentFolderByMedia Map of media ID => origin folder ID.
+     * @param array<int,int> $sizeByMedia          Map of media ID => byte size.
+     * @param int            $skipFolderId         Folder to skip (e.g. destination
+     *                                             on assign — moves into self are
+     *                                             a no-op). Use 0 to skip nothing.
+     *
+     * @return array<int, array{count:int, size:int}> Map keyed by origin folder ID.
+     *                                                Origin 0 (unassigned) is
+     *                                                excluded — it has no chain.
+     */
+    private function aggregateOriginDeltas(
+        array $currentFolderByMedia,
+        array $sizeByMedia,
+        int $skipFolderId = 0
+    ): array {
+        /** @var array<int, array{count:int, size:int}> $deltaByOrigin */
+        $deltaByOrigin = [];
+
+        foreach ($currentFolderByMedia as $mediaId => $originId) {
+            if ($originId <= 0 || $originId === $skipFolderId) {
+                continue;
+            }
+            $bytes = $sizeByMedia[$mediaId] ?? 0;
+            if (! isset($deltaByOrigin[$originId])) {
+                $deltaByOrigin[$originId] = [
+                    'count' => 0,
+                    'size'  => 0,
+                ];
+            }
+            $deltaByOrigin[$originId]['count'] += 1;
+            $deltaByOrigin[$originId]['size']  += $bytes;
+        }
+
+        return $deltaByOrigin;
     }
 }

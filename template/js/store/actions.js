@@ -239,13 +239,10 @@ export function* expandPathTo( folderId ) {
 		if ( path.length === 0 ) {
 			return;
 		}
-		// Ancestors of the target = path minus the target itself. Root
-		// (id 0) sits at the head of every path and is always considered
-		// "expanded" in the new tree model since it is the visible root.
+		// Ancestors of the target = path minus the target itself. The
+		// backend always prepends Root to every non-empty path, so the
+		// resulting list already starts with ROOT_PARENT_ID.
 		const ancestorIds = path.slice( 0, -1 ).map( ( f ) => f.id );
-		const parentsToFetch = ancestorIds.includes( ROOT_PARENT_ID )
-			? ancestorIds
-			: [ ROOT_PARENT_ID, ...ancestorIds ];
 
 		// Merge into existing expandedIds so unrelated branches the user
 		// already opened do not collapse when surfacing a deep-linked folder.
@@ -265,7 +262,7 @@ export function* expandPathTo( folderId ) {
 			type: ACTION_TYPES.APPLY_PATH_TOTALS,
 			path,
 		};
-		yield* fetchChildrenBatch( parentsToFetch );
+		yield* fetchChildrenBatch( ancestorIds );
 	} catch ( error ) {
 		yield {
 			type: ACTION_TYPES.FETCH_CHILDREN_ERROR,
@@ -382,6 +379,9 @@ export function* loadMoreSearchResults( { perPage = SEARCH_PER_PAGE } = {} ) {
 const applyMutationEnvelope = function* ( envelope ) {
 	if ( envelope.folder ) {
 		yield { type: ACTION_TYPES.UPSERT_FOLDER, folder: envelope.folder };
+	}
+	if ( envelope.root ) {
+		yield { type: ACTION_TYPES.UPSERT_FOLDER, folder: envelope.root };
 	}
 	if ( Array.isArray( envelope.paths ) ) {
 		// Each path is an independent ancestor chain (destination + any
@@ -506,15 +506,7 @@ export function* deleteFolder( id ) {
 		folderId: id,
 		parentId: oldParentId,
 	};
-	if ( response.root ) {
-		yield { type: ACTION_TYPES.UPSERT_FOLDER, folder: response.root };
-	}
-	if ( Array.isArray( response.affected_parents ) ) {
-		yield {
-			type: ACTION_TYPES.APPLY_AFFECTED_PARENTS,
-			affectedParents: response.affected_parents,
-		};
-	}
+	yield* applyMutationEnvelope( response );
 }
 
 /**

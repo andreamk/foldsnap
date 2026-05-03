@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from '@wordpress/element';
+import { useState } from '@wordpress/element';
 import { Spinner } from '@wordpress/components';
 import { useDispatch, useSelect } from '@wordpress/data';
 import { __ } from '@wordpress/i18n';
 import { STORE_NAME, ROOT_PARENT_ID } from '../store/constants';
-
-const SEARCH_DEBOUNCE_MS = 300;
+import useDebouncedCallback, {
+	SEARCH_DEBOUNCE_MS,
+} from '../hooks/useDebouncedCallback';
 
 /**
  * One node in the embedded picker tree.
@@ -131,7 +132,6 @@ const FolderPicker = ( { value, onChange, excludeId = 0 } ) => {
 	const [ expandedIds, setExpandedIds ] = useState( [] );
 	const [ searchInput, setSearchInput ] = useState( '' );
 	const [ activeQuery, setActiveQuery ] = useState( '' );
-	const debounceRef = useRef( null );
 
 	const { rootFolders, isRootLoading, searchResults, searchIsLoading } =
 		useSelect( ( select ) => {
@@ -149,15 +149,6 @@ const FolderPicker = ( { value, onChange, excludeId = 0 } ) => {
 	const { fetchChildren, searchFolders, clearSearch } =
 		useDispatch( STORE_NAME );
 
-	useEffect(
-		() => () => {
-			if ( debounceRef.current ) {
-				clearTimeout( debounceRef.current );
-			}
-		},
-		[]
-	);
-
 	const handleToggleExpand = ( folderId ) => {
 		setExpandedIds( ( prev ) => {
 			if ( prev.includes( folderId ) ) {
@@ -168,19 +159,18 @@ const FolderPicker = ( { value, onChange, excludeId = 0 } ) => {
 		} );
 	};
 
+	const commitSearch = useDebouncedCallback( ( next ) => {
+		setActiveQuery( next.trim() );
+		if ( next.trim() === '' ) {
+			clearSearch();
+		} else {
+			searchFolders( next );
+		}
+	}, SEARCH_DEBOUNCE_MS );
+
 	const handleSearchChange = ( next ) => {
 		setSearchInput( next );
-		if ( debounceRef.current ) {
-			clearTimeout( debounceRef.current );
-		}
-		debounceRef.current = setTimeout( () => {
-			setActiveQuery( next.trim() );
-			if ( next.trim() === '' ) {
-				clearSearch();
-			} else {
-				searchFolders( next );
-			}
-		}, SEARCH_DEBOUNCE_MS );
+		commitSearch( next );
 	};
 
 	const isSearching = activeQuery !== '';

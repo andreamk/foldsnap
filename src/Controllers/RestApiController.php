@@ -29,7 +29,7 @@ use WP_REST_Response;
 use WP_REST_Server;
 
 /**
- * @phpstan-import-type FolderArray from \FoldSnap\Models\FolderModel
+ * @phpstan-import-type FolderArray from FolderModel
  */
 final class RestApiController
 {
@@ -97,6 +97,28 @@ final class RestApiController
                     'permission_callback' => [
                         $this,
                         'checkPermission',
+                    ],
+                    'args'                => [
+                        'search'     => [
+                            'type'              => 'string',
+                            'default'           => '',
+                            'sanitize_callback' => 'sanitize_text_field',
+                        ],
+                        'parent_ids' => [
+                            'type'    => 'array',
+                            'default' => [],
+                            'items'   => ['type' => 'integer'],
+                        ],
+                        'page'       => [
+                            'type'              => 'integer',
+                            'default'           => 1,
+                            'sanitize_callback' => 'absint',
+                        ],
+                        'per_page'   => [
+                            'type'              => 'integer',
+                            'default'           => 100,
+                            'sanitize_callback' => 'absint',
+                        ],
                     ],
                 ],
                 [
@@ -366,12 +388,10 @@ final class RestApiController
      */
     public function recalculate(WP_REST_Request $request): WP_REST_Response
     {
-        $limit = absint($this->getStringParam($request, 'limit'));
-        if ($limit <= 0) {
-            $limit = CountersRecalculator::DEFAULT_LIMIT;
-        }
-
-        $reset        = (bool) $request->get_param('reset');
+        /** @var int */
+        $limit = $request['limit'];
+        /** @var bool */
+        $reset        = $request['reset'];
         $recalculator = new CountersRecalculator(new FolderCounterService());
 
         if ($reset) {
@@ -396,7 +416,9 @@ final class RestApiController
      */
     public function getFolders(WP_REST_Request $request): WP_REST_Response
     {
-        $search = trim($this->getStringParam($request, 'search'));
+        /** @var string */
+        $search = $request['search'];
+        $search = trim($search);
 
         if ('' !== $search) {
             return $this->getFoldersSearch($request, $search);
@@ -417,7 +439,8 @@ final class RestApiController
      */
     public function getFolderPath(WP_REST_Request $request)
     {
-        $id = absint($this->getStringParam($request, 'id'));
+        /** @var int */
+        $id = $request['id'];
 
         return $this->handleRestRequest(function () use ($id): WP_REST_Response {
             $path = $this->repository->getPath($id);
@@ -435,23 +458,16 @@ final class RestApiController
      *
      * @param WP_REST_Request $request REST request object
      *
-     * @return WP_REST_Response|WP_Error
+     * @return WP_REST_Response
      */
-    public function getMedia(WP_REST_Request $request)
+    public function getMedia(WP_REST_Request $request): WP_REST_Response
     {
-        $rawFolderId = $request->get_param('folder_id');
-        if (null === $rawFolderId) {
-            return new WP_Error(
-                'missing_folder_id',
-                __('folder_id parameter is required.', 'foldsnap'),
-                ['status' => 400]
-            );
-        }
-
-        $folderId   = absint($this->getStringParam($request, 'folder_id'));
-        $page       = max(1, absint($this->getStringParam($request, 'page')));
-        $rawPerPage = $this->getStringParam($request, 'per_page');
-        $perPage    = '' === $rawPerPage ? 40 : max(1, min(100, absint($rawPerPage)));
+        /** @var int */
+        $folderId = $request['folder_id'];
+        /** @var int */
+        $page = max(1, $request['page']);
+        /** @var int */
+        $perPage = max(1, min(100, $request['per_page']));
 
         $queryArgs = [
             'post_type'      => TaxonomyService::POST_TYPE,
@@ -506,10 +522,17 @@ final class RestApiController
      */
     private function getFoldersChildren(WP_REST_Request $request): WP_REST_Response
     {
-        $parentIds  = $this->parseParentIds($request);
-        $page       = max(1, absint($this->getStringParam($request, 'page')));
-        $rawPerPage = $this->getStringParam($request, 'per_page');
-        $perPage    = '' === $rawPerPage ? 100 : max(1, min(200, absint($rawPerPage)));
+        /** @var array<int, mixed> $rawParentIds */
+        $rawParentIds = $request['parent_ids'];
+        $parentIds    = array_values(array_unique(array_map(
+            static fn ($v): int => absint(is_scalar($v) ? (string) $v : ''),
+            $rawParentIds
+        )));
+
+        /** @var int */
+        $page = max(1, $request['page']);
+        /** @var int */
+        $perPage = max(1, min(200, $request['per_page']));
 
         if (empty($parentIds)) {
             $parentIds = [0];
@@ -540,7 +563,7 @@ final class RestApiController
             [
                 'mode'                 => 'children',
                 'folders'              => $this->decorateFolders($pageSlice),
-                'requested_parent_ids' => array_values($parentIds),
+                'requested_parent_ids' => $parentIds,
                 'total'                => $total,
                 'total_pages'          => $totalPages,
                 'root'                 => null !== $rootFolder
@@ -566,9 +589,10 @@ final class RestApiController
      */
     private function getFoldersSearch(WP_REST_Request $request, string $search): WP_REST_Response
     {
-        $page       = max(1, absint($this->getStringParam($request, 'page')));
-        $rawPerPage = $this->getStringParam($request, 'per_page');
-        $perPage    = '' === $rawPerPage ? 50 : max(1, min(100, absint($rawPerPage)));
+        /** @var int */
+        $page = max(1, $request['page']);
+        /** @var int */
+        $perPage = max(1, min(100, $request['per_page']));
 
         $result  = $this->repository->search($search, $page, $perPage);
         $folders = $this->decorateFolders($result['folders']);

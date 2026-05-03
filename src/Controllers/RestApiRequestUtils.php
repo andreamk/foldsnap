@@ -1,11 +1,11 @@
 <?php
 
 /**
- * Shared request-parsing helpers for REST controllers
+ * Shared request-parsing helpers for REST controllers.
  *
- * Concentrates the boilerplate around extracting typed parameters from a
- * WP_REST_Request, parsing list-shaped query parameters (parent_ids[],
- * media_ids[]), and converting domain exceptions into WP_Error responses.
+ * Holds the bits that can't be expressed declaratively in `register_rest_route`:
+ * typed parsing of `media_ids[]` and a try/catch wrapper that converts domain
+ * exceptions into WP_Error responses.
  *
  * @package FoldSnap
  */
@@ -48,37 +48,11 @@ trait RestApiRequestUtils
     }
 
     /**
-     * Parse parent_ids[] from request, accepting both array and CSV formats
+     * Parse media_ids[] from the request, dropping non-positive IDs.
      *
-     * @param WP_REST_Request $request REST request object
-     *
-     * @return int[]
-     */
-    private function parseParentIds(WP_REST_Request $request): array
-    {
-        $raw = $request->get_param('parent_ids');
-
-        if (is_string($raw) && '' !== $raw) {
-            $raw = array_map('trim', explode(',', $raw));
-        }
-
-        if (! is_array($raw)) {
-            return [];
-        }
-
-        $ids = [];
-        foreach ($raw as $value) {
-            $ids[] = absint(is_scalar($value) ? (string) $value : '');
-        }
-
-        return array_values(array_unique($ids));
-    }
-
-    /**
-     * Parse media_ids from request body
-     *
-     * Filters non-positive IDs (0 / negative) since they cannot reference
-     * a real attachment.
+     * The route declares `'type' => 'array'` so `$request['media_ids']` is
+     * already an array; this helper only normalises each element to a positive
+     * int (0 / negative IDs cannot reference a real attachment).
      *
      * @param WP_REST_Request $request REST request object
      *
@@ -98,43 +72,5 @@ trait RestApiRequestUtils
         }
 
         return array_values(array_filter($intIds, static fn (int $id): bool => $id > 0));
-    }
-
-    /**
-     * Get an optional integer parameter, or null if absent.
-     *
-     * @param WP_REST_Request $request   REST request object
-     * @param string          $paramName Parameter name
-     *
-     * @return int|null
-     */
-    private function getOptionalIntParam(WP_REST_Request $request, string $paramName): ?int
-    {
-        $value = $request->get_param($paramName);
-
-        if (null === $value) {
-            return null;
-        }
-
-        return absint(is_scalar($value) ? (string) $value : '');
-    }
-
-    /**
-     * Get a string parameter, safely handling the mixed return type
-     *
-     * @param WP_REST_Request $request   REST request object
-     * @param string          $paramName Parameter name
-     *
-     * @return string Parameter value, or '' if absent / non-scalar
-     */
-    private function getStringParam(WP_REST_Request $request, string $paramName): string
-    {
-        $value = $request->get_param($paramName);
-
-        if (null === $value || ! is_scalar($value)) {
-            return '';
-        }
-
-        return (string) $value;
     }
 }

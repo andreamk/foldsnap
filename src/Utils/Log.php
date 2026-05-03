@@ -24,13 +24,17 @@ final class Log
      *
      * @param string $message Human-readable message; will be prefixed.
      *
-     * @return void
+     * @return bool Returns true on success or false on failure.
      */
-    public static function error(string $message): void
+    public static function error(string $message): bool
     {
-        // Deliberate error reporting — not stray debug output.
-        // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
-        error_log(sprintf('[FoldSnap] %s', $message));
+        if (function_exists('error_log')) {
+            // Deliberate error reporting — not stray debug output.
+            // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+            return error_log(sprintf('[FoldSnap] %s', $message));
+        }
+
+        return false;
     }
 
     /**

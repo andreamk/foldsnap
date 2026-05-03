@@ -1,13 +1,14 @@
-import { useState, useEffect, useRef } from '@wordpress/element';
+import { useState, useEffect } from '@wordpress/element';
 import { TextControl, Button, Spinner, Notice } from '@wordpress/components';
 import { useSelect, useDispatch } from '@wordpress/data';
 import { __ } from '@wordpress/i18n';
 import { STORE_NAME, ROOT_PARENT_ID } from '../store/constants';
+import useDebouncedCallback, {
+	SEARCH_DEBOUNCE_MS,
+} from '../hooks/useDebouncedCallback';
 import FolderItem from './FolderItem';
 import CreateFolderModal from './CreateFolderModal';
 import SearchResultsList from './SearchResultsList';
-
-const SEARCH_DEBOUNCE_MS = 300;
 
 /**
  * Sidebar folder tree with debounced search and a "New Folder" button.
@@ -25,7 +26,6 @@ const FolderTree = () => {
 	const [ isModalOpen, setIsModalOpen ] = useState( false );
 	const [ modalParentId, setModalParentId ] = useState( 0 );
 	const [ inputValue, setInputValue ] = useState( '' );
-	const debounceRef = useRef( null );
 
 	const {
 		rootHydrated,
@@ -59,28 +59,18 @@ const FolderTree = () => {
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [ searchQuery ] );
 
-	useEffect(
-		() => () => {
-			if ( debounceRef.current ) {
-				clearTimeout( debounceRef.current );
-			}
-		},
-		[]
-	);
+	const commitSearch = useDebouncedCallback( ( value ) => {
+		setSearchQuery( value );
+		if ( value.trim() === '' ) {
+			clearSearch();
+		} else {
+			searchFolders( value );
+		}
+	}, SEARCH_DEBOUNCE_MS );
 
 	const handleSearchChange = ( value ) => {
 		setInputValue( value );
-		if ( debounceRef.current ) {
-			clearTimeout( debounceRef.current );
-		}
-		debounceRef.current = setTimeout( () => {
-			setSearchQuery( value );
-			if ( value.trim() === '' ) {
-				clearSearch();
-			} else {
-				searchFolders( value );
-			}
-		}, SEARCH_DEBOUNCE_MS );
+		commitSearch( value );
 	};
 
 	const handleOpenModal = ( parentId = ROOT_PARENT_ID ) => {
