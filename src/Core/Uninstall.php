@@ -50,6 +50,7 @@ final class Uninstall
     {
         self::deleteOptions();
         self::deleteTransients();
+        wp_clear_scheduled_hook('foldsnap_recalc_chunk');
         wp_cache_flush();
     }
 

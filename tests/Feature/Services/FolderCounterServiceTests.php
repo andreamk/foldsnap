@@ -190,9 +190,14 @@ class FolderCounterServiceTests extends WP_UnitTestCase
      */
     public function test_apply_chain_delta_no_op_for_empty_chain(): void
     {
-        // No exception, no DB writes — just exits silently.
+        $folderId = $this->createTerm('Photos');
+        update_term_meta($folderId, FolderModel::META_SIZE, '500');
+        update_term_meta($folderId, FolderModel::META_COUNT, '3');
+
         $this->counters->applyChainDelta([], 1000, 5);
-        $this->assertTrue(true);
+
+        $this->assertSame('500', get_term_meta($folderId, FolderModel::META_SIZE, true));
+        $this->assertSame('3', get_term_meta($folderId, FolderModel::META_COUNT, true));
     }
 
     /**

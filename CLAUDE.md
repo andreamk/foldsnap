@@ -71,7 +71,6 @@ Input sanitize → DB `$wpdb->prepare()` → output escape → nonce verify → 
 
 ## Quality & Testing
 
-- Before committing: `composer fullcheck`
 - Run tests proportional to scope. Avoid the full suite unless changes are cross-cutting.
   - PHP: `composer phpunit -- --filter TestClassName`
   - JS: `npm test -- ComponentName`

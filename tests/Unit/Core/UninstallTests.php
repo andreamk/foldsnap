@@ -148,7 +148,8 @@ class UninstallTests extends WP_UnitTestCase
     {
         Uninstall::run();
 
-        $this->assertTrue(true);
+        $this->assertFalse(get_option('foldsnap_opt_root_size'));
+        $this->assertFalse(get_option('foldsnap_opt_root_count'));
     }
 
     /**
