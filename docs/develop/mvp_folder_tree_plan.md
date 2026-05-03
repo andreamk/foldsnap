@@ -471,6 +471,27 @@ Numerazione aggiornata:
 
 **Obiettivo**: sostituire il calcolo on-demand di `total_media_count`/`total_size` (oggi via `FolderTreeNavigator::computeTotals()` introdotto nello Step 8) con term meta letti in O(1). La firma API resta identica — cambia solo l'implementazione interna.
 
+**Invariante bottom-up**: per ogni cartella vale
+
+```
+total_count(f) = direct_count(f) + Σ total_count(child)   ∀ child ∈ children(f)
+total_size(f)  = direct_size(f)  + Σ total_size(child)    ∀ child ∈ children(f)
+```
+
+con direct = media direttamente assegnati alla cartella (non ai discendenti). Per la Root:
+
+```
+total_count(Root) = direct_count_unassigned + Σ total_count(child)   ∀ child top-level
+total_size(Root)  = direct_size_unassigned  + Σ total_size(child)    ∀ child top-level
+```
+
+Tutti i meccanismi (incrementale e recalculate) preservano questa invariante.
+
+**Semantica counters Root** (chiarimento): `foldsnap_opt_root_count` e `foldsnap_opt_root_size` rappresentano i totali **globali del sito** (tutti gli attachment, equivalente a `direct_unassigned + Σ total(top-level)`). Quindi:
+- `add_attachment` → root counters +
+- `delete_attachment` → root counters −
+- assign / remove / reparent / delete-folder → root counters **invariati** (un media spostato è ancora dentro Root)
+
 **Nuovi term meta**:
 - `foldsnap_folder_size` (int) — size totale ricorsivo in bytes
 - `foldsnap_folder_count` (int) — conteggio totale ricorsivo dei media
@@ -502,35 +523,77 @@ WHERE term_id IN (...) AND meta_key = ?
 Questo semplifica drasticamente: niente check di esistenza, niente fallback INSERT, niente race su upsert. Una sola query UPDATE per ogni delta.
 
 - `assignMedia(folderId, mediaIds[])`:
-  1. Calcola `totalSizeDelta` e `totalCountDelta` sommando filesize di tutti i media
-  2. Identifica i media già assegnati altrove (raggruppa per folder origine)
-  3. Per ogni gruppo origine: una singola UPDATE sui meta degli antenati con il delta negativo aggregato
-  4. Una singola UPDATE sui meta degli antenati del target con il delta positivo aggregato
-  5. Aggiorna root counters una sola volta
-- `removeMedia()`: simmetrico — singola UPDATE su antenati target (negativo) + root counters (positivo)
-- `update()` con `parent_id` cambiato: legge `total_size`/`total_count` della folder spostata, una singola UPDATE per vecchia catena (negativo) e una per nuova catena (positivo). Lo spostamento di una sottocartella con migliaia di media è O(D) UPDATE, non O(N×D).
-- `delete()`: i media diretti tornano in root, una singola UPDATE per gli antenati
+  1. **Pre-filtro idempotenza**: leggi gli attuali term di ogni media; escludi dal calcolo i media già assegnati a `folderId` (delta sia origine sia destinazione = 0 per loro). Solo i media che cambiano davvero folder contribuiscono ai delta.
+  2. Per i media che si muovono: calcola `totalSizeDelta` e `totalCountDelta` sommando filesize
+  3. Identifica i media già assegnati altrove (raggruppa per folder origine)
+  4. Per ogni gruppo origine: una singola UPDATE sui meta degli antenati di origine con il delta negativo aggregato
+  5. Una singola UPDATE sui meta degli antenati del target con il delta positivo aggregato
+  6. **Root counters globali invariati**: il media resta dentro Root, cambia solo la sua posizione nel sottoalbero
+- `removeMedia(folderId, mediaIds[])`:
+  - Calcola `totalSizeDelta` e `totalCountDelta` sui media effettivamente associati a `folderId`
+  - Singola UPDATE sui meta degli antenati di `folderId` con delta negativo
+  - Root counters globali **invariati**: il media diventa unassigned (passa da "in sottocartella" a "diretto in Root"), ma resta nel totale globale di Root
+- `update()` con `parent_id` cambiato (reparent di una folder X):
+  - Legge `total_size(X)` e `total_count(X)` (l'intero sottoalbero spostato)
+  - Singola UPDATE sui meta degli antenati di **vecchia** catena (escludendo X stessa e i suoi discendenti) con delta negativo
+  - Singola UPDATE sui meta degli antenati di **nuova** catena con delta positivo
+  - I counter di X e dei suoi discendenti restano invariati: il sottoalbero non cambia, cambiano solo gli antenati che lo aggregano
+  - Spostamento di un sottoalbero con migliaia di media: O(D) UPDATE, non O(N×D)
+  - Root counters globali **invariati**
+- `delete()` di una folder X:
+  - Pre-delete: leggi `direct_size(X)` e `direct_count(X)` (i media diretti di X tornano in Root come unassigned dopo `wp_delete_term`)
+  - Singola UPDATE sui meta degli antenati di X (esclusa X) con delta negativo `(direct_size(X), direct_count(X))`
+  - Le sottocartelle di X vengono promosse al grandparent da `wp_delete_term`. I loro counter `total_*` restano invariati (sottoalberi intatti); gli antenati nuovi (= antenati di X) **già tengono conto** di quei sottoalberi perché prima li contavano via X. Quindi nessun delta da applicare per il movimento delle sottocartelle.
+  - I term meta di X vengono cancellati automaticamente da `wp_delete_term`
+  - Root counters globali **invariati**
 - Nuovo `getMediaFileSizes(int[] $mediaIds): array<int, int>` — bulk lookup
 - Nuovo `bulkAdjustCounters(int[] $termIds, int $sizeDelta, int $countDelta): void` — singola UPDATE
-- Nuovo `updateRootCounters(int $sizeDelta, int $countDelta): void`
+- Nuovo `updateRootCounters(int $sizeDelta, int $countDelta): void` — usato solo dagli hook attachment lifecycle (add/delete), MAI dalle mutazioni folder
 
-*Hook cancellazione media — strategia deferred batch*:
+*Hook ciclo di vita attachment — strategia deferred batch*:
 
-Per evitare N hook = N×D write su bulk delete, usare batching deferred:
-- Hook `delete_attachment` (priority alta): legge folder + filesize del media e li accumula in una static queue (`$pendingDeletions[]`)
-- Hook `shutdown` (o fine richiesta): processa la queue, raggruppa per folder, esegue una singola `bulkAdjustCounters` per ogni catena di antenati toccata + una UPDATE root counters
+Per evitare N hook = N×D write su bulk operations, usare batching deferred su entrambi gli hook:
+
+- Filter `wp_generate_attachment_metadata` (priority 10, args 3): fires una sola volta per upload, dopo che `_wp_attachment_metadata` è già scritto in DB con `filesize`. Si controlla `$context === 'create'` per distinguere upload iniziale da rigenerazioni (Regenerate Thumbnails et al.). Si accumula `{id, filesize}` in una static queue `$pendingAdditions[]`. Il filter va sempre ritornato invariato. Il media nasce non assegnato, quindi tocca solo i root counters globali.
+- Hook `delete_attachment` (priority 10): legge folder + filesize del media (a questo punto il post c'è ancora e il metadata è leggibile) e li accumula in `$pendingDeletions[]`
+- Hook `shutdown` (priority bassa): processa entrambe le queue:
+  - additions → singola UPDATE su `foldsnap_opt_root_*` (sommando i delta)
+  - deletions → raggruppa per folder origine, una `bulkAdjustCounters` per ogni catena di antenati toccata + UPDATE root counters
 - Se la richiesta termina anormalmente prima dello shutdown: il drift viene corretto dal `recalculateChunk` (safety net)
+
+Note sugli hook scartati e perché:
+- `add_attachment` fires troppo presto: `_wp_attachment_metadata` non è ancora stato generato, `filesize` non leggibile. Inutilizzabile per il size delta.
+- `wp_update_attachment_metadata` (filter) fires N volte (una per subsize) dopo WP 5.3, non è un buon segnale di "upload complete".
+- `updated_post_meta` con key-filter su `_wp_attachment_metadata` fires multiple volte per upload immagine; più scomodo del filtro `wp_generate_attachment_metadata`.
 
 *Aggiorna lettura totali*:
 - `FolderTreeNavigator::computeTotals()` ora legge dai term meta invece di scendere nei discendenti — operazione O(1) per folder
 - Rimuovere `Database::getDescendantIds()` se non più usato altrove
 - Rimuovere `Database::getDirectSizesForFolders()` (sostituito dai meta)
 
-*Ricalcolo chunked (safety net + migrazione iniziale)*:
-- Nuovo `recalculateChunk(int $offset, int $limit): array` — ritorna `{processed, next_offset, done}`. Il primo chunk (offset=0) resetta tutti i contatori. I successivi iterano sugli attachment ordinati per ID.
-- Nuovo endpoint `POST /foldsnap/v1/folders/recalculate?offset=X&limit=Y` (richiede `manage_options`)
+*Ricalcolo chunked (safety net + migrazione iniziale) — strategia bottom-up con pila LIFO*:
+
+Strategia: post-order traversal sull'albero delle cartelle implementato come **pila LIFO persistita**. Si parte dalle foglie, si calcola `total = direct + Σ total(figli)` per ogni nodo (i figli sono già stati calcolati), si scrivono i meta del nodo, si sale al parent. **Niente reset globale a inizio passata**: ogni nodo si auto-aggiorna con il suo valore corretto. Idempotente: rieseguire produce esattamente gli stessi numeri.
+
+Insight: una BFS top-down dalla Root, salvando gli id nell'ordine in cui vengono scoperti, produce una lista a **profondità crescente** (Root prima, foglie ultime). Usata come stack LIFO → `pop()` restituisce le foglie per prime, poi i parent, poi la Root: esattamente il post-order che serve. Niente offset, niente cursori: lo stato della migrazione è la pila stessa.
+
+Algoritmo:
+1. **Build della pila (una sola volta, al primo chunk)**: BFS top-down su `foldsnap_folder` partendo da `parent = 0`, una query per livello (stesso pattern di `Database::descendantsOfSingleRoot`). Append degli id man mano che si scoprono. Risultato: array `[top-level..., livello1..., livello2..., foglie...]`. Salvato in option `foldsnap_opt_recalc_stack` (array di int — option WP gestisce la serializzazione).
+   Normalizzazione meta in questa stessa fase: per ogni term scoperto, `add_term_meta` con valori 0 per `foldsnap_folder_count`/`foldsnap_folder_size` se mancanti (preserva la pre-condizione "ogni term ha sempre i 4 meta").
+2. **Iterazione chunked**: ogni chunk fa `array_pop` di `limit` elementi dalla pila. Per ogni folder estratto:
+   - Leggi `direct_count` (`term_taxonomy.count`) e `direct_size` (singola query batched a inizio chunk via `Database::getDirectSizesForFolders` su tutti i folderId del chunk)
+   - Leggi `total_count` e `total_size` dei **figli diretti** dai loro term meta (già calcolati nei chunk precedenti perché la pila restituisce le foglie prima — query batched a inizio chunk via `getChildrenTotalsForFolders` su tutti i folderId del chunk)
+   - Calcola `total = direct + Σ total(figli)` e applica `update_term_meta` (singola UPDATE bulk per chunk: una per `foldsnap_folder_count`, una per `foldsnap_folder_size`)
+   - Salva la pila accorciata nell'option
+3. **Root al termine**: quando la pila si svuota, calcola i root counter globali: `total_count(Root) = countUnassignedMedia + Σ total_count(top-level folders)` e analogo per size. Salva in `foldsnap_opt_root_count`/`foldsnap_opt_root_size`. Cancella la option `foldsnap_opt_recalc_stack`. Setta `foldsnap_opt_counters_initialized`.
+4. **Idempotenza per chunk**: il valore scritto dipende solo dal direct del nodo + total dei figli (già stabili). Se l'esecuzione si interrompe a metà, la pila in option contiene esattamente i nodi rimanenti; ripartire dallo stesso punto produce lo stesso risultato.
+
+Note implementative:
+- Nuovo `Database::getChildrenTotalsForFolders(int[] $parentIds, string $taxonomy): array<int, array{count:int, size:int}>` — singola query JOIN su `wp_term_taxonomy` + `wp_termmeta` per leggere `foldsnap_folder_count`/`foldsnap_folder_size` di tutti i figli diretti dei parent richiesti, raggruppati per parent.
+- Nuovo `recalculateChunk(int $limit): array` — ritorna `{processed, remaining, done}`. Se la pila non esiste in option, la costruisce; altrimenti la legge e fa pop.
+- Nuovo endpoint `POST /foldsnap/v1/folders/recalculate?limit=Y` (richiede `manage_options`)
 - Cron wrapper: hook `foldsnap_recalc_chunk` chiama `recalculateChunk()` e ri-schedula `wp_schedule_single_event` finché `done: false`
-- Migrazione iniziale: al primo boot dopo l'aggiornamento, se flag `foldsnap_opt_counters_initialized` assente, schedula il primo chunk
+- Migrazione iniziale: al primo boot dopo l'aggiornamento, se flag `foldsnap_opt_counters_initialized` assente, schedula il primo chunk. La pila si costruisce automaticamente al primo chunk (vedi punto 1).
 
 **Test**:
 - Aggiornare `FolderRepositoryTests` per verificare i delta sui contatori (assign, remove, update reparent, delete)
