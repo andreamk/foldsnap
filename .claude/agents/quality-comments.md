@@ -11,7 +11,7 @@ You are a code comment quality validator. Focus on signal, not noise.
 
 You will receive:
 - List of modified files (from git diff)
-- Target branch for comparison (e.g., "master")
+- Target branch for comparison (e.g., "main")
 
 ## Core Responsibility
 

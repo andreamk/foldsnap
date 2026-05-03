@@ -1,6 +1,6 @@
 # Test Writing Guide
 
-This guide defines standards for writing maintainable, meaningful tests using PHPUnit for FoldSnap.
+This guide defines standards for writing maintainable, meaningful tests in FoldSnap. PHP code is tested with PHPUnit, React components with Jest and React Testing Library.
 
 ## Purpose and Principles
 
@@ -252,8 +252,98 @@ class TestDataFactory
 - Use sleep() or time-dependent assertions
 - Leave test data in filesystem or database
 
+## JavaScript / React Tests
+
+React components and JS utilities are tested with **Jest** and **`@testing-library/react`** (RTL).
+
+### Location and Naming
+
+- Tests live in `__tests__/` directories alongside the code they test
+  - Components: `template/js/components/__tests__/ComponentName.test.jsx`
+  - Utilities: `template/js/utils/__tests__/utilName.test.js`
+  - Hooks: `template/js/hooks/__tests__/hookName.test.js`
+- File pattern: `*.test.jsx` or `*.test.js`
+
+### Run Command
+
+```
+npm test
+```
+
+Run a single file or pattern:
+
+```
+npm test -- ComponentName
+```
+
+### Querying the DOM
+
+Prefer accessibility-first queries from RTL:
+
+1. `getByRole` — most robust, mirrors how users and screen readers find elements
+2. `getByLabelText` — for form inputs
+3. `getByText` — for visible text content
+4. `getByTestId` — last resort, only when nothing else works
+
+```jsx
+// GOOD
+expect(screen.getByRole('button', { name: /create folder/i })).toBeEnabled();
+
+// AVOID — hides accessibility issues, brittle to refactors
+expect(screen.getByTestId('create-folder-btn')).toBeEnabled();
+```
+
+### User Interactions
+
+Use `userEvent`, not `fireEvent`. `userEvent` simulates realistic browser behavior (focus, key sequences, pointer events) — `fireEvent` dispatches a single synthetic event and misses real-world bugs.
+
+```jsx
+import userEvent from '@testing-library/user-event';
+
+const user = userEvent.setup();
+await user.type(screen.getByLabelText(/folder name/i), 'Photos');
+await user.click(screen.getByRole('button', { name: /create/i }));
+```
+
+### Async Behavior
+
+For anything that updates after a microtask (state updates, fetch resolution, effects), use `findBy*` or `waitFor`:
+
+```jsx
+// Correct — waits for the element to appear
+expect(await screen.findByText(/folder created/i)).toBeInTheDocument();
+
+// Correct — waits for an assertion to pass
+await waitFor(() => expect(mockApi).toHaveBeenCalledTimes(1));
+```
+
+Do **not** sprinkle arbitrary `setTimeout` or `act` calls.
+
+### What to Test
+
+- Rendered output for given props
+- User interactions and the resulting UI changes
+- Conditional rendering (loading, error, empty states)
+- Custom hooks via `renderHook`
+- Pure utility functions (data transformations, formatters)
+
+### What NOT to Test
+
+- Component internals (state shape, internal method calls)
+- Third-party library behavior (`@wordpress/components`, `@wordpress/data`)
+- Snapshot tests over 50 lines — they provide false confidence and break on every cosmetic change
+- Implementation details that don't affect what the user sees
+
+### Mocking
+
+- Mock `@wordpress/api-fetch` at the module level when testing components that hit the REST API
+- Do not mock the component under test
+- Prefer realistic mock data over minimal stubs — tests that pass with `{}` often miss real bugs
+
 ## Related Documentation
 
 - **[PHPUnit Documentation](https://docs.phpunit.de/)** - Official PHPUnit guide
 - **[WordPress Testing](https://make.wordpress.org/core/handbook/testing/automated-testing/phpunit/)** - WordPress PHPUnit handbook
 - **[PHPUnit Assertions](https://docs.phpunit.de/en/11.5/assertions.html)** - Complete assertion reference
+- **[React Testing Library](https://testing-library.com/docs/react-testing-library/intro/)** - RTL documentation
+- **[Jest](https://jestjs.io/docs/getting-started)** - Jest documentation
