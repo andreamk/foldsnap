@@ -18,7 +18,6 @@ use Exception;
 use FoldSnap\Models\FolderModel;
 use FoldSnap\Utils\Sanitize;
 use InvalidArgumentException;
-use WP_Error;
 use WP_Term;
 
 class FolderRepository
@@ -34,6 +33,12 @@ class FolderRepository
 
     /** @var int Sanitize max folder length */
     private const MAX_FOLDER_LENGTH = 200;
+
+    /** @var string Option holding the global Root total size (bytes) */
+    public const OPT_ROOT_SIZE = 'foldsnap_opt_root_size';
+
+    /** @var string Option holding the global Root media count */
+    public const OPT_ROOT_COUNT = 'foldsnap_opt_root_count';
 
     /**
      * Retrieve a single folder by term ID
@@ -287,14 +292,14 @@ class FolderRepository
 
         $termId = (int) $result['term_id'];
 
-        if ('' !== $color) {
-            $color = Sanitize::hexColor($color);
-            update_term_meta($termId, FolderModel::META_COLOR, $color);
-        }
-
-        if (0 !== $position) {
-            update_term_meta($termId, FolderModel::META_POSITION, (string) $position);
-        }
+        // Initialize all four meta keys explicitly. The counter keys MUST exist
+        // before the first bulk UPDATE on this folder; the color/position keys
+        // are kept consistent for the same reason (uniform shape per term).
+        $color = '' !== $color ? Sanitize::hexColor($color) : '';
+        add_term_meta($termId, FolderModel::META_COLOR, $color, true);
+        add_term_meta($termId, FolderModel::META_POSITION, (string) $position, true);
+        add_term_meta($termId, FolderModel::META_SIZE, '0', true);
+        add_term_meta($termId, FolderModel::META_COUNT, '0', true);
 
         return $this->getByIdOrFail($termId);
     }
@@ -335,11 +340,25 @@ class FolderRepository
             $args['name']      = $name;
         }
 
+        $oldParentId = $folder->getParentId();
+        $isReparent  = -1 !== $parentId && $parentId !== $oldParentId;
+
         if (-1 !== $parentId) {
             if (0 < $parentId) {
                 $this->getByIdOrFail($parentId);
             }
             $args['parent'] = $parentId;
+        }
+
+        // Read this subtree's totals BEFORE the term row is mutated. They're
+        // the deltas to apply against the old/new ancestor chains.
+        $subtreeSize  = 0;
+        $subtreeCount = 0;
+        if ($isReparent) {
+            $rawSize      = get_term_meta($termId, FolderModel::META_SIZE, true);
+            $rawCount     = get_term_meta($termId, FolderModel::META_COUNT, true);
+            $subtreeSize  = is_numeric($rawSize) ? (int) $rawSize : 0;
+            $subtreeCount = is_numeric($rawCount) ? (int) $rawCount : 0;
         }
 
         if (count($args) > 0) {
@@ -357,6 +376,24 @@ class FolderRepository
 
         if (-1 !== $position) {
             update_term_meta($termId, FolderModel::META_POSITION, (string) $position);
+        }
+
+        if ($isReparent && ($subtreeSize > 0 || $subtreeCount > 0)) {
+            // Old chain: ancestors of $termId at the time of the call. We need
+            // the chain EXCLUDING the moved folder itself (its meta is intact).
+            $oldChain = [];
+            if ($oldParentId > 0) {
+                $oldChain = $this->ancestorChainIncluding($oldParentId);
+            }
+            $this->applyChainDelta($oldChain, -$subtreeSize, -$subtreeCount);
+
+            // New chain: ancestors of the new parent. The folder itself keeps
+            // its own counters unchanged.
+            $newChain = [];
+            if ($parentId > 0) {
+                $newChain = $this->ancestorChainIncluding($parentId);
+            }
+            $this->applyChainDelta($newChain, $subtreeSize, $subtreeCount);
         }
 
         return $this->getByIdOrFail($termId);
@@ -378,11 +415,28 @@ class FolderRepository
     {
         $this->guardNotRoot($termId);
 
-        $this->getByIdOrFail($termId);
+        $folder = $this->getByIdOrFail($termId);
+
+        // Snapshot the data needed for delta math before the term is gone.
+        // - direct counters of $termId (its direct media will end up in Root,
+        //   so the ancestor chain loses these)
+        // - parent ancestor chain EXCLUDING $termId (its sub-folders get
+        //   promoted to grandparent; their subtrees were already aggregated
+        //   into the ancestors, so no delta is needed for sub-folder moves)
+        $directCount = $folder->getMediaCount();
+        $directSize  = 0;
+        if ($directCount > 0) {
+            $directSizes = Database::getDirectSizesForFolders([$termId], TaxonomyService::TAXONOMY_NAME);
+            $directSize  = $directSizes[$termId] ?? 0;
+        }
+
+        $parentId       = $folder->getParentId();
+        $ancestorsAbove = $parentId > 0 ? $this->ancestorChainIncluding($parentId) : [];
 
         $result = wp_delete_term($termId, TaxonomyService::TAXONOMY_NAME);
 
         if (true === $result) {
+            $this->applyChainDelta($ancestorsAbove, -$directSize, -$directCount);
             $this->invalidateRootCache();
         }
 
@@ -421,34 +475,83 @@ class FolderRepository
             return [];
         }
 
-        // Track previous folder IDs so we can flush their cache too and
-        // surface them to the caller for path-totals refresh.
-        $previousFolderIds = [];
+        // Read current folder for each media. Media already in $folderId are
+        // skipped in delta math (idempotent), but we still re-set them so the
+        // term relationship is unambiguous.
+        /** @var array<int, int> $currentFolderByMedia */
+        $currentFolderByMedia = [];
         foreach ($mediaIds as $mediaId) {
             $current = wp_get_object_terms($mediaId, TaxonomyService::TAXONOMY_NAME, ['fields' => 'ids']);
-            if (is_array($current)) {
-                foreach ($current as $cid) {
-                    if (is_numeric($cid)) {
-                        $previousFolderIds[] = (int) $cid;
-                    }
-                }
+            $cid     = 0;
+            if (is_array($current) && ! empty($current) && is_numeric($current[0])) {
+                $cid = (int) $current[0];
             }
+            $currentFolderByMedia[(int) $mediaId] = $cid;
+        }
+
+        // Filesizes for delta math. Single bulk query.
+        $sizeByMedia = Database::getMediaFileSizes(array_keys($currentFolderByMedia));
+
+        // Group media that actually move: by origin folder ID (0 = was in Root).
+        /** @var array<int, array{count:int, size:int}> $deltaByOrigin */
+        $deltaByOrigin = [];
+        $destAddCount  = 0;
+        $destAddSize   = 0;
+        foreach ($currentFolderByMedia as $mediaId => $originId) {
+            if ($originId === $folderId) {
+                continue;
+            }
+            $bytes         = $sizeByMedia[$mediaId] ?? 0;
+            $destAddCount += 1;
+            $destAddSize  += $bytes;
+
+            if ($originId > 0) {
+                if (! isset($deltaByOrigin[$originId])) {
+                    $deltaByOrigin[$originId] = [
+                        'count' => 0,
+                        'size'  => 0,
+                    ];
+                }
+                $deltaByOrigin[$originId]['count'] += 1;
+                $deltaByOrigin[$originId]['size']  += $bytes;
+            }
+        }
+
+        $previousFolderIds = [];
+        foreach ($mediaIds as $mediaId) {
+            $previousFolderIds[] = $currentFolderByMedia[(int) $mediaId];
             wp_set_object_terms($mediaId, $folderId, TaxonomyService::TAXONOMY_NAME, false);
         }
 
         // Force an immediate count update — wp_set_object_terms only updates
         // counts via deferred recount. Without this, downstream reads of
         // term_taxonomy.count within the same request return stale values.
-        $idsToRecount = array_values(array_unique(array_merge([$folderId], $previousFolderIds)));
-        wp_update_term_count_now($idsToRecount, TaxonomyService::TAXONOMY_NAME);
+        $idsToRecount = array_values(array_unique(array_filter(
+            array_merge([$folderId], $previousFolderIds),
+            static fn (int $id): bool => $id > 0
+        )));
+        if (! empty($idsToRecount)) {
+            wp_update_term_count_now($idsToRecount, TaxonomyService::TAXONOMY_NAME);
+            clean_term_cache($idsToRecount, TaxonomyService::TAXONOMY_NAME);
+        }
 
-        clean_term_cache($idsToRecount, TaxonomyService::TAXONOMY_NAME);
+        // Apply deltas to ancestor chains.
+        // Origins: subtract per-origin aggregate from origin's chain.
+        foreach ($deltaByOrigin as $originId => $delta) {
+            $chain = $this->ancestorChainIncluding($originId);
+            $this->applyChainDelta($chain, -$delta['size'], -$delta['count']);
+        }
+        // Destination: add total moved-in to destination chain.
+        if ($destAddCount > 0 || $destAddSize > 0) {
+            $destChain = $this->ancestorChainIncluding($folderId);
+            $this->applyChainDelta($destChain, $destAddSize, $destAddCount);
+        }
 
         $this->invalidateRootCache();
 
         return array_values(array_unique(array_filter(
             $previousFolderIds,
-            static fn (int $id): bool => $id !== $folderId
+            static fn (int $id): bool => $id > 0 && $id !== $folderId
         )));
     }
 
@@ -471,25 +574,59 @@ class FolderRepository
             return [];
         }
 
-        $previousFolderIds = [];
+        // Read current folder per media for delta math.
+        /** @var array<int, int> $currentFolderByMedia */
+        $currentFolderByMedia = [];
         foreach ($mediaIds as $mediaId) {
             $current = wp_get_object_terms($mediaId, TaxonomyService::TAXONOMY_NAME, ['fields' => 'ids']);
-            if (is_array($current)) {
-                foreach ($current as $cid) {
-                    if (is_numeric($cid)) {
-                        $previousFolderIds[] = (int) $cid;
-                    }
-                }
+            $cid     = 0;
+            if (is_array($current) && ! empty($current) && is_numeric($current[0])) {
+                $cid = (int) $current[0];
             }
+            $currentFolderByMedia[(int) $mediaId] = $cid;
+        }
+
+        $sizeByMedia = Database::getMediaFileSizes(array_keys($currentFolderByMedia));
+
+        /** @var array<int, array{count:int, size:int}> $deltaByOrigin */
+        $deltaByOrigin = [];
+        foreach ($currentFolderByMedia as $mediaId => $originId) {
+            if ($originId <= 0) {
+                continue;
+            }
+            $bytes = $sizeByMedia[$mediaId] ?? 0;
+            if (! isset($deltaByOrigin[$originId])) {
+                $deltaByOrigin[$originId] = [
+                    'count' => 0,
+                    'size'  => 0,
+                ];
+            }
+            $deltaByOrigin[$originId]['count'] += 1;
+            $deltaByOrigin[$originId]['size']  += $bytes;
+        }
+
+        $previousFolderIds = [];
+        foreach ($mediaIds as $mediaId) {
+            $previousFolderIds[] = $currentFolderByMedia[(int) $mediaId];
             // Clearing all terms by passing an empty array.
             wp_set_object_terms($mediaId, [], TaxonomyService::TAXONOMY_NAME, false);
         }
 
-        $previousFolderIds = array_values(array_unique($previousFolderIds));
+        $previousFolderIds = array_values(array_unique(array_filter(
+            $previousFolderIds,
+            static fn (int $id): bool => $id > 0
+        )));
 
         if (! empty($previousFolderIds)) {
             wp_update_term_count_now($previousFolderIds, TaxonomyService::TAXONOMY_NAME);
             clean_term_cache($previousFolderIds, TaxonomyService::TAXONOMY_NAME);
+        }
+
+        // Subtract from each origin's ancestor chain. Root global counters are
+        // invariant — the media is still on the site, just unassigned.
+        foreach ($deltaByOrigin as $originId => $delta) {
+            $chain = $this->ancestorChainIncluding($originId);
+            $this->applyChainDelta($chain, -$delta['size'], -$delta['count']);
         }
 
         $this->invalidateRootCache();
@@ -512,12 +649,38 @@ class FolderRepository
         $this->guardNotRoot($folderId);
         $this->getByIdOrFail($folderId);
 
+        // Only media currently assigned to $folderId contribute to the delta;
+        // wp_remove_object_terms is a no-op for the rest, but we want exact
+        // counts.
+        $assigned = [];
+        foreach ($mediaIds as $mediaId) {
+            $current = wp_get_object_terms($mediaId, TaxonomyService::TAXONOMY_NAME, ['fields' => 'ids']);
+            if (is_array($current) && in_array($folderId, array_map('intval', $current), true)) {
+                $assigned[] = (int) $mediaId;
+            }
+        }
+
         foreach ($mediaIds as $mediaId) {
             wp_remove_object_terms($mediaId, $folderId, TaxonomyService::TAXONOMY_NAME);
         }
 
         wp_update_term_count_now([$folderId], TaxonomyService::TAXONOMY_NAME);
         clean_term_cache([$folderId], TaxonomyService::TAXONOMY_NAME);
+
+        if (! empty($assigned)) {
+            $sizeByMedia = Database::getMediaFileSizes($assigned);
+            $sizeDelta   = 0;
+            foreach ($sizeByMedia as $bytes) {
+                $sizeDelta += $bytes;
+            }
+            $countDelta = count($assigned);
+
+            $chain = $this->ancestorChainIncluding($folderId);
+            $this->applyChainDelta($chain, -$sizeDelta, -$countDelta);
+        }
+
+        // Root global counters are invariant: the media is now unassigned (in
+        // Root direct), but still inside the site total.
         $this->invalidateRootCache();
     }
 
@@ -793,5 +956,123 @@ class FolderRepository
                 esc_html__('Root folder cannot be modified.', 'foldsnap')
             );
         }
+    }
+
+    /**
+     * Resolve ancestor chain of a folder, excluding Root
+     *
+     * Returns the list of term IDs whose `total_*` aggregates include this
+     * folder: the folder itself first, then its parent, grandparent, ... up
+     * to the top-level folder. Stops just before the virtual Root (id 0,
+     * which has its own option-backed counters).
+     *
+     * @param int $termId Folder term ID (must be > 0).
+     *
+     * @return int[] Term IDs from leaf up to top-level (no Root).
+     */
+    private function ancestorChainIncluding(int $termId): array
+    {
+        if ($termId <= 0) {
+            return [];
+        }
+
+        $chain     = [];
+        $currentId = $termId;
+        $maxDepth  = 64;
+
+        while ($currentId > 0 && $maxDepth-- > 0) {
+            $chain[]   = $currentId;
+            $term      = get_term($currentId, TaxonomyService::TAXONOMY_NAME);
+            $currentId = $term instanceof WP_Term ? (int) $term->parent : 0;
+        }
+
+        return $chain;
+    }
+
+    /**
+     * Apply a (size, count) delta to every term meta in a chain
+     *
+     * @param int[] $termIds    Term IDs to adjust (typically an ancestor chain).
+     * @param int   $sizeDelta  Signed bytes delta.
+     * @param int   $countDelta Signed media-count delta.
+     *
+     * @return void
+     */
+    private function applyChainDelta(array $termIds, int $sizeDelta, int $countDelta): void
+    {
+        if (empty($termIds)) {
+            return;
+        }
+
+        if (0 !== $sizeDelta) {
+            Database::bulkAdjustTermMeta($termIds, FolderModel::META_SIZE, $sizeDelta);
+        }
+        if (0 !== $countDelta) {
+            Database::bulkAdjustTermMeta($termIds, FolderModel::META_COUNT, $countDelta);
+        }
+    }
+
+    /**
+     * Adjust the global Root counters (option-backed)
+     *
+     * Used only by attachment lifecycle hooks (add/delete attachment) — folder
+     * mutations leave the global Root totals invariant because media stays in
+     * the site, only the sub-folder it lives in changes.
+     *
+     * @param int $sizeDelta  Signed bytes delta.
+     * @param int $countDelta Signed media-count delta.
+     *
+     * @return void
+     */
+    public function updateRootCounters(int $sizeDelta, int $countDelta): void
+    {
+        if (0 !== $sizeDelta) {
+            $current = $this->getIntOption(self::OPT_ROOT_SIZE);
+            update_option(self::OPT_ROOT_SIZE, max(0, $current + $sizeDelta));
+        }
+        if (0 !== $countDelta) {
+            $current = $this->getIntOption(self::OPT_ROOT_COUNT);
+            update_option(self::OPT_ROOT_COUNT, max(0, $current + $countDelta));
+        }
+
+        $this->invalidateRootCache();
+    }
+
+    /**
+     * Get the cached global Root total size (bytes)
+     *
+     * @return int
+     */
+    public function getRootGlobalTotalSize(): int
+    {
+        return $this->getIntOption(self::OPT_ROOT_SIZE);
+    }
+
+    /**
+     * Get the cached global Root media count
+     *
+     * @return int
+     */
+    public function getRootGlobalMediaCount(): int
+    {
+        return $this->getIntOption(self::OPT_ROOT_COUNT);
+    }
+
+    /**
+     * Read an option as an int with a safe default
+     *
+     * Wraps the inherently-mixed return of get_option in a typed access so
+     * PHPStan doesn't flag the cast — and so a corrupted option string
+     * never propagates as 0 silently when the value should fall back.
+     *
+     * @param string $optionName Option key.
+     * @param int    $default    Fallback value when the option is missing or non-numeric.
+     *
+     * @return int
+     */
+    private function getIntOption(string $optionName, int $default = 0): int
+    {
+        $raw = get_option($optionName, $default);
+        return is_numeric($raw) ? (int) $raw : $default;
     }
 }

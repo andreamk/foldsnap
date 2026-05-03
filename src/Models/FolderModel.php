@@ -20,6 +20,8 @@ final class FolderModel
 {
     public const META_COLOR    = 'foldsnap_folder_color';
     public const META_POSITION = 'foldsnap_folder_position';
+    public const META_SIZE     = 'foldsnap_folder_size';
+    public const META_COUNT    = 'foldsnap_folder_count';
 
     public const ROOT_ID = 0;
 

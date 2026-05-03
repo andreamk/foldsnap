@@ -41,7 +41,8 @@ class FolderTreeNavigatorTests extends WP_UnitTestCase
      */
     public function test_compute_totals_single_folder(): void
     {
-        $folderId = $this->createTerm('Folder');
+        $folder   = $this->repository->create('Folder');
+        $folderId = $folder->getId();
         $att      = $this->createAttachmentWithSize(1000);
         $this->repository->assignMedia($folderId, [$att]);
 
@@ -59,9 +60,12 @@ class FolderTreeNavigatorTests extends WP_UnitTestCase
      */
     public function test_compute_totals_recursive(): void
     {
-        $parentId = $this->createTerm('Parent');
-        $childId  = $this->createTerm('Child', ['parent' => $parentId]);
-        $grandId  = $this->createTerm('Grand', ['parent' => $childId]);
+        $parent   = $this->repository->create('Parent');
+        $parentId = $parent->getId();
+        $child    = $this->repository->create('Child', $parentId);
+        $childId  = $child->getId();
+        $grand    = $this->repository->create('Grand', $childId);
+        $grandId  = $grand->getId();
 
         $att1 = $this->createAttachmentWithSize(1000);
         $att2 = $this->createAttachmentWithSize(2000);
@@ -85,9 +89,9 @@ class FolderTreeNavigatorTests extends WP_UnitTestCase
      */
     public function test_compute_totals_multiple_folders(): void
     {
-        $folderA = $this->createTerm('A');
-        $folderB = $this->createTerm('B');
-        $childA  = $this->createTerm('A1', ['parent' => $folderA]);
+        $folderA = $this->repository->create('A')->getId();
+        $folderB = $this->repository->create('B')->getId();
+        $childA  = $this->repository->create('A1', $folderA)->getId();
 
         $att1 = $this->createAttachmentWithSize(100);
         $att2 = $this->createAttachmentWithSize(200);

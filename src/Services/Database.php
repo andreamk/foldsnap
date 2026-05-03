@@ -481,18 +481,288 @@ class Database
     }
 
     /**
-     * Compute direct size in bytes for a specific list of folders
+     * Read filesize for a list of attachments from `_wp_attachment_metadata`
      *
-     * Targeted version of the legacy getFolderAttachmentMeta query: returns
-     * the sum of attachment filesizes (read from _wp_attachment_metadata)
-     * grouped by folder term ID, restricted to the requested folder IDs.
+     * Used by the incremental counter logic to compute size deltas when
+     * media is assigned/removed. Returns 0 for attachments whose metadata
+     * is missing or has no `filesize` key.
      *
-     * Folders with no media return 0 in the map.
+     * @param int[] $mediaIds Attachment post IDs.
      *
-     * @param int[]  $folderIds Folder term IDs to compute sizes for
-     * @param string $taxonomy  Taxonomy name
+     * @return array<int, int> Map of attachment ID => filesize bytes
+     */
+    public static function getMediaFileSizes(array $mediaIds): array
+    {
+        /** @var array<int, int> $sizes */
+        $sizes = [];
+
+        $mediaIds = array_values(array_filter(array_map('intval', $mediaIds), static fn (int $id): bool => $id > 0));
+
+        foreach ($mediaIds as $id) {
+            $sizes[$id] = 0;
+        }
+
+        if (empty($mediaIds)) {
+            return $sizes;
+        }
+
+        /** @var \wpdb $wpdb */
+        global $wpdb;
+
+        $placeholders = implode(',', array_fill(0, count($mediaIds), '%d'));
+
+        // phpcs:disable WordPress.DB
+        $sql  = $wpdb->prepare(
+            'SELECT post_id, meta_value
+            FROM %i
+            WHERE meta_key = %s
+            AND post_id IN (' . $placeholders . ')',
+            array_merge([$wpdb->postmeta, '_wp_attachment_metadata'], $mediaIds)
+        );
+        $rows = $wpdb->get_results($sql);
+        // phpcs:enable WordPress.DB
+
+        if (! is_array($rows)) {
+            return $sizes;
+        }
+
+        foreach ($rows as $row) {
+            if (! is_object($row)) {
+                continue;
+            }
+
+            $postId    = property_exists($row, 'post_id') && is_numeric($row->post_id) ? (int) $row->post_id : 0;
+            $metaValue = property_exists($row, 'meta_value') && is_string($row->meta_value) ? $row->meta_value : '';
+
+            if ($postId <= 0 || '' === $metaValue) {
+                continue;
+            }
+
+            $unserialized = maybe_unserialize($metaValue);
+            if (is_array($unserialized) && isset($unserialized['filesize']) && is_numeric($unserialized['filesize'])) {
+                $sizes[$postId] = (int) $unserialized['filesize'];
+            }
+        }
+
+        return $sizes;
+    }
+
+    /**
+     * Bulk increment/decrement an integer term meta across many terms
      *
-     * @return array<int, int> Map of folder term ID => total bytes
+     * Pre-condition: every term in $termIds has a row in wp_termmeta for
+     * $metaKey (the meta is initialized at folder creation, see
+     * FolderRepository::create and the recalculate migration).
+     *
+     * Negative deltas are clamped to zero at SQL level via GREATEST so the
+     * value never goes below zero, even if a previous drift left it stale.
+     *
+     * @param int[]  $termIds Term IDs whose meta to adjust.
+     * @param string $metaKey Term meta key (foldsnap_folder_size or _count).
+     * @param int    $delta   Signed delta to add to the current value.
+     *
+     * @return void
+     */
+    public static function bulkAdjustTermMeta(array $termIds, string $metaKey, int $delta): void
+    {
+        $termIds = array_values(array_filter(array_map('intval', $termIds), static fn (int $id): bool => $id > 0));
+
+        if (empty($termIds) || 0 === $delta) {
+            return;
+        }
+
+        /** @var \wpdb $wpdb */
+        global $wpdb;
+
+        $placeholders = implode(',', array_fill(0, count($termIds), '%d'));
+
+        // phpcs:disable WordPress.DB
+        $sql = $wpdb->prepare(
+            'UPDATE %i
+            SET meta_value = GREATEST(0, CAST(meta_value AS SIGNED) + %d)
+            WHERE meta_key = %s
+            AND term_id IN (' . $placeholders . ')',
+            array_merge([$wpdb->termmeta, $delta, $metaKey], $termIds)
+        );
+        if (is_string($sql)) {
+            $wpdb->query($sql);
+        }
+        // phpcs:enable WordPress.DB
+
+        // Bust the term-meta object cache so subsequent get_term_meta reads
+        // hit the database. The 'term_meta' cache group is keyed by term_id.
+        wp_cache_delete_multiple($termIds, 'term_meta');
+    }
+
+    /**
+     * Read folder_count + folder_size for the direct children of each parent
+     *
+     * Single JOIN query that aggregates per parent: for each parent it
+     * returns the sum of the children's foldsnap_folder_count and
+     * foldsnap_folder_size term meta. Used by the bottom-up recalculate.
+     *
+     * @param int[]  $parentIds Parent term IDs.
+     * @param string $taxonomy  Taxonomy name.
+     *
+     * @return array<int, array{count:int, size:int}>
+     */
+    public static function getChildrenTotalsForFolders(array $parentIds, string $taxonomy): array
+    {
+        /** @var array<int, array{count:int, size:int}> $result */
+        $result = [];
+
+        $parentIds = array_values(array_filter(array_map('intval', $parentIds), static fn (int $id): bool => $id > 0));
+
+        foreach ($parentIds as $id) {
+            $result[$id] = [
+                'count' => 0,
+                'size'  => 0,
+            ];
+        }
+
+        if (empty($parentIds)) {
+            return $result;
+        }
+
+        /** @var \wpdb $wpdb */
+        global $wpdb;
+
+        $placeholders = implode(',', array_fill(0, count($parentIds), '%d'));
+
+        // phpcs:disable WordPress.DB
+        $sql  = $wpdb->prepare(
+            'SELECT tt.parent AS parent_id,
+                COALESCE(SUM(CASE WHEN tm.meta_key = %s THEN CAST(tm.meta_value AS SIGNED) END), 0) AS total_count,
+                COALESCE(SUM(CASE WHEN tm.meta_key = %s THEN CAST(tm.meta_value AS SIGNED) END), 0) AS total_size
+            FROM %i tt
+            LEFT JOIN %i tm
+                ON tm.term_id = tt.term_id
+                AND tm.meta_key IN (%s, %s)
+            WHERE tt.taxonomy = %s
+            AND tt.parent IN (' . $placeholders . ')
+            GROUP BY tt.parent',
+            array_merge(
+                [
+                    \FoldSnap\Models\FolderModel::META_COUNT,
+                    \FoldSnap\Models\FolderModel::META_SIZE,
+                    $wpdb->term_taxonomy,
+                    $wpdb->termmeta,
+                    \FoldSnap\Models\FolderModel::META_COUNT,
+                    \FoldSnap\Models\FolderModel::META_SIZE,
+                    $taxonomy,
+                ],
+                $parentIds
+            )
+        );
+        $rows = $wpdb->get_results($sql);
+        // phpcs:enable WordPress.DB
+
+        if (! is_array($rows)) {
+            return $result;
+        }
+
+        foreach ($rows as $row) {
+            if (! is_object($row)) {
+                continue;
+            }
+
+            $parentId = property_exists($row, 'parent_id') && is_numeric($row->parent_id) ? (int) $row->parent_id : 0;
+            $count    = property_exists($row, 'total_count') && is_numeric($row->total_count) ? (int) $row->total_count : 0;
+            $size     = property_exists($row, 'total_size') && is_numeric($row->total_size) ? (int) $row->total_size : 0;
+
+            if ($parentId > 0) {
+                $result[$parentId] = [
+                    'count' => $count,
+                    'size'  => $size,
+                ];
+            }
+        }
+
+        return $result;
+    }
+
+    /**
+     * Initialize size/count term meta to 0 for any folder missing them
+     *
+     * Pre-condition for `bulkAdjustTermMeta`: every term must already have
+     * a row in wp_termmeta for the keys being incremented. Folders created
+     * via FolderRepository::create() satisfy this from the start; this
+     * helper covers existing terms during the migration to incremental
+     * counters (and is idempotent — running it twice is a no-op).
+     *
+     * @param int[]  $termIds  Term IDs to normalize.
+     * @param string $taxonomy Taxonomy name (only the supplied IDs are touched).
+     *
+     * @return void
+     */
+    public static function ensureFolderCountersInitialized(array $termIds, string $taxonomy): void
+    {
+        $termIds = array_values(array_filter(array_map('intval', $termIds), static fn (int $id): bool => $id > 0));
+
+        if (empty($termIds)) {
+            return;
+        }
+
+        /** @var \wpdb $wpdb */
+        global $wpdb;
+
+        $placeholders = implode(',', array_fill(0, count($termIds), '%d'));
+
+        // phpcs:disable WordPress.DB
+        $existing = $wpdb->get_results(
+            $wpdb->prepare(
+                'SELECT tm.term_id, tm.meta_key
+                FROM %i tm
+                INNER JOIN %i tt ON tt.term_id = tm.term_id
+                WHERE tt.taxonomy = %s
+                AND tm.meta_key IN (%s, %s)
+                AND tm.term_id IN (' . $placeholders . ')',
+                array_merge(
+                    [
+                        $wpdb->termmeta,
+                        $wpdb->term_taxonomy,
+                        $taxonomy,
+                        \FoldSnap\Models\FolderModel::META_SIZE,
+                        \FoldSnap\Models\FolderModel::META_COUNT,
+                    ],
+                    $termIds
+                )
+            )
+        );
+        // phpcs:enable WordPress.DB
+
+        /** @var array<int, array<string, true>> $present */
+        $present = [];
+        if (is_array($existing)) {
+            foreach ($existing as $row) {
+                if (! is_object($row)) {
+                    continue;
+                }
+                $tid = property_exists($row, 'term_id') && is_numeric($row->term_id) ? (int) $row->term_id : 0;
+                $key = property_exists($row, 'meta_key') && is_string($row->meta_key) ? $row->meta_key : '';
+                if ($tid > 0 && '' !== $key) {
+                    $present[$tid][$key] = true;
+                }
+            }
+        }
+
+        foreach ($termIds as $tid) {
+            if (! isset($present[$tid][\FoldSnap\Models\FolderModel::META_SIZE])) {
+                add_term_meta($tid, \FoldSnap\Models\FolderModel::META_SIZE, '0', true);
+            }
+            if (! isset($present[$tid][\FoldSnap\Models\FolderModel::META_COUNT])) {
+                add_term_meta($tid, \FoldSnap\Models\FolderModel::META_COUNT, '0', true);
+            }
+        }
+    }
+
+    /**
+     * Read direct (non-recursive) sizes per folder
+     *
+     * @param int[]  $folderIds Folder term IDs.
+     * @param string $taxonomy  Taxonomy name.
+     *
+     * @return array<int, int> Map of folder term ID => bytes
      */
     public static function getDirectSizesForFolders(array $folderIds, string $taxonomy): array
     {

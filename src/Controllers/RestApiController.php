@@ -17,6 +17,7 @@ declare(strict_types=1);
 namespace FoldSnap\Controllers;
 
 use FoldSnap\Models\FolderModel;
+use FoldSnap\Services\CountersRecalculator;
 use FoldSnap\Services\FolderRepository;
 use FoldSnap\Services\FolderTreeNavigator;
 use FoldSnap\Services\TaxonomyService;
@@ -279,6 +280,33 @@ final class RestApiController
 
         register_rest_route(
             self::REST_NAMESPACE,
+            '/folders/recalculate',
+            [
+                'methods'             => WP_REST_Server::CREATABLE,
+                'callback'            => [
+                    $this,
+                    'recalculate',
+                ],
+                'permission_callback' => [
+                    $this,
+                    'checkAdminPermission',
+                ],
+                'args'                => [
+                    'limit' => [
+                        'type'              => 'integer',
+                        'default'           => CountersRecalculator::DEFAULT_LIMIT,
+                        'sanitize_callback' => 'absint',
+                    ],
+                    'reset' => [
+                        'type'    => 'boolean',
+                        'default' => false,
+                    ],
+                ],
+            ]
+        );
+
+        register_rest_route(
+            self::REST_NAMESPACE,
             '/media',
             [
                 [
@@ -321,6 +349,46 @@ final class RestApiController
     public function checkPermission(): bool
     {
         return current_user_can('upload_files');
+    }
+
+    /**
+     * Permission callback for admin-only endpoints (recalculate)
+     *
+     * @return bool
+     */
+    public function checkAdminPermission(): bool
+    {
+        return current_user_can('manage_options');
+    }
+
+    /**
+     * POST /foldsnap/v1/folders/recalculate
+     *
+     * Runs one chunk of the bottom-up counter recalculate. With `reset=true`
+     * the existing stack is cleared first, forcing a full rebuild on the
+     * next call. Returns the same envelope as CountersRecalculator.
+     *
+     * @param WP_REST_Request $request REST request object.
+     *
+     * @return WP_REST_Response
+     */
+    public function recalculate(WP_REST_Request $request): WP_REST_Response
+    {
+        $limit = absint($this->getStringParam($request, 'limit'));
+        if ($limit <= 0) {
+            $limit = CountersRecalculator::DEFAULT_LIMIT;
+        }
+
+        $reset        = (bool) $request->get_param('reset');
+        $recalculator = new CountersRecalculator();
+
+        if ($reset) {
+            $recalculator->reset();
+        }
+
+        $result = $recalculator->processChunk($limit);
+
+        return new WP_REST_Response($result, 200);
     }
 
     /**

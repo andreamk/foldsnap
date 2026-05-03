@@ -719,6 +719,40 @@ class RestApiControllerTests extends WP_UnitTestCase
     }
 
     /**
+     * Test POST /folders/recalculate runs and reports completion on empty tree
+     *
+     * @return void
+     */
+    public function test_recalculate_endpoint_runs_to_completion(): void
+    {
+        $request = new WP_REST_Request('POST', '/foldsnap/v1/folders/recalculate');
+        $request->set_param('limit', 10);
+
+        $response = $this->dispatchRequest($request);
+        $data     = $response->get_data();
+
+        $this->assertSame(200, $response->get_status());
+        $this->assertArrayHasKey('done', $data);
+        $this->assertArrayHasKey('processed', $data);
+        $this->assertArrayHasKey('remaining', $data);
+    }
+
+    /**
+     * Test POST /folders/recalculate is forbidden for non-admins
+     *
+     * @return void
+     */
+    public function test_recalculate_endpoint_forbidden_for_subscriber(): void
+    {
+        $subscriberId = self::factory()->user->create(['role' => 'subscriber']);
+        wp_set_current_user($subscriberId);
+
+        $response = $this->dispatchRequest(new WP_REST_Request('POST', '/foldsnap/v1/folders/recalculate'));
+
+        $this->assertSame(403, $response->get_status());
+    }
+
+    /**
      * Dispatch a REST request through the server
      *
      * @param WP_REST_Request $request REST request object

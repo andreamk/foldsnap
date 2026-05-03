@@ -33,10 +33,10 @@ class FolderTreeNavigator
     /**
      * Compute total_media_count and total_size for each requested folder
      *
-     * Walks descendants once via Database::getDescendantIds, then issues
-     * one bulk query for direct sizes covering each folder + all its
-     * descendants. Direct media counts come from the FolderModel itself
-     * (WP_Term->count). Returns a map keyed by folder ID.
+     * Reads pre-computed aggregates from term meta (foldsnap_folder_count,
+     * foldsnap_folder_size) maintained incrementally by FolderRepository.
+     * Pre-fetches both keys in bulk through update_termmeta_cache to avoid
+     * N+1 queries. Root reads its option-backed global totals.
      *
      * @param FolderModel[] $folders Folders to compute totals for
      *
@@ -51,52 +51,27 @@ class FolderTreeNavigator
             return $result;
         }
 
-        $realFolders = [];
+        $realFolderIds = [];
         foreach ($folders as $folder) {
             if ($folder->isRoot()) {
                 $result[$folder->getId()] = $this->computeRootTotals();
                 continue;
             }
-            $realFolders[] = $folder;
+            $realFolderIds[] = $folder->getId();
         }
 
-        if (empty($realFolders)) {
-            return $result;
-        }
+        if (! empty($realFolderIds)) {
+            update_termmeta_cache($realFolderIds);
 
-        $rootIds           = array_map(static fn (FolderModel $f): int => $f->getId(), $realFolders);
-        $descendantsByRoot = Database::getDescendantIds($rootIds, TaxonomyService::TAXONOMY_NAME);
+            foreach ($realFolderIds as $id) {
+                $rawCount = get_term_meta($id, FolderModel::META_COUNT, true);
+                $rawSize  = get_term_meta($id, FolderModel::META_SIZE, true);
 
-        // Collect every folder ID we need a direct size for: each requested folder + every descendant.
-        /** @var int[] $allIds */
-        $allIds = $rootIds;
-        foreach ($descendantsByRoot as $descendants) {
-            foreach ($descendants as $id) {
-                $allIds[] = $id;
+                $result[$id] = [
+                    'total_media_count' => is_numeric($rawCount) ? (int) $rawCount : 0,
+                    'total_size'        => is_numeric($rawSize) ? (int) $rawSize : 0,
+                ];
             }
-        }
-        $allIds = array_values(array_unique($allIds));
-
-        $directSizeMap  = Database::getDirectSizesForFolders($allIds, TaxonomyService::TAXONOMY_NAME);
-        $directCountMap = Database::getDirectCountsForFolders($allIds, TaxonomyService::TAXONOMY_NAME);
-
-        foreach ($realFolders as $folder) {
-            $rootId    = $folder->getId();
-            $totalSize = $directSizeMap[$rootId] ?? 0;
-            // Read root count from the same fresh DB map for consistency, falling
-            // back to the FolderModel's cached value only if the row is missing.
-            $totalCount = $directCountMap[$rootId] ?? $folder->getMediaCount();
-
-            $descendants = $descendantsByRoot[$rootId] ?? [];
-            foreach ($descendants as $descendantId) {
-                $totalSize  += $directSizeMap[$descendantId] ?? 0;
-                $totalCount += $directCountMap[$descendantId] ?? 0;
-            }
-
-            $result[$rootId] = [
-                'total_media_count' => $totalCount,
-                'total_size'        => $totalSize,
-            ];
         }
 
         return $result;
@@ -105,17 +80,29 @@ class FolderTreeNavigator
     /**
      * Compute the totals for the virtual Root folder
      *
-     * The Root contains every attachment in the site: its `total_media_count`
-     * is the global attachment count, its `total_size` the global filesize
-     * sum. Both come from the Database service.
+     * The Root represents every attachment on the site. Totals are read from
+     * the cached options (foldsnap_opt_root_count / foldsnap_opt_root_size)
+     * maintained by attachment-lifecycle hooks. If the options are missing
+     * (e.g. before the first migration run), falls back to a one-shot global
+     * query so the UI never shows zero pre-recalculate.
      *
      * @return array{total_media_count:int,total_size:int}
      */
     private function computeRootTotals(): array
     {
+        $countOpt = get_option(FolderRepository::OPT_ROOT_COUNT, null);
+        $sizeOpt  = get_option(FolderRepository::OPT_ROOT_SIZE, null);
+
+        $count = is_numeric($countOpt)
+            ? (int) $countOpt
+            : Database::getGlobalMediaCount(TaxonomyService::POST_TYPE);
+        $size  = is_numeric($sizeOpt)
+            ? (int) $sizeOpt
+            : Database::getGlobalTotalSize(TaxonomyService::POST_TYPE);
+
         return [
-            'total_media_count' => Database::getGlobalMediaCount(TaxonomyService::POST_TYPE),
-            'total_size'        => Database::getGlobalTotalSize(TaxonomyService::POST_TYPE),
+            'total_media_count' => $count,
+            'total_size'        => $size,
         ];
     }
 

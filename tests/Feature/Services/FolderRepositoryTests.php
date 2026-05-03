@@ -1165,4 +1165,193 @@ class FolderRepositoryTests extends WP_UnitTestCase
         $this->assertContains(0, $ids);
         $this->assertContains($a, $ids);
     }
+
+    // -------------------------------------------------------------------------
+    // Step 9 — Incremental counter behavior
+    // -------------------------------------------------------------------------
+
+    /**
+     * Test create() initializes count + size meta to zero
+     *
+     * @return void
+     */
+    public function test_create_initializes_counter_meta(): void
+    {
+        $folder = $this->repository->create('Folder');
+
+        $this->assertSame('0', get_term_meta($folder->getId(), FolderModel::META_SIZE, true));
+        $this->assertSame('0', get_term_meta($folder->getId(), FolderModel::META_COUNT, true));
+    }
+
+    /**
+     * Test assignMedia bumps the destination chain's counter meta
+     *
+     * @return void
+     */
+    public function test_assign_media_increments_destination_chain(): void
+    {
+        $parent = $this->repository->create('Parent');
+        $child  = $this->repository->create('Child', $parent->getId());
+        $att    = $this->createAttachmentWithSize(1500);
+
+        $this->repository->assignMedia($child->getId(), [$att]);
+
+        $this->assertSame('1', get_term_meta($child->getId(), FolderModel::META_COUNT, true));
+        $this->assertSame('1500', get_term_meta($child->getId(), FolderModel::META_SIZE, true));
+        $this->assertSame('1', get_term_meta($parent->getId(), FolderModel::META_COUNT, true));
+        $this->assertSame('1500', get_term_meta($parent->getId(), FolderModel::META_SIZE, true));
+    }
+
+    /**
+     * Test assignMedia from one folder to another shifts the deltas correctly
+     *
+     * @return void
+     */
+    public function test_assign_media_moves_deltas_between_chains(): void
+    {
+        $origin = $this->repository->create('Origin');
+        $dest   = $this->repository->create('Dest');
+        $att    = $this->createAttachmentWithSize(800);
+
+        $this->repository->assignMedia($origin->getId(), [$att]);
+        $this->repository->assignMedia($dest->getId(), [$att]);
+
+        $this->assertSame('0', get_term_meta($origin->getId(), FolderModel::META_COUNT, true));
+        $this->assertSame('0', get_term_meta($origin->getId(), FolderModel::META_SIZE, true));
+        $this->assertSame('1', get_term_meta($dest->getId(), FolderModel::META_COUNT, true));
+        $this->assertSame('800', get_term_meta($dest->getId(), FolderModel::META_SIZE, true));
+    }
+
+    /**
+     * Test re-assigning the same media to the same folder is a no-op delta-wise
+     *
+     * @return void
+     */
+    public function test_assign_media_is_idempotent_on_same_folder(): void
+    {
+        $folder = $this->repository->create('Folder');
+        $att    = $this->createAttachmentWithSize(500);
+
+        $this->repository->assignMedia($folder->getId(), [$att]);
+        $this->repository->assignMedia($folder->getId(), [$att]);
+
+        $this->assertSame('1', get_term_meta($folder->getId(), FolderModel::META_COUNT, true));
+        $this->assertSame('500', get_term_meta($folder->getId(), FolderModel::META_SIZE, true));
+    }
+
+    /**
+     * Test removeMedia decrements the chain's counter meta
+     *
+     * @return void
+     */
+    public function test_remove_media_decrements_chain(): void
+    {
+        $parent = $this->repository->create('Parent');
+        $child  = $this->repository->create('Child', $parent->getId());
+        $att    = $this->createAttachmentWithSize(700);
+
+        $this->repository->assignMedia($child->getId(), [$att]);
+        $this->repository->removeMedia($child->getId(), [$att]);
+
+        $this->assertSame('0', get_term_meta($child->getId(), FolderModel::META_COUNT, true));
+        $this->assertSame('0', get_term_meta($child->getId(), FolderModel::META_SIZE, true));
+        $this->assertSame('0', get_term_meta($parent->getId(), FolderModel::META_COUNT, true));
+        $this->assertSame('0', get_term_meta($parent->getId(), FolderModel::META_SIZE, true));
+    }
+
+    /**
+     * Test reparenting a folder shifts the subtree totals between ancestor chains
+     *
+     * @return void
+     */
+    public function test_update_reparent_shifts_subtree_totals(): void
+    {
+        $oldParent = $this->repository->create('Old');
+        $newParent = $this->repository->create('New');
+        $moving    = $this->repository->create('Moving', $oldParent->getId());
+
+        $att = $this->createAttachmentWithSize(2000);
+        $this->repository->assignMedia($moving->getId(), [$att]);
+
+        // Old chain contains Moving's totals before the move.
+        $this->assertSame('1', get_term_meta($oldParent->getId(), FolderModel::META_COUNT, true));
+        $this->assertSame('2000', get_term_meta($oldParent->getId(), FolderModel::META_SIZE, true));
+
+        $this->repository->update($moving->getId(), '', $newParent->getId());
+
+        $this->assertSame('0', get_term_meta($oldParent->getId(), FolderModel::META_COUNT, true));
+        $this->assertSame('0', get_term_meta($oldParent->getId(), FolderModel::META_SIZE, true));
+        $this->assertSame('1', get_term_meta($newParent->getId(), FolderModel::META_COUNT, true));
+        $this->assertSame('2000', get_term_meta($newParent->getId(), FolderModel::META_SIZE, true));
+        // The moved folder itself keeps its own totals.
+        $this->assertSame('1', get_term_meta($moving->getId(), FolderModel::META_COUNT, true));
+        $this->assertSame('2000', get_term_meta($moving->getId(), FolderModel::META_SIZE, true));
+    }
+
+    /**
+     * Test deleting a folder subtracts its direct totals from ancestors
+     *
+     * Sub-folder counters stay invariant: their subtrees are intact, only the
+     * promotion to grandparent changes — and ancestors already counted them
+     * via the deleted folder.
+     *
+     * @return void
+     */
+    public function test_delete_subtracts_direct_totals_from_ancestors(): void
+    {
+        $grand  = $this->repository->create('Grand');
+        $parent = $this->repository->create('Parent', $grand->getId());
+        $child  = $this->repository->create('Child', $parent->getId());
+
+        $direct = $this->createAttachmentWithSize(400);
+        $deep   = $this->createAttachmentWithSize(600);
+        $this->repository->assignMedia($parent->getId(), [$direct]);
+        $this->repository->assignMedia($child->getId(), [$deep]);
+
+        // Pre-delete: grand sees both attachments via parent.
+        $this->assertSame('2', get_term_meta($grand->getId(), FolderModel::META_COUNT, true));
+        $this->assertSame('1000', get_term_meta($grand->getId(), FolderModel::META_SIZE, true));
+
+        $this->repository->delete($parent->getId());
+
+        // Grand loses parent's direct media (1 / 400) but still aggregates the
+        // promoted Child's subtree (1 / 600).
+        $this->assertSame('1', get_term_meta($grand->getId(), FolderModel::META_COUNT, true));
+        $this->assertSame('600', get_term_meta($grand->getId(), FolderModel::META_SIZE, true));
+
+        // Child's own counters are unchanged.
+        $this->assertSame('1', get_term_meta($child->getId(), FolderModel::META_COUNT, true));
+        $this->assertSame('600', get_term_meta($child->getId(), FolderModel::META_SIZE, true));
+    }
+
+    /**
+     * Test updateRootCounters writes the option-backed Root totals
+     *
+     * @return void
+     */
+    public function test_update_root_counters_writes_options(): void
+    {
+        $this->repository->updateRootCounters(2048, 3);
+        $this->assertSame(2048, $this->repository->getRootGlobalTotalSize());
+        $this->assertSame(3, $this->repository->getRootGlobalMediaCount());
+
+        // Negative deltas accumulate.
+        $this->repository->updateRootCounters(-512, -1);
+        $this->assertSame(1536, $this->repository->getRootGlobalTotalSize());
+        $this->assertSame(2, $this->repository->getRootGlobalMediaCount());
+    }
+
+    /**
+     * Test updateRootCounters clamps to zero (never goes negative)
+     *
+     * @return void
+     */
+    public function test_update_root_counters_clamps_to_zero(): void
+    {
+        update_option(FolderRepository::OPT_ROOT_COUNT, 1);
+
+        $this->repository->updateRootCounters(0, -5);
+
+        $this->assertSame(0, $this->repository->getRootGlobalMediaCount());
+    }
 }
