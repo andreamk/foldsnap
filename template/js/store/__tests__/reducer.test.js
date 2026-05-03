@@ -124,18 +124,6 @@ describe( 'reducer', () => {
 		} );
 	} );
 
-	describe( 'SET_ROOT_TOTALS', () => {
-		it( 'updates root counters', () => {
-			const state = reducer( baseState(), {
-				type: ACTION_TYPES.SET_ROOT_TOTALS,
-				rootMediaCount: 7,
-				rootTotalSize: 1024,
-			} );
-			expect( state.rootMediaCount ).toBe( 7 );
-			expect( state.rootTotalSize ).toBe( 1024 );
-		} );
-	} );
-
 	describe( 'EXPAND_FOLDER / COLLAPSE_FOLDER', () => {
 		it( 'EXPAND adds id and persists it', () => {
 			const state = reducer( baseState(), {

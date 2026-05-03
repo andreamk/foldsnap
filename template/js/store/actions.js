@@ -49,11 +49,6 @@ export function* fetchChildren(
 		if ( response.root ) {
 			yield { type: ACTION_TYPES.UPSERT_FOLDER, folder: response.root };
 		}
-		yield {
-			type: ACTION_TYPES.SET_ROOT_TOTALS,
-			rootMediaCount: response.root_media_count,
-			rootTotalSize: response.root_total_size,
-		};
 	} catch ( error ) {
 		yield {
 			type: ACTION_TYPES.FETCH_CHILDREN_ERROR,
@@ -160,11 +155,6 @@ export function* fetchChildrenBatch(
 		if ( response.root ) {
 			yield { type: ACTION_TYPES.UPSERT_FOLDER, folder: response.root };
 		}
-		yield {
-			type: ACTION_TYPES.SET_ROOT_TOTALS,
-			rootMediaCount: response.root_media_count,
-			rootTotalSize: response.root_total_size,
-		};
 	} catch ( error ) {
 		for ( const id of parentIds ) {
 			yield {
@@ -391,16 +381,6 @@ const applyMutationEnvelope = function* ( envelope ) {
 			affectedParents: envelope.affected_parents,
 		};
 	}
-	if (
-		typeof envelope.root_media_count === 'number' &&
-		typeof envelope.root_total_size === 'number'
-	) {
-		yield {
-			type: ACTION_TYPES.SET_ROOT_TOTALS,
-			rootMediaCount: envelope.root_media_count,
-			rootTotalSize: envelope.root_total_size,
-		};
-	}
 };
 
 /**
@@ -516,19 +496,6 @@ export function* deleteFolder( id ) {
 		yield {
 			type: ACTION_TYPES.APPLY_AFFECTED_PARENTS,
 			affectedParents: response.affected_parents,
-		};
-	}
-	if (
-		typeof response.root_media_count === 'number' &&
-		typeof response.root_total_size === 'number'
-	) {
-		if ( response.root ) {
-			yield { type: ACTION_TYPES.UPSERT_FOLDER, folder: response.root };
-		}
-		yield {
-			type: ACTION_TYPES.SET_ROOT_TOTALS,
-			rootMediaCount: response.root_media_count,
-			rootTotalSize: response.root_total_size,
 		};
 	}
 }

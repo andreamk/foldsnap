@@ -10,6 +10,8 @@ declare(strict_types=1);
 
 namespace FoldSnap\Models;
 
+use FoldSnap\Services\Database;
+use FoldSnap\Services\TaxonomyService;
 use WP_Term;
 
 /**
@@ -238,21 +240,61 @@ final class FolderModel
     }
 
     /**
-     * Create a FolderModel from a WP_Term
+     * Build models from a list of WP_Term objects with bulk-loaded meta
      *
-     * Reads color, position, total size, total count from term meta. The
-     * counters are maintained incrementally by FolderRepository on every
-     * folder/media mutation, so the values here are O(1) and up-to-date.
+     * Pre-fetches term meta (`update_termmeta_cache`) and children counts
+     * (`Database::getChildrenCounts`) in a single round-trip each, so the
+     * resulting models are fully populated without N+1 queries.
      *
-     * `hasChildren` is not derivable from a single term, so it must be
-     * supplied by the caller (typically via a bulk query in the repository).
+     * @param WP_Term[] $terms WordPress term objects
+     *
+     * @return self[]
+     */
+    public static function fromTerms(array $terms): array
+    {
+        if (empty($terms)) {
+            return [];
+        }
+
+        $termIds = array_map(static fn (WP_Term $t): int => $t->term_id, $terms);
+
+        update_termmeta_cache($termIds);
+        $childrenCounts = Database::getChildrenCounts(
+            $termIds,
+            TaxonomyService::TAXONOMY_NAME
+        );
+
+        $models = [];
+        foreach ($terms as $term) {
+            $models[] = self::buildFromTerm($term, ($childrenCounts[$term->term_id] ?? 0) > 0);
+        }
+        return $models;
+    }
+
+    /**
+     * Build a model from a single WP_Term
+     *
+     * Convenience wrapper over `fromTerms`. Use `fromTerms` directly when
+     * loading more than one term to avoid N+1 queries.
+     *
+     * @param WP_Term $term WordPress term object
+     *
+     * @return self
+     */
+    public static function fromTerm(WP_Term $term): self
+    {
+        return self::fromTerms([$term])[0];
+    }
+
+    /**
+     * Internal: build a single model assuming meta is already cached
      *
      * @param WP_Term $term        WordPress term object
      * @param bool    $hasChildren Whether the term has at least one direct child
      *
      * @return self
      */
-    public static function fromTerm(WP_Term $term, bool $hasChildren = false): self
+    private static function buildFromTerm(WP_Term $term, bool $hasChildren): self
     {
         $color = get_term_meta($term->term_id, self::META_COLOR, true);
         if (! is_string($color)) {

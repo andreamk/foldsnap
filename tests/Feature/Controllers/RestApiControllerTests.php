@@ -95,8 +95,7 @@ class RestApiControllerTests extends WP_UnitTestCase
         $this->assertSame('children', $data['mode']);
         $this->assertCount(2, $data['folders']);
         $this->assertSame([0], $data['requested_parent_ids']);
-        $this->assertArrayHasKey('root_media_count', $data);
-        $this->assertArrayHasKey('root_total_size', $data);
+        $this->assertArrayHasKey('root', $data);
     }
 
     /**
@@ -360,7 +359,7 @@ class RestApiControllerTests extends WP_UnitTestCase
         $this->assertSame('My Folder', $data['folder']['name']);
         $this->assertArrayHasKey('paths', $data);
         $this->assertArrayHasKey('affected_parents', $data);
-        $this->assertArrayHasKey('root_media_count', $data);
+        $this->assertArrayHasKey('root', $data);
         // Path is [Root, MyFolder] — Root is always the first ancestor.
         $this->assertCount(1, $data['paths']);
         $this->assertCount(2, $data['paths'][0]);

@@ -25,6 +25,9 @@ use WP_REST_Request;
 use WP_REST_Response;
 use WP_REST_Server;
 
+/**
+ * @phpstan-import-type FolderArray from \FoldSnap\Models\FolderModel
+ */
 final class RestApiController
 {
     use RestApiRequestUtils;
@@ -540,8 +543,6 @@ final class RestApiController
                 'root'                 => null !== $rootFolder
                     ? $this->decorateFolders([$rootFolder])[0]
                     : null,
-                'root_media_count'     => $this->repository->getRootMediaCount(),
-                'root_total_size'      => $this->repository->getRootTotalSize(),
             ],
             200
         );
@@ -611,7 +612,7 @@ final class RestApiController
      *
      * @param \WP_Post $post Attachment post object
      *
-     * @return array<string, mixed>
+     * @return array{id: int, title: string, filename: string, thumbnail_url: string, url: string, file_size: int, mime_type: string, date: string}
      */
     private function formatMediaItem(\WP_Post $post): array
     {

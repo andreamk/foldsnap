@@ -62,7 +62,7 @@ class FolderRepository
             return null;
         }
 
-        return $this->termsToModels([$term])[0];
+        return FolderModel::fromTerms([$term])[0];
     }
 
     /**
@@ -126,7 +126,7 @@ class FolderRepository
             return $models;
         }
 
-        return array_merge($models, $this->termsToModels($terms));
+        return array_merge($models, FolderModel::fromTerms($terms));
     }
 
     /**
@@ -183,7 +183,7 @@ class FolderRepository
                 continue;
             }
 
-            $result[$parentId] = $this->termsToModels($terms);
+            $result[$parentId] = FolderModel::fromTerms($terms);
         }
 
         foreach ($result as $parentId => $children) {
@@ -254,7 +254,7 @@ class FolderRepository
             ]
         );
 
-        $folders = is_array($terms) ? $this->termsToModels($terms) : [];
+        $folders = is_array($terms) ? FolderModel::fromTerms($terms) : [];
 
         $totalPages = $total > 0 ? (int) ceil($total / $perPage) : 0;
 
@@ -743,34 +743,6 @@ class FolderRepository
         wp_cache_delete(self::CACHE_ROOT_MEDIA_COUNT, self::CACHE_GROUP);
     }
 
-    /**
-     * Convert a list of WP_Term objects to FolderModel instances
-     *
-     * Pre-fetches term meta and children counts in bulk to avoid N+1
-     * queries when populating models.
-     *
-     * @param WP_Term[] $terms WP_Term objects
-     *
-     * @return FolderModel[]
-     */
-    private function termsToModels(array $terms): array
-    {
-        $termIds = array_map(static fn (WP_Term $t): int => $t->term_id, $terms);
-
-        if (empty($termIds)) {
-            return [];
-        }
-
-        update_termmeta_cache($termIds);
-        $childrenCounts = Database::getChildrenCounts($termIds, TaxonomyService::TAXONOMY_NAME);
-
-        $models = [];
-        foreach ($terms as $term) {
-            $hasChildren = ($childrenCounts[$term->term_id] ?? 0) > 0;
-            $models[]    = FolderModel::fromTerm($term, $hasChildren);
-        }
-        return $models;
-    }
 
     /**
      * Sanitize a folder name

@@ -75,11 +75,6 @@ describe( 'fetchChildren', () => {
 			page: 1,
 			totalPages: 2,
 		} );
-		expect( yields[ 3 ] ).toEqual( {
-			type: ACTION_TYPES.SET_ROOT_TOTALS,
-			rootMediaCount: 10,
-			rootTotalSize: 1024,
-		} );
 	} );
 
 	it( 'yields ERROR when API_FETCH throws', () => {
@@ -352,7 +347,6 @@ describe( 'deleteFolder', () => {
 		const types = yields.map( ( y ) => y.type );
 		expect( types ).toContain( ACTION_TYPES.REMOVE_FOLDER );
 		expect( types ).toContain( ACTION_TYPES.APPLY_AFFECTED_PARENTS );
-		expect( types ).toContain( ACTION_TYPES.SET_ROOT_TOTALS );
 	} );
 } );
 
@@ -414,7 +408,6 @@ describe( 'assignMedia / removeMedia', () => {
 			{ media: [], total: 0, total_pages: 0 },
 		] );
 		const types = yields.map( ( y ) => y.type );
-		expect( types ).toContain( ACTION_TYPES.SET_ROOT_TOTALS );
 		expect( types ).toContain( ACTION_TYPES.FETCH_MEDIA_START );
 	} );
 } );

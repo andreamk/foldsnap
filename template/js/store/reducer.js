@@ -40,8 +40,6 @@ const DEFAULT_STATE = {
 
 	selectedFolderId: null,
 	allMediaActive: loadAllMediaActive(),
-	rootMediaCount: 0,
-	rootTotalSize: 0,
 
 	searchQuery: '',
 	searchResults: [],
@@ -118,13 +116,6 @@ const reducer = ( state = DEFAULT_STATE, action ) => {
 					action.parentId
 				),
 				error: action.error,
-			};
-
-		case ACTION_TYPES.SET_ROOT_TOTALS:
-			return {
-				...state,
-				rootMediaCount: action.rootMediaCount,
-				rootTotalSize: action.rootTotalSize,
 			};
 
 		case ACTION_TYPES.EXPAND_FOLDER: {

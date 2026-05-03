@@ -8,8 +8,6 @@ import {
 	getParentPagination,
 	getSelectedFolderId,
 	isAllMediaActive,
-	getRootMediaCount,
-	getRootTotalSize,
 	getSearchQuery,
 	getSearchResults,
 	isSearchLoading,
@@ -30,8 +28,6 @@ const makeState = ( overrides = {} ) => ( {
 	expandedIds: [],
 	selectedFolderId: null,
 	allMediaActive: false,
-	rootMediaCount: 0,
-	rootTotalSize: 0,
 	searchQuery: '',
 	searchResults: [],
 	searchPage: 0,
@@ -109,8 +105,6 @@ describe( 'selectors', () => {
 		it( 'returns the corresponding state slice', () => {
 			const state = makeState( {
 				selectedFolderId: 7,
-				rootMediaCount: 10,
-				rootTotalSize: 2048,
 				searchQuery: 'vac',
 				searchResults: [ { folder: { id: 1 }, breadcrumb: [] } ],
 				searchIsLoading: true,
@@ -124,8 +118,6 @@ describe( 'selectors', () => {
 				mediaTotalPages: 1,
 			} );
 			expect( getSelectedFolderId( state ) ).toBe( 7 );
-			expect( getRootMediaCount( state ) ).toBe( 10 );
-			expect( getRootTotalSize( state ) ).toBe( 2048 );
 			expect( getSearchQuery( state ) ).toBe( 'vac' );
 			expect( getSearchResults( state ) ).toHaveLength( 1 );
 			expect( isSearchLoading( state ) ).toBe( true );

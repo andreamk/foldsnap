@@ -19,6 +19,9 @@ use FoldSnap\Models\FolderModel;
 use FoldSnap\Services\Database;
 use FoldSnap\Services\TaxonomyService;
 
+/**
+ * @phpstan-import-type FolderArray from \FoldSnap\Models\FolderModel
+ */
 trait RestApiFolderPresenter
 {
     /**
@@ -26,11 +29,11 @@ trait RestApiFolderPresenter
      *
      * @param FolderModel[] $folders Folders to serialize
      *
-     * @return array<array<string, bool|int|string>>
+     * @return FolderArray[]
      */
     private function decorateFolders(array $folders): array
     {
-        return array_map(static fn (FolderModel $f): array => $f->toArray(), $folders);
+        return array_values(array_map(static fn (FolderModel $f): array => $f->toArray(), $folders));
     }
 
     /**

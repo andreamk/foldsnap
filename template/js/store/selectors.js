@@ -102,22 +102,6 @@ export const getSelectedFolderId = ( state ) => state.selectedFolderId;
 export const isAllMediaActive = ( state ) => state.allMediaActive;
 
 /**
- * Cached root media count (unassigned attachments).
- *
- * @param {Object} state Store state.
- * @return {number} Root media count.
- */
-export const getRootMediaCount = ( state ) => state.rootMediaCount;
-
-/**
- * Cached total bytes of unassigned media.
- *
- * @param {Object} state Store state.
- * @return {number} Root size in bytes.
- */
-export const getRootTotalSize = ( state ) => state.rootTotalSize;
-
-/**
  * Current search query string.
  *
  * @param {Object} state Store state.

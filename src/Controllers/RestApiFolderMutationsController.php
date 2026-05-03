@@ -24,6 +24,16 @@ use WP_Error;
 use WP_REST_Request;
 use WP_REST_Response;
 
+/**
+ * @phpstan-import-type FolderArray from \FoldSnap\Models\FolderModel
+ *
+ * @phpstan-type MutationEnvelope array{
+ *     folder: FolderArray,
+ *     paths: array<array<FolderArray>>,
+ *     affected_parents: array<int, array{id: int, has_children: bool}>,
+ *     root: FolderArray|null
+ * }
+ */
 final class RestApiFolderMutationsController
 {
     use RestApiRequestUtils;
@@ -131,8 +141,6 @@ final class RestApiFolderMutationsController
                     'root'             => null !== $rootFolder
                         ? $this->decorateFolders([$rootFolder])[0]
                         : null,
-                    'root_media_count' => $this->repository->getRootMediaCount(),
-                    'root_total_size'  => $this->repository->getRootTotalSize(),
                 ],
                 200
             );
@@ -233,7 +241,7 @@ final class RestApiFolderMutationsController
      * @param int[]                        $extraPathFolderIds Additional folder IDs whose ancestor chain
      *                                                         totals should be included in `paths`.
      *
-     * @return array<string, mixed>
+     * @return MutationEnvelope
      */
     private function buildMutationResponse(
         \FoldSnap\Models\FolderModel $folder,
@@ -265,8 +273,6 @@ final class RestApiFolderMutationsController
             'root'             => null !== $rootFolder
                 ? $this->decorateFolders([$rootFolder])[0]
                 : null,
-            'root_media_count' => $this->repository->getRootMediaCount(),
-            'root_total_size'  => $this->repository->getRootTotalSize(),
         ];
     }
 }
