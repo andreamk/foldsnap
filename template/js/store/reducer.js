@@ -1,11 +1,5 @@
 import { ACTION_TYPES, ROOT_PARENT_ID } from './constants';
 import {
-	loadExpandedIds,
-	saveExpandedIds,
-	loadAllMediaActive,
-	saveAllMediaActive,
-} from './persistence';
-import {
 	setChildrenForParent,
 	appendChildrenForParent,
 	removeFolderFromMap,
@@ -36,10 +30,10 @@ const DEFAULT_STATE = {
 	loadedParents: [],
 	fetchingParents: [],
 	parentsPagination: {},
-	expandedIds: loadExpandedIds(),
+	expandedIds: [],
 
 	selectedFolderId: null,
-	allMediaActive: loadAllMediaActive(),
+	allMediaActive: false,
 
 	searchQuery: '',
 	searchResults: [],
@@ -58,6 +52,13 @@ const DEFAULT_STATE = {
 
 const reducer = ( state = DEFAULT_STATE, action ) => {
 	switch ( action.type ) {
+		case ACTION_TYPES.HYDRATE:
+			return {
+				...state,
+				expandedIds: action.expandedIds ?? state.expandedIds,
+				allMediaActive: action.allMediaActive ?? state.allMediaActive,
+			};
+
 		case ACTION_TYPES.FETCH_CHILDREN_START:
 			return {
 				...state,
@@ -122,24 +123,24 @@ const reducer = ( state = DEFAULT_STATE, action ) => {
 			if ( state.expandedIds.includes( action.folderId ) ) {
 				return state;
 			}
-			const expandedIds = [ ...state.expandedIds, action.folderId ];
-			saveExpandedIds( expandedIds );
-			return { ...state, expandedIds };
+			return {
+				...state,
+				expandedIds: [ ...state.expandedIds, action.folderId ],
+			};
 		}
 
 		case ACTION_TYPES.COLLAPSE_FOLDER: {
 			if ( ! state.expandedIds.includes( action.folderId ) ) {
 				return state;
 			}
-			const expandedIds = without( state.expandedIds, action.folderId );
-			saveExpandedIds( expandedIds );
-			return { ...state, expandedIds };
+			return {
+				...state,
+				expandedIds: without( state.expandedIds, action.folderId ),
+			};
 		}
 
-		case ACTION_TYPES.SET_EXPANDED_IDS: {
-			saveExpandedIds( action.ids );
+		case ACTION_TYPES.SET_EXPANDED_IDS:
 			return { ...state, expandedIds: action.ids };
-		}
 
 		case ACTION_TYPES.SET_SELECTED_FOLDER:
 			return { ...state, selectedFolderId: action.folderId };
@@ -148,7 +149,6 @@ const reducer = ( state = DEFAULT_STATE, action ) => {
 			if ( state.allMediaActive === action.active ) {
 				return state;
 			}
-			saveAllMediaActive( action.active );
 			return { ...state, allMediaActive: action.active };
 		}
 

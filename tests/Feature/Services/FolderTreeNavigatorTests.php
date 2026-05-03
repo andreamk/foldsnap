@@ -10,6 +10,8 @@ declare(strict_types=1);
 
 namespace FoldSnap\Tests\Feature\Services;
 
+use FoldSnap\Services\FolderCounterService;
+use FoldSnap\Services\FolderNameSanitizer;
 use FoldSnap\Services\FolderRepository;
 use FoldSnap\Services\FolderTreeNavigator;
 use FoldSnap\Services\TaxonomyService;
@@ -29,25 +31,43 @@ class FolderTreeNavigatorTests extends WP_UnitTestCase
     {
         parent::setUp();
         TaxonomyService::register();
-        $this->repository = new FolderRepository();
+        $this->repository = new FolderRepository(
+            new FolderNameSanitizer(),
+            new FolderCounterService()
+        );
         $this->navigator  = new FolderTreeNavigator($this->repository);
     }
 
     /**
-     * Test hasChildren returns true for parents and false for leaves
+     * Test ancestorIds walks the chain leaf-first, excluding Root
      *
      * @return void
      */
-    public function test_has_children_distinguishes_leaves(): void
+    public function test_ancestor_ids_walks_chain_leaf_first(): void
     {
-        $parentId = $this->createTerm('Parent');
-        $leafId   = $this->createTerm('Leaf');
-        $this->createTerm('Child', ['parent' => $parentId]);
+        $topId   = $this->createTerm('Top');
+        $childId = $this->createTerm('Child', ['parent' => $topId]);
+        $grandId = $this->createTerm('Grand', ['parent' => $childId]);
 
-        $result = $this->navigator->hasChildren([$parentId, $leafId]);
+        $this->assertSame(
+            [
+                $grandId,
+                $childId,
+                $topId,
+            ],
+            FolderTreeNavigator::ancestorIds($grandId)
+        );
+    }
 
-        $this->assertTrue($result[$parentId]);
-        $this->assertFalse($result[$leafId]);
+    /**
+     * Test ancestorIds returns empty for non-positive IDs
+     *
+     * @return void
+     */
+    public function test_ancestor_ids_rejects_non_positive(): void
+    {
+        $this->assertSame([], FolderTreeNavigator::ancestorIds(0));
+        $this->assertSame([], FolderTreeNavigator::ancestorIds(-1));
     }
 
     /**

@@ -16,6 +16,7 @@ declare(strict_types=1);
 namespace FoldSnap\Controllers;
 
 use FoldSnap\Services\FolderRepository;
+use FoldSnap\Services\MediaFolderAssignmentService;
 use WP_Error;
 use WP_REST_Request;
 use WP_REST_Response;
@@ -36,15 +37,18 @@ final class RestApiFolderMutationsController
     use RestApiFolderPresenter;
 
     private FolderRepository $repository;
+    private MediaFolderAssignmentService $assignments;
 
     /**
-     * Constructor
-     *
-     * @param FolderRepository $repository Folder repository instance
+     * @param FolderRepository             $repository  Folder CRUD repository.
+     * @param MediaFolderAssignmentService $assignments Media ↔ folder writer.
      */
-    public function __construct(FolderRepository $repository)
-    {
-        $this->repository = $repository;
+    public function __construct(
+        FolderRepository $repository,
+        MediaFolderAssignmentService $assignments
+    ) {
+        $this->repository  = $repository;
+        $this->assignments = $assignments;
     }
 
     /**
@@ -164,7 +168,7 @@ final class RestApiFolderMutationsController
         }
 
         return $this->handleRestRequest(function () use ($folderId, $mediaIds): WP_REST_Response {
-            $previousFolderIds = $this->repository->assignMedia($folderId, $mediaIds);
+            $previousFolderIds = $this->assignments->assign($folderId, $mediaIds);
 
             $folder = $this->repository->getById($folderId);
             if (null === $folder) {
@@ -204,7 +208,7 @@ final class RestApiFolderMutationsController
         }
 
         return $this->handleRestRequest(function () use ($folderId, $mediaIds): WP_REST_Response {
-            $this->repository->removeMedia($folderId, $mediaIds);
+            $this->assignments->remove($folderId, $mediaIds);
 
             $folder = $this->repository->getById($folderId);
             if (null === $folder) {

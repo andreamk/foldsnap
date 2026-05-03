@@ -10,8 +10,6 @@ declare(strict_types=1);
 
 namespace FoldSnap\Models;
 
-use FoldSnap\Services\Database;
-use FoldSnap\Services\TaxonomyService;
 use WP_Term;
 
 /**
@@ -237,30 +235,29 @@ final class FolderModel
     /**
      * Build models from a list of WP_Term objects.
      *
-     * Pre-fetches term meta and children counts in a single round-trip each
-     * before walking the input.
+     * Pure factory: the caller must supply a `term_id => has_children` map
+     * for every term it cares about (terms missing from the map default
+     * to `has_children = false`). Pre-warming the term-meta cache is also
+     * the caller's responsibility — the model layer never queries.
      *
-     * @param WP_Term[] $terms WordPress term objects
+     * Production callers funnel through FolderRepository, which handles
+     * both lookups in one batched query each.
+     *
+     * @param WP_Term[]       $terms           WordPress term objects.
+     * @param array<int,bool> $hasChildrenById Map of term ID => has_children.
      *
      * @return self[]
      */
-    public static function fromTerms(array $terms): array
+    public static function fromTerms(array $terms, array $hasChildrenById = []): array
     {
         if (empty($terms)) {
             return [];
         }
 
-        $termIds = array_map(static fn (WP_Term $t): int => $t->term_id, $terms);
-
-        update_termmeta_cache($termIds);
-        $childrenCounts = Database::getChildrenCounts(
-            $termIds,
-            TaxonomyService::TAXONOMY_NAME
-        );
-
         $models = [];
         foreach ($terms as $term) {
-            $models[] = self::buildFromTerm($term, ($childrenCounts[$term->term_id] ?? 0) > 0);
+            $hasChildren = $hasChildrenById[$term->term_id] ?? false;
+            $models[]    = self::buildFromTerm($term, $hasChildren);
         }
         return $models;
     }
@@ -268,13 +265,14 @@ final class FolderModel
     /**
      * Build a model from a single WP_Term.
      *
-     * @param WP_Term $term WordPress term object
+     * @param WP_Term $term        WordPress term object.
+     * @param bool    $hasChildren Whether the term has at least one direct child.
      *
      * @return self
      */
-    public static function fromTerm(WP_Term $term): self
+    public static function fromTerm(WP_Term $term, bool $hasChildren = false): self
     {
-        return self::fromTerms([$term])[0];
+        return self::buildFromTerm($term, $hasChildren);
     }
 
     /**

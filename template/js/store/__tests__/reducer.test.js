@@ -1,18 +1,10 @@
 import { ACTION_TYPES, ROOT_PARENT_ID } from '../constants';
 import reducer from '../reducer';
-import { STORAGE_KEY } from '../persistence';
 
-const baseState = () => {
-	window.localStorage.clear();
-	return reducer( undefined, { type: '@@INIT' } );
-};
+const baseState = () => reducer( undefined, { type: '@@INIT' } );
 
 describe( 'reducer', () => {
-	beforeEach( () => {
-		window.localStorage.clear();
-	} );
-
-	it( 'has the new flat-state default shape', () => {
+	it( 'has the default flat-state shape with empty persisted slices', () => {
 		const state = baseState();
 		expect( state.foldersByParent ).toEqual( {} );
 		expect( state.foldersById ).toEqual( {} );
@@ -20,21 +12,28 @@ describe( 'reducer', () => {
 		expect( state.fetchingParents ).toEqual( [] );
 		expect( state.parentsPagination ).toEqual( {} );
 		expect( state.expandedIds ).toEqual( [] );
+		expect( state.allMediaActive ).toBe( false );
 		expect( state.searchQuery ).toBe( '' );
 		expect( state.searchResults ).toEqual( [] );
 		expect( state.media ).toEqual( [] );
 	} );
 
-	it( 'hydrates expandedIds from localStorage on first init', () => {
-		window.localStorage.setItem(
-			STORAGE_KEY,
-			JSON.stringify( [ 1, 2, 3 ] )
-		);
-		// Re-import to re-evaluate DEFAULT_STATE which closes over loadExpandedIds().
-		jest.resetModules();
-		const freshReducer = require( '../reducer' ).default;
-		const state = freshReducer( undefined, { type: '@@INIT' } );
+	it( 'HYDRATE seeds expandedIds and allMediaActive', () => {
+		const state = reducer( baseState(), {
+			type: ACTION_TYPES.HYDRATE,
+			expandedIds: [ 1, 2, 3 ],
+			allMediaActive: true,
+		} );
 		expect( state.expandedIds ).toEqual( [ 1, 2, 3 ] );
+		expect( state.allMediaActive ).toBe( true );
+	} );
+
+	it( 'HYDRATE leaves slices unchanged when payload is undefined', () => {
+		const state = reducer( baseState(), {
+			type: ACTION_TYPES.HYDRATE,
+		} );
+		expect( state.expandedIds ).toEqual( [] );
+		expect( state.allMediaActive ).toBe( false );
 	} );
 
 	it( 'returns state unchanged for unknown actions', () => {
@@ -125,15 +124,12 @@ describe( 'reducer', () => {
 	} );
 
 	describe( 'EXPAND_FOLDER / COLLAPSE_FOLDER', () => {
-		it( 'EXPAND adds id and persists it', () => {
+		it( 'EXPAND adds the id to expandedIds', () => {
 			const state = reducer( baseState(), {
 				type: ACTION_TYPES.EXPAND_FOLDER,
 				folderId: 42,
 			} );
 			expect( state.expandedIds ).toEqual( [ 42 ] );
-			expect(
-				JSON.parse( window.localStorage.getItem( STORAGE_KEY ) )
-			).toEqual( [ 42 ] );
 		} );
 
 		it( 'EXPAND is a no-op when already expanded', () => {
@@ -148,7 +144,7 @@ describe( 'reducer', () => {
 			expect( after ).toBe( state );
 		} );
 
-		it( 'COLLAPSE removes id and persists', () => {
+		it( 'COLLAPSE removes the id from expandedIds', () => {
 			let state = reducer( baseState(), {
 				type: ACTION_TYPES.EXPAND_FOLDER,
 				folderId: 42,
@@ -166,9 +162,6 @@ describe( 'reducer', () => {
 				ids: [ 1, 2, 3 ],
 			} );
 			expect( state.expandedIds ).toEqual( [ 1, 2, 3 ] );
-			expect(
-				JSON.parse( window.localStorage.getItem( STORAGE_KEY ) )
-			).toEqual( [ 1, 2, 3 ] );
 		} );
 	} );
 

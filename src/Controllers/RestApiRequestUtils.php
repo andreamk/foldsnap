@@ -15,6 +15,7 @@ declare(strict_types=1);
 namespace FoldSnap\Controllers;
 
 use Exception;
+use FoldSnap\Utils\Log;
 use InvalidArgumentException;
 use WP_Error;
 use WP_REST_Request;
@@ -36,7 +37,13 @@ trait RestApiRequestUtils
         } catch (InvalidArgumentException $e) {
             return new WP_Error('invalid_argument', $e->getMessage(), ['status' => 400]);
         } catch (Exception $e) {
-            return new WP_Error('server_error', $e->getMessage(), ['status' => 500]);
+            Log::exception($e, 'REST handler exception');
+
+            return new WP_Error(
+                'server_error',
+                __('An unexpected error occurred.', 'foldsnap'),
+                ['status' => 500]
+            );
         }
     }
 

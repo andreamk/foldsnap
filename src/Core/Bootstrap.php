@@ -15,7 +15,7 @@ use FoldSnap\Controllers\RestApiController;
 use FoldSnap\Core\Controllers\ControllersManager;
 use FoldSnap\Services\AttachmentLifecycleService;
 use FoldSnap\Services\CountersRecalculator;
-use FoldSnap\Services\FolderRepository;
+use FoldSnap\Services\FolderCounterService;
 use FoldSnap\Services\TaxonomyService;
 
 final class Bootstrap
@@ -42,8 +42,8 @@ final class Bootstrap
         MediaLibraryController::getInstance();
 
         // Folder counter incremental updates: hook attachment lifecycle.
-        $repository = new FolderRepository();
-        $lifecycle  = new AttachmentLifecycleService($repository);
+        $counters  = new FolderCounterService();
+        $lifecycle = new AttachmentLifecycleService($counters);
         $lifecycle->register();
 
         // Cron handler for chunked recalculate.
@@ -73,7 +73,7 @@ final class Bootstrap
      */
     public static function runRecalculateChunk(): void
     {
-        $recalculator = new CountersRecalculator();
+        $recalculator = new CountersRecalculator(new FolderCounterService());
         $result       = $recalculator->processChunk();
 
         if (! $result['done']) {

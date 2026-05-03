@@ -10,7 +10,10 @@ declare(strict_types=1);
 
 namespace FoldSnap\Tests\Feature\Controllers;
 
+use FoldSnap\Services\FolderCounterService;
+use FoldSnap\Services\FolderNameSanitizer;
 use FoldSnap\Services\FolderRepository;
+use FoldSnap\Services\MediaFolderAssignmentService;
 use FoldSnap\Services\TaxonomyService;
 use WP_REST_Request;
 use WP_REST_Response;
@@ -19,6 +22,7 @@ use WP_UnitTestCase;
 class RestApiControllerTests extends WP_UnitTestCase
 {
     private FolderRepository $repository;
+    private MediaFolderAssignmentService $assignments;
 
     /**
      * Set up test environment
@@ -30,7 +34,9 @@ class RestApiControllerTests extends WP_UnitTestCase
         parent::setUp();
 
         TaxonomyService::register();
-        $this->repository = new FolderRepository();
+        $counters          = new FolderCounterService();
+        $this->repository  = new FolderRepository(new FolderNameSanitizer(), $counters);
+        $this->assignments = new MediaFolderAssignmentService($this->repository, $counters);
 
         $userId = self::factory()->user->create(['role' => 'administrator']);
         wp_set_current_user($userId);
@@ -152,7 +158,7 @@ class RestApiControllerTests extends WP_UnitTestCase
         $child  = $this->repository->create('Child', $parent->getId());
 
         $att = $this->createAttachmentWithSize(1500);
-        $this->repository->assignMedia($child->getId(), [$att]);
+        $this->assignments->assign($child->getId(), [$att]);
 
         $response = $this->dispatchRequest(new WP_REST_Request('GET', '/foldsnap/v1/folders'));
         $data     = $response->get_data();
@@ -563,7 +569,7 @@ class RestApiControllerTests extends WP_UnitTestCase
         $dest         = $this->repository->create('Dest', $destParent->getId());
 
         $att = $this->createAttachmentWithSize(500);
-        $this->repository->assignMedia($origin->getId(), [$att]);
+        $this->assignments->assign($origin->getId(), [$att]);
 
         $request = new WP_REST_Request('POST', '/foldsnap/v1/folders/' . $dest->getId() . '/media');
         $request->set_param('media_ids', [$att]);
@@ -622,7 +628,7 @@ class RestApiControllerTests extends WP_UnitTestCase
     {
         $folder = $this->repository->create('Folder');
         $att    = $this->createAttachmentWithSize(500);
-        $this->repository->assignMedia($folder->getId(), [$att]);
+        $this->assignments->assign($folder->getId(), [$att]);
 
         $request = new WP_REST_Request('DELETE', '/foldsnap/v1/folders/' . $folder->getId() . '/media');
         $request->set_param('media_ids', [$att]);
@@ -649,7 +655,7 @@ class RestApiControllerTests extends WP_UnitTestCase
     {
         $folder = $this->repository->create('Photos');
         $att    = $this->factory()->attachment->create();
-        $this->repository->assignMedia($folder->getId(), [$att]);
+        $this->assignments->assign($folder->getId(), [$att]);
 
         $request = new WP_REST_Request('GET', '/foldsnap/v1/media');
         $request->set_param('folder_id', (string) $folder->getId());
@@ -674,7 +680,7 @@ class RestApiControllerTests extends WP_UnitTestCase
         $assigned = $this->factory()->attachment->create();
         $this->factory()->attachment->create();
 
-        $this->repository->assignMedia($folder->getId(), [$assigned]);
+        $this->assignments->assign($folder->getId(), [$assigned]);
 
         $request = new WP_REST_Request('GET', '/foldsnap/v1/media');
         $request->set_param('folder_id', '0');

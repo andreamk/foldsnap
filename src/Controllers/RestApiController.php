@@ -18,7 +18,10 @@ namespace FoldSnap\Controllers;
 
 use FoldSnap\Models\FolderModel;
 use FoldSnap\Services\CountersRecalculator;
+use FoldSnap\Services\FolderCounterService;
+use FoldSnap\Services\FolderNameSanitizer;
 use FoldSnap\Services\FolderRepository;
+use FoldSnap\Services\MediaFolderAssignmentService;
 use FoldSnap\Services\TaxonomyService;
 use WP_Error;
 use WP_REST_Request;
@@ -49,8 +52,10 @@ final class RestApiController
     public static function getInstance(): self
     {
         if (null === self::$instance) {
-            $repository     = new FolderRepository();
-            $mutations      = new RestApiFolderMutationsController($repository);
+            $counters       = new FolderCounterService();
+            $repository     = new FolderRepository(new FolderNameSanitizer(), $counters);
+            $assignments    = new MediaFolderAssignmentService($repository, $counters);
+            $mutations      = new RestApiFolderMutationsController($repository, $assignments);
             self::$instance = new self($repository, $mutations);
         }
 
@@ -367,7 +372,7 @@ final class RestApiController
         }
 
         $reset        = (bool) $request->get_param('reset');
-        $recalculator = new CountersRecalculator();
+        $recalculator = new CountersRecalculator(new FolderCounterService());
 
         if ($reset) {
             $recalculator->reset();

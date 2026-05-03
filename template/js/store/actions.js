@@ -7,6 +7,23 @@ import {
 
 const apiFetch = ( request ) => ( { type: 'API_FETCH', request } );
 
+/**
+ * Seed the store with persisted UI state.
+ *
+ * Dispatched once at registration time by the persistence subscriber. Both
+ * fields are optional — pass only what you have.
+ *
+ * @param {Object}   payload                  Hydration payload.
+ * @param {number[]} [payload.expandedIds]    Persisted expanded folder IDs.
+ * @param {boolean}  [payload.allMediaActive] Persisted "All Media" toggle.
+ * @return {Object} Action.
+ */
+export const hydrate = ( { expandedIds, allMediaActive } = {} ) => ( {
+	type: ACTION_TYPES.HYDRATE,
+	expandedIds,
+	allMediaActive,
+} );
+
 const buildChildrenPath = ( parentIds, page, perPage ) => {
 	const params = new URLSearchParams();
 	for ( const id of parentIds ) {

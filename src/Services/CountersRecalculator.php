@@ -35,6 +35,16 @@ class CountersRecalculator
     /** @var int Default chunk size (folders processed per call) */
     public const DEFAULT_LIMIT = 100;
 
+    private FolderCounterService $counters;
+
+    /**
+     * @param FolderCounterService $counters Root counter writer (handles cache invalidation).
+     */
+    public function __construct(FolderCounterService $counters)
+    {
+        $this->counters = $counters;
+    }
+
     /**
      * Process the next chunk of the recalculate stack
      *
@@ -259,7 +269,6 @@ class CountersRecalculator
         // not needed for Root math — left as a hook for future audit logs.
         unset($topIds);
 
-        update_option(FolderRepository::OPT_ROOT_SIZE, $totalSize);
-        update_option(FolderRepository::OPT_ROOT_COUNT, $totalCount);
+        $this->counters->setRoot($totalSize, $totalCount);
     }
 }

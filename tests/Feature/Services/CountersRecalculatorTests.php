@@ -12,12 +12,15 @@ namespace FoldSnap\Tests\Feature\Services;
 
 use FoldSnap\Models\FolderModel;
 use FoldSnap\Services\CountersRecalculator;
+use FoldSnap\Services\FolderCounterService;
+use FoldSnap\Services\FolderNameSanitizer;
 use FoldSnap\Services\FolderRepository;
 use FoldSnap\Services\TaxonomyService;
 use WP_UnitTestCase;
 
 class CountersRecalculatorTests extends WP_UnitTestCase
 {
+    private FolderCounterService $counters;
     private FolderRepository $repository;
     private CountersRecalculator $recalculator;
 
@@ -30,8 +33,9 @@ class CountersRecalculatorTests extends WP_UnitTestCase
     {
         parent::setUp();
         TaxonomyService::register();
-        $this->repository   = new FolderRepository();
-        $this->recalculator = new CountersRecalculator();
+        $this->counters     = new FolderCounterService();
+        $this->repository   = new FolderRepository(new FolderNameSanitizer(), $this->counters);
+        $this->recalculator = new CountersRecalculator($this->counters);
     }
 
     /**
@@ -43,8 +47,8 @@ class CountersRecalculatorTests extends WP_UnitTestCase
     {
         delete_option(CountersRecalculator::OPT_STACK);
         delete_option(CountersRecalculator::OPT_INITIALIZED);
-        delete_option(FolderRepository::OPT_ROOT_SIZE);
-        delete_option(FolderRepository::OPT_ROOT_COUNT);
+        delete_option(FolderCounterService::OPT_ROOT_SIZE);
+        delete_option(FolderCounterService::OPT_ROOT_COUNT);
         parent::tearDown();
     }
 
@@ -99,8 +103,8 @@ class CountersRecalculatorTests extends WP_UnitTestCase
         $this->assertSame('3', get_term_meta($parent->getId(), FolderModel::META_COUNT, true));
         $this->assertSame('350', get_term_meta($parent->getId(), FolderModel::META_SIZE, true));
 
-        $this->assertSame(3, $this->repository->getRootGlobalMediaCount());
-        $this->assertSame(350, $this->repository->getRootGlobalTotalSize());
+        $this->assertSame(3, $this->counters->getGlobalCount());
+        $this->assertSame(350, $this->counters->getGlobalSize());
     }
 
     /**

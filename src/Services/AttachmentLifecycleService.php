@@ -14,11 +14,9 @@ declare(strict_types=1);
 
 namespace FoldSnap\Services;
 
-use FoldSnap\Models\FolderModel;
-
 class AttachmentLifecycleService
 {
-    private FolderRepository $repository;
+    private FolderCounterService $counters;
 
     /** @var array<int, int> attachmentId => filesize bytes pending root +1 */
     private array $pendingAdditions = [];
@@ -30,13 +28,11 @@ class AttachmentLifecycleService
     private bool $shutdownRegistered = false;
 
     /**
-     * Constructor
-     *
-     * @param FolderRepository $repository Folder repository (for chain math).
+     * @param FolderCounterService $counters Chain-delta + Root cache writer.
      */
-    public function __construct(FolderRepository $repository)
+    public function __construct(FolderCounterService $counters)
     {
-        $this->repository = $repository;
+        $this->counters = $counters;
     }
 
     /**
@@ -148,7 +144,7 @@ class AttachmentLifecycleService
 
         $this->pendingAdditions = [];
 
-        $this->repository->updateRootCounters($sizeDelta, $countDelta);
+        $this->counters->adjustRoot($sizeDelta, $countDelta);
     }
 
     /**
@@ -189,45 +185,11 @@ class AttachmentLifecycleService
         $this->pendingDeletions = [];
 
         foreach ($byFolder as $folderId => $delta) {
-            $chain = $this->resolveChain($folderId);
-            if (empty($chain)) {
-                continue;
-            }
-
-            if (0 !== $delta['size']) {
-                Database::bulkAdjustTermMeta($chain, FolderModel::META_SIZE, -$delta['size']);
-            }
-            if (0 !== $delta['count']) {
-                Database::bulkAdjustTermMeta($chain, FolderModel::META_COUNT, -$delta['count']);
-            }
+            $chain = FolderTreeNavigator::ancestorIds($folderId);
+            $this->counters->applyChainDelta($chain, -$delta['size'], -$delta['count']);
         }
 
-        $this->repository->updateRootCounters(-$rootSize, -$rootCount);
-    }
-
-    /**
-     * Walk the parent chain of a folder, leaf-first, up to 64 levels
-     *
-     * @param int $folderId Folder term ID.
-     *
-     * @return int[]
-     */
-    private function resolveChain(int $folderId): array
-    {
-        $chain    = [];
-        $current  = $folderId;
-        $maxDepth = 64;
-
-        while ($current > 0 && $maxDepth-- > 0) {
-            $chain[] = $current;
-            $term    = get_term($current, TaxonomyService::TAXONOMY_NAME);
-            if (! ($term instanceof \WP_Term)) {
-                break;
-            }
-            $current = (int) $term->parent;
-        }
-
-        return $chain;
+        $this->counters->adjustRoot(-$rootSize, -$rootCount);
     }
 
     /**

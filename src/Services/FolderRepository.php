@@ -3,9 +3,10 @@
 /**
  * Repository for folder CRUD operations
  *
- * Abstracts all database interactions for the foldsnap_folder taxonomy.
- * Returns FolderModel instances (immutable DTOs) for all read operations,
- * and fresh instances after write operations.
+ * Owns folder lookup, creation, update, and deletion against the
+ * `foldsnap_folder` taxonomy. Counter math, name sanitisation, and
+ * media-folder assignment live in dedicated services so this class
+ * stays a focused CRUD repository.
  *
  * @package FoldSnap
  */
@@ -22,23 +23,63 @@ use WP_Term;
 
 class FolderRepository
 {
-    /** @var string Cache key for root (unassigned) total size */
-    private const CACHE_ROOT_TOTAL_SIZE = 'root_total_size';
+    private FolderNameSanitizer $sanitizer;
+    private FolderCounterService $counters;
+    private ?FolderTreeNavigator $navigator = null;
 
-    /** @var string Cache key for root (unassigned) media count */
-    private const CACHE_ROOT_MEDIA_COUNT = 'root_media_count';
+    /**
+     * @param FolderNameSanitizer  $sanitizer Folder name sanitiser/uniqueness resolver.
+     * @param FolderCounterService $counters  Counter writer + Root accessor.
+     */
+    public function __construct(FolderNameSanitizer $sanitizer, FolderCounterService $counters)
+    {
+        $this->sanitizer = $sanitizer;
+        $this->counters  = $counters;
+    }
 
-    /** @var string Cache group for all FoldSnap cache entries */
-    private const CACHE_GROUP = 'foldsnap';
+    /**
+     * Lazy-initialised navigator. Reused across calls in the same request
+     * (e.g. one path resolution per row in a paginated search).
+     *
+     * @return FolderTreeNavigator
+     */
+    private function navigator(): FolderTreeNavigator
+    {
+        if (null === $this->navigator) {
+            $this->navigator = new FolderTreeNavigator($this);
+        }
+        return $this->navigator;
+    }
 
-    /** @var int Sanitize max folder length */
-    private const MAX_FOLDER_LENGTH = 200;
+    /**
+     * Hydrate FolderModel instances from WP_Term objects.
+     *
+     * Pre-warms the term-meta cache and fetches the children-count map
+     * in a single query each, then hands both off to the pure model
+     * factory. The model layer never queries the DB itself.
+     *
+     * @param WP_Term[] $terms WordPress term objects to hydrate.
+     *
+     * @return FolderModel[]
+     */
+    private function materializeModels(array $terms): array
+    {
+        if (empty($terms)) {
+            return [];
+        }
 
-    /** @var string Option holding the global Root total size (bytes) */
-    public const OPT_ROOT_SIZE = 'foldsnap_opt_root_size';
+        $termIds = array_map(static fn (WP_Term $t): int => $t->term_id, $terms);
 
-    /** @var string Option holding the global Root media count */
-    public const OPT_ROOT_COUNT = 'foldsnap_opt_root_count';
+        update_termmeta_cache($termIds);
+        $counts = Database::getChildrenCounts($termIds, TaxonomyService::TAXONOMY_NAME);
+
+        $hasChildrenById = [];
+        foreach ($counts as $termId => $count) {
+            $hasChildrenById[$termId] = $count > 0;
+        }
+
+        return FolderModel::fromTerms($terms, $hasChildrenById);
+    }
 
     /**
      * Retrieve a single folder by term ID
@@ -62,7 +103,7 @@ class FolderRepository
             return null;
         }
 
-        return FolderModel::fromTerms([$term])[0];
+        return $this->materializeModels([$term])[0];
     }
 
     /**
@@ -76,9 +117,9 @@ class FolderRepository
         $hasChildren    = ($topLevelCounts[0] ?? 0) > 0;
 
         return FolderModel::root(
-            $this->getRootMediaCount(),
-            $this->getRootGlobalMediaCount(),
-            $this->getRootGlobalTotalSize(),
+            $this->counters->getUnassignedCount(),
+            $this->counters->getGlobalCount(),
+            $this->counters->getGlobalSize(),
             $hasChildren
         );
     }
@@ -126,7 +167,7 @@ class FolderRepository
             return $models;
         }
 
-        return array_merge($models, FolderModel::fromTerms($terms));
+        return array_merge($models, $this->materializeModels($terms));
     }
 
     /**
@@ -183,7 +224,7 @@ class FolderRepository
                 continue;
             }
 
-            $result[$parentId] = FolderModel::fromTerms($terms);
+            $result[$parentId] = $this->materializeModels($terms);
         }
 
         foreach ($result as $parentId => $children) {
@@ -252,7 +293,7 @@ class FolderRepository
             ]
         );
 
-        $folders = is_array($terms) ? FolderModel::fromTerms($terms) : [];
+        $folders = is_array($terms) ? $this->materializeModels($terms) : [];
 
         $totalPages = $total > 0 ? (int) ceil($total / $perPage) : 0;
 
@@ -272,8 +313,7 @@ class FolderRepository
      */
     public function getPath(int $folderId): array
     {
-        $navigator = new FolderTreeNavigator($this);
-        return $navigator->resolvePath($folderId);
+        return $this->navigator()->resolvePath($folderId);
     }
 
     /**
@@ -291,8 +331,8 @@ class FolderRepository
      */
     public function create(string $name, int $parentId = 0, string $color = '', int $position = 0): FolderModel
     {
-        $name = $this->sanitizeName($name);
-        $name = $this->ensureUniqueName($name, $parentId);
+        $name = $this->sanitizer->sanitize($name);
+        $name = $this->sanitizer->ensureUnique($name, $parentId);
 
         $args = [];
         if (0 < $parentId) {
@@ -347,9 +387,9 @@ class FolderRepository
 
         $args = [];
         if (null !== $name) {
-            $name              = $this->sanitizeName($name);
+            $name              = $this->sanitizer->sanitize($name);
             $effectiveParentId = $parentId ?? $folder->getParentId();
-            $name              = $this->ensureUniqueName($name, $effectiveParentId, $termId);
+            $name              = $this->sanitizer->ensureUnique($name, $effectiveParentId, $termId);
             $args['name']      = $name;
         }
 
@@ -383,11 +423,11 @@ class FolderRepository
         }
 
         if ($isReparent && ($subtreeSize > 0 || $subtreeCount > 0)) {
-            $oldChain = $oldParentId > 0 ? $this->ancestorChainIncluding($oldParentId) : [];
-            $this->applyChainDelta($oldChain, -$subtreeSize, -$subtreeCount);
+            $oldChain = $oldParentId > 0 ? FolderTreeNavigator::ancestorIds($oldParentId) : [];
+            $this->counters->applyChainDelta($oldChain, -$subtreeSize, -$subtreeCount);
 
-            $newChain = ($parentId ?? 0) > 0 ? $this->ancestorChainIncluding((int) $parentId) : [];
-            $this->applyChainDelta($newChain, $subtreeSize, $subtreeCount);
+            $newChain = ($parentId ?? 0) > 0 ? FolderTreeNavigator::ancestorIds((int) $parentId) : [];
+            $this->counters->applyChainDelta($newChain, $subtreeSize, $subtreeCount);
         }
 
         return $this->getByIdOrFail($termId);
@@ -425,460 +465,16 @@ class FolderRepository
         }
 
         $parentId       = $folder->getParentId();
-        $ancestorsAbove = $parentId > 0 ? $this->ancestorChainIncluding($parentId) : [];
+        $ancestorsAbove = $parentId > 0 ? FolderTreeNavigator::ancestorIds($parentId) : [];
 
         $result = wp_delete_term($termId, TaxonomyService::TAXONOMY_NAME);
 
         if (true === $result) {
-            $this->applyChainDelta($ancestorsAbove, -$directSize, -$directCount);
-            $this->invalidateRootCache();
+            $this->counters->applyChainDelta($ancestorsAbove, -$directSize, -$directCount);
+            $this->counters->invalidateUnassignedCache();
         }
 
         return true === $result;
-    }
-
-    /**
-     * Assign media items to a folder.
-     *
-     * Replaces any existing folder assignment for each media item.
-     *
-     * @param int   $folderId Folder term ID
-     * @param int[] $mediaIds Array of attachment post IDs
-     *
-     * @return int[] Folder IDs the media were previously assigned to,
-     *               deduped, with $folderId itself removed.
-     *
-     * @throws InvalidArgumentException If folder does not exist.
-     */
-    public function assignMedia(int $folderId, array $mediaIds): array
-    {
-        // Assigning to Root is semantically "unassign from any folder" —
-        // Root has no term, so the media simply lose their existing folder
-        // relationships and surface as unassigned.
-        if (FolderModel::ROOT_ID === $folderId) {
-            return $this->unassignMedia($mediaIds);
-        }
-
-        $this->getByIdOrFail($folderId);
-        $this->validateAttachmentIds($mediaIds);
-
-        if (empty($mediaIds)) {
-            return [];
-        }
-
-        // Read current folder for each media. Media already in $folderId are
-        // skipped in delta math (idempotent), but we still re-set them so the
-        // term relationship is unambiguous.
-        /** @var array<int, int> $currentFolderByMedia */
-        $currentFolderByMedia = [];
-        foreach ($mediaIds as $mediaId) {
-            $current = wp_get_object_terms($mediaId, TaxonomyService::TAXONOMY_NAME, ['fields' => 'ids']);
-            $cid     = 0;
-            if (is_array($current) && ! empty($current) && is_numeric($current[0])) {
-                $cid = (int) $current[0];
-            }
-            $currentFolderByMedia[(int) $mediaId] = $cid;
-        }
-
-        // Filesizes for delta math. Single bulk query.
-        $sizeByMedia = Database::getMediaFileSizes(array_keys($currentFolderByMedia));
-
-        // Group media that actually move: by origin folder ID (0 = was in Root).
-        /** @var array<int, array{count:int, size:int}> $deltaByOrigin */
-        $deltaByOrigin = [];
-        $destAddCount  = 0;
-        $destAddSize   = 0;
-        foreach ($currentFolderByMedia as $mediaId => $originId) {
-            if ($originId === $folderId) {
-                continue;
-            }
-            $bytes         = $sizeByMedia[$mediaId] ?? 0;
-            $destAddCount += 1;
-            $destAddSize  += $bytes;
-
-            if ($originId > 0) {
-                if (! isset($deltaByOrigin[$originId])) {
-                    $deltaByOrigin[$originId] = [
-                        'count' => 0,
-                        'size'  => 0,
-                    ];
-                }
-                $deltaByOrigin[$originId]['count'] += 1;
-                $deltaByOrigin[$originId]['size']  += $bytes;
-            }
-        }
-
-        $previousFolderIds = [];
-        foreach ($mediaIds as $mediaId) {
-            $previousFolderIds[] = $currentFolderByMedia[(int) $mediaId];
-            wp_set_object_terms($mediaId, $folderId, TaxonomyService::TAXONOMY_NAME, false);
-        }
-
-        // Force an immediate count update — wp_set_object_terms only updates
-        // counts via deferred recount. Without this, downstream reads of
-        // term_taxonomy.count within the same request return stale values.
-        $idsToRecount = array_values(array_unique(array_filter(
-            array_merge([$folderId], $previousFolderIds),
-            static fn (int $id): bool => $id > 0
-        )));
-        if (! empty($idsToRecount)) {
-            wp_update_term_count_now($idsToRecount, TaxonomyService::TAXONOMY_NAME);
-            clean_term_cache($idsToRecount, TaxonomyService::TAXONOMY_NAME);
-        }
-
-        // Apply deltas to ancestor chains.
-        // Origins: subtract per-origin aggregate from origin's chain.
-        foreach ($deltaByOrigin as $originId => $delta) {
-            $chain = $this->ancestorChainIncluding($originId);
-            $this->applyChainDelta($chain, -$delta['size'], -$delta['count']);
-        }
-        // Destination: add total moved-in to destination chain.
-        if ($destAddCount > 0 || $destAddSize > 0) {
-            $destChain = $this->ancestorChainIncluding($folderId);
-            $this->applyChainDelta($destChain, $destAddSize, $destAddCount);
-        }
-
-        $this->invalidateRootCache();
-
-        return array_values(array_unique(array_filter(
-            $previousFolderIds,
-            static fn (int $id): bool => $id > 0 && $id !== $folderId
-        )));
-    }
-
-    /**
-     * Strip every folder term from the given media items.
-     *
-     * @param int[] $mediaIds Attachment IDs.
-     *
-     * @return int[] Folder IDs the media were previously assigned to.
-     *
-     * @throws InvalidArgumentException If any ID is not a valid attachment.
-     */
-    private function unassignMedia(array $mediaIds): array
-    {
-        $this->validateAttachmentIds($mediaIds);
-
-        if (empty($mediaIds)) {
-            return [];
-        }
-
-        // Read current folder per media for delta math.
-        /** @var array<int, int> $currentFolderByMedia */
-        $currentFolderByMedia = [];
-        foreach ($mediaIds as $mediaId) {
-            $current = wp_get_object_terms($mediaId, TaxonomyService::TAXONOMY_NAME, ['fields' => 'ids']);
-            $cid     = 0;
-            if (is_array($current) && ! empty($current) && is_numeric($current[0])) {
-                $cid = (int) $current[0];
-            }
-            $currentFolderByMedia[(int) $mediaId] = $cid;
-        }
-
-        $sizeByMedia = Database::getMediaFileSizes(array_keys($currentFolderByMedia));
-
-        /** @var array<int, array{count:int, size:int}> $deltaByOrigin */
-        $deltaByOrigin = [];
-        foreach ($currentFolderByMedia as $mediaId => $originId) {
-            if ($originId <= 0) {
-                continue;
-            }
-            $bytes = $sizeByMedia[$mediaId] ?? 0;
-            if (! isset($deltaByOrigin[$originId])) {
-                $deltaByOrigin[$originId] = [
-                    'count' => 0,
-                    'size'  => 0,
-                ];
-            }
-            $deltaByOrigin[$originId]['count'] += 1;
-            $deltaByOrigin[$originId]['size']  += $bytes;
-        }
-
-        $previousFolderIds = [];
-        foreach ($mediaIds as $mediaId) {
-            $previousFolderIds[] = $currentFolderByMedia[(int) $mediaId];
-            // Clearing all terms by passing an empty array.
-            wp_set_object_terms($mediaId, [], TaxonomyService::TAXONOMY_NAME, false);
-        }
-
-        $previousFolderIds = array_values(array_unique(array_filter(
-            $previousFolderIds,
-            static fn (int $id): bool => $id > 0
-        )));
-
-        if (! empty($previousFolderIds)) {
-            wp_update_term_count_now($previousFolderIds, TaxonomyService::TAXONOMY_NAME);
-            clean_term_cache($previousFolderIds, TaxonomyService::TAXONOMY_NAME);
-        }
-
-        // Subtract from each origin's ancestor chain. Root global counters are
-        // invariant — the media is still on the site, just unassigned.
-        foreach ($deltaByOrigin as $originId => $delta) {
-            $chain = $this->ancestorChainIncluding($originId);
-            $this->applyChainDelta($chain, -$delta['size'], -$delta['count']);
-        }
-
-        $this->invalidateRootCache();
-
-        return $previousFolderIds;
-    }
-
-    /**
-     * Remove media items from a folder
-     *
-     * @param int   $folderId Folder term ID
-     * @param int[] $mediaIds Array of attachment post IDs
-     *
-     * @return void
-     *
-     * @throws InvalidArgumentException If folder does not exist.
-     */
-    public function removeMedia(int $folderId, array $mediaIds): void
-    {
-        $this->guardNotRoot($folderId);
-        $this->getByIdOrFail($folderId);
-
-        // Only media currently assigned to $folderId contribute to the delta;
-        // wp_remove_object_terms is a no-op for the rest, but we want exact
-        // counts.
-        $assigned = [];
-        foreach ($mediaIds as $mediaId) {
-            $current = wp_get_object_terms($mediaId, TaxonomyService::TAXONOMY_NAME, ['fields' => 'ids']);
-            if (is_array($current) && in_array($folderId, array_map('intval', $current), true)) {
-                $assigned[] = (int) $mediaId;
-            }
-        }
-
-        foreach ($mediaIds as $mediaId) {
-            wp_remove_object_terms($mediaId, $folderId, TaxonomyService::TAXONOMY_NAME);
-        }
-
-        wp_update_term_count_now([$folderId], TaxonomyService::TAXONOMY_NAME);
-        clean_term_cache([$folderId], TaxonomyService::TAXONOMY_NAME);
-
-        if (! empty($assigned)) {
-            $sizeByMedia = Database::getMediaFileSizes($assigned);
-            $sizeDelta   = 0;
-            foreach ($sizeByMedia as $bytes) {
-                $sizeDelta += $bytes;
-            }
-            $countDelta = count($assigned);
-
-            $chain = $this->ancestorChainIncluding($folderId);
-            $this->applyChainDelta($chain, -$sizeDelta, -$countDelta);
-        }
-
-        // Root global counters are invariant: the media is now unassigned (in
-        // Root direct), but still inside the site total.
-        $this->invalidateRootCache();
-    }
-
-    /**
-     * Count media items not assigned to any folder
-     *
-     * @return int
-     */
-    public function getRootMediaCount(): int
-    {
-        $cached = wp_cache_get(self::CACHE_ROOT_MEDIA_COUNT, self::CACHE_GROUP);
-        if (is_int($cached)) {
-            return $cached;
-        }
-
-        $count = Database::countUnassignedMedia(
-            TaxonomyService::TAXONOMY_NAME,
-            TaxonomyService::POST_TYPE
-        );
-
-        wp_cache_set(self::CACHE_ROOT_MEDIA_COUNT, $count, self::CACHE_GROUP);
-
-        return $count;
-    }
-
-    /**
-     * Get total size in bytes of media not assigned to any folder
-     *
-     * @return int Total size in bytes
-     */
-    public function getRootTotalSize(): int
-    {
-        $cached = wp_cache_get(self::CACHE_ROOT_TOTAL_SIZE, self::CACHE_GROUP);
-        if (is_int($cached)) {
-            return $cached;
-        }
-
-        $results = Database::getUnassignedAttachmentMeta(
-            TaxonomyService::TAXONOMY_NAME,
-            TaxonomyService::POST_TYPE
-        );
-
-        $total = 0;
-        foreach ($results as $serializedMeta) {
-            $meta = maybe_unserialize($serializedMeta);
-            if (is_array($meta) && isset($meta['filesize']) && is_numeric($meta['filesize'])) {
-                $total += (int) $meta['filesize'];
-            }
-        }
-
-        wp_cache_set(self::CACHE_ROOT_TOTAL_SIZE, $total, self::CACHE_GROUP);
-
-        return $total;
-    }
-
-    /**
-     * Invalidate cached root counters
-     *
-     * @return void
-     */
-    private function invalidateRootCache(): void
-    {
-        wp_cache_delete(self::CACHE_ROOT_TOTAL_SIZE, self::CACHE_GROUP);
-        wp_cache_delete(self::CACHE_ROOT_MEDIA_COUNT, self::CACHE_GROUP);
-    }
-
-
-    /**
-     * Sanitize a folder name
-     *
-     * Applies sanitize_text_field, removes dangerous leading characters
-     * (Excel injection prevention), strips control characters, trims
-     * whitespace, and enforces a MAX_FOLDER_LENGTH character limit.
-     *
-     * @param string $name Raw folder name
-     *
-     * @return string Sanitized name
-     *
-     * @throws InvalidArgumentException If name is empty after sanitization.
-     */
-    private function sanitizeName(string $name): string
-    {
-        $name = sanitize_text_field($name);
-        $name = ltrim($name, '=+@|');
-        $name = (string) preg_replace('/[\x00-\x1F\x7F]/u', '', $name);
-        $name = trim($name);
-
-        if (mb_strlen($name) > self::MAX_FOLDER_LENGTH) {
-            $name = mb_substr($name, 0, self::MAX_FOLDER_LENGTH);
-        }
-
-        if ('' === $name) {
-            throw new InvalidArgumentException(
-                esc_html__('Folder name cannot be empty.', 'foldsnap')
-            );
-        }
-
-        return $name;
-    }
-
-    /**
-     * Ensure a folder name is unique among siblings
-     *
-     * Queries only for the exact name and "name (N)" variants via LIKE,
-     * then finds the highest existing suffix and returns the next number.
-     * For example, if "Photos" and "Photos (3)" exist, returns "Photos (4)".
-     *
-     * @param string $name      Sanitized folder name
-     * @param int    $parentId  Parent term ID (0 for root)
-     * @param int    $excludeId Term ID to exclude from check (for updates)
-     *
-     * @return string Unique name
-     */
-    private function ensureUniqueName(string $name, int $parentId, int $excludeId = 0): string
-    {
-        $matches = Database::getSiblingNameMatches(
-            TaxonomyService::TAXONOMY_NAME,
-            $name,
-            $parentId,
-            $excludeId
-        );
-
-        if (empty($matches)) {
-            return $name;
-        }
-
-        $nameLower     = mb_strtolower($name);
-        $exactConflict = false;
-
-        foreach ($matches as $match) {
-            if (mb_strtolower($match) === $nameLower) {
-                $exactConflict = true;
-                break;
-            }
-        }
-
-        if (! $exactConflict) {
-            return $name;
-        }
-
-        $maxSuffix = 1;
-        $pattern   = '/^' . preg_quote($name, '/') . ' \((\d+)\)$/i';
-
-        foreach ($matches as $match) {
-            if (1 === preg_match($pattern, $match, $m)) {
-                $maxSuffix = max($maxSuffix, (int) $m[1]);
-            }
-        }
-
-        return sprintf('%s (%d)', $name, $maxSuffix + 1);
-    }
-
-    /**
-     * Validate that all IDs are attachment post IDs
-     *
-     * Uses a single bulk query to verify all IDs at once.
-     *
-     * @param int[] $mediaIds Array of post IDs to validate
-     *
-     * @return void
-     *
-     * @throws InvalidArgumentException If any ID is not a valid attachment.
-     */
-    private function validateAttachmentIds(array $mediaIds): void
-    {
-        if (empty($mediaIds)) {
-            return;
-        }
-
-        $mediaIds = array_map('intval', $mediaIds);
-        $mediaIds = array_values(
-            array_filter(
-                $mediaIds,
-                static function (int $id): bool {
-                    return $id > 0;
-                }
-            )
-        );
-
-        if (empty($mediaIds)) {
-            throw new InvalidArgumentException(
-                esc_html__('No valid media IDs provided.', 'foldsnap')
-            );
-        }
-
-        /** @var int[] $validIds */
-        $validIds = get_posts(
-            [
-                'post__in'       => $mediaIds,
-                'post_type'      => TaxonomyService::POST_TYPE,
-                'post_status'    => 'any',
-                'posts_per_page' => count($mediaIds),
-                'fields'         => 'ids',
-                'no_found_rows'  => true,
-            ]
-        );
-
-        $invalidIds = array_diff($mediaIds, $validIds);
-
-        if (! empty($invalidIds)) {
-            throw new InvalidArgumentException(
-                esc_html(
-                    sprintf(
-                        'Invalid attachment IDs: %s',
-                        implode(', ', $invalidIds)
-                    )
-                )
-            );
-        }
     }
 
     /**
@@ -919,110 +515,5 @@ class FolderRepository
                 esc_html__('Root folder cannot be modified.', 'foldsnap')
             );
         }
-    }
-
-    /**
-     * Walk the parent chain leaf-first, stopping before Root.
-     *
-     * @param int $termId Folder term ID (must be > 0).
-     *
-     * @return int[] Term IDs from $termId up to top-level (Root excluded).
-     */
-    private function ancestorChainIncluding(int $termId): array
-    {
-        if ($termId <= 0) {
-            return [];
-        }
-
-        $chain     = [];
-        $currentId = $termId;
-        $maxDepth  = 64;
-
-        while ($currentId > 0 && $maxDepth-- > 0) {
-            $chain[]   = $currentId;
-            $term      = get_term($currentId, TaxonomyService::TAXONOMY_NAME);
-            $currentId = $term instanceof WP_Term ? (int) $term->parent : 0;
-        }
-
-        return $chain;
-    }
-
-    /**
-     * Apply a (size, count) delta to every term meta in a chain
-     *
-     * @param int[] $termIds    Term IDs to adjust (typically an ancestor chain).
-     * @param int   $sizeDelta  Signed bytes delta.
-     * @param int   $countDelta Signed media-count delta.
-     *
-     * @return void
-     */
-    private function applyChainDelta(array $termIds, int $sizeDelta, int $countDelta): void
-    {
-        if (empty($termIds)) {
-            return;
-        }
-
-        if (0 !== $sizeDelta) {
-            Database::bulkAdjustTermMeta($termIds, FolderModel::META_SIZE, $sizeDelta);
-        }
-        if (0 !== $countDelta) {
-            Database::bulkAdjustTermMeta($termIds, FolderModel::META_COUNT, $countDelta);
-        }
-    }
-
-    /**
-     * Apply signed deltas to the option-backed global Root counters.
-     *
-     * @param int $sizeDelta  Signed bytes delta.
-     * @param int $countDelta Signed media-count delta.
-     *
-     * @return void
-     */
-    public function updateRootCounters(int $sizeDelta, int $countDelta): void
-    {
-        if (0 !== $sizeDelta) {
-            $current = $this->getIntOption(self::OPT_ROOT_SIZE);
-            update_option(self::OPT_ROOT_SIZE, max(0, $current + $sizeDelta));
-        }
-        if (0 !== $countDelta) {
-            $current = $this->getIntOption(self::OPT_ROOT_COUNT);
-            update_option(self::OPT_ROOT_COUNT, max(0, $current + $countDelta));
-        }
-
-        $this->invalidateRootCache();
-    }
-
-    /**
-     * Get the cached global Root total size (bytes)
-     *
-     * @return int
-     */
-    public function getRootGlobalTotalSize(): int
-    {
-        return $this->getIntOption(self::OPT_ROOT_SIZE);
-    }
-
-    /**
-     * Get the cached global Root media count
-     *
-     * @return int
-     */
-    public function getRootGlobalMediaCount(): int
-    {
-        return $this->getIntOption(self::OPT_ROOT_COUNT);
-    }
-
-    /**
-     * Read an option as an int, with a default for missing/non-numeric values.
-     *
-     * @param string $optionName Option key.
-     * @param int    $default    Fallback value when the option is missing or non-numeric.
-     *
-     * @return int
-     */
-    private function getIntOption(string $optionName, int $default = 0): int
-    {
-        $raw = get_option($optionName, $default);
-        return is_numeric($raw) ? (int) $raw : $default;
     }
 }

@@ -3,14 +3,10 @@
 /**
  * Tree navigation utilities for folder hierarchy
  *
- * Walks the parent chain to resolve paths and answers "does folder X have
- * direct children?" via a single GROUP BY query. Pure read service: it
- * does not mutate any state.
- *
- * Recursive aggregates (total_media_count, total_size) are no longer the
- * navigator's concern — they live on the FolderModel itself, populated
- * from term meta by `FolderModel::fromTerm`, maintained incrementally by
- * FolderRepository on every mutation.
+ * Walks the parent chain to resolve paths (instance method, requires the
+ * repository to materialise FolderModel) and to compute the ancestor-id
+ * chain used by counter delta math (static, only needs `get_term`).
+ * Pure read service — never mutates state.
  *
  * @package FoldSnap
  */
@@ -20,9 +16,13 @@ declare(strict_types=1);
 namespace FoldSnap\Services;
 
 use FoldSnap\Models\FolderModel;
+use WP_Term;
 
 class FolderTreeNavigator
 {
+    /** @var int Maximum chain depth to guard against pathological data */
+    private const MAX_DEPTH = 64;
+
     private FolderRepository $repository;
 
     /**
@@ -36,23 +36,35 @@ class FolderTreeNavigator
     }
 
     /**
-     * Determine which folders have direct children
+     * Walk the parent chain leaf-first, returning every term ID up to (and
+     * excluding) Root.
      *
-     * @param int[] $folderIds Folder term IDs to check
+     * Single source of truth for ancestor-chain math used by counter deltas.
      *
-     * @return array<int, bool> Map of folder ID => has_children
+     * @param int $termId Folder term ID (must be > 0).
+     *
+     * @return int[] Term IDs from $termId up to top-level (Root excluded).
      */
-    public function hasChildren(array $folderIds): array
+    public static function ancestorIds(int $termId): array
     {
-        $counts = Database::getChildrenCounts($folderIds, TaxonomyService::TAXONOMY_NAME);
-
-        /** @var array<int, bool> $result */
-        $result = [];
-        foreach ($counts as $folderId => $count) {
-            $result[$folderId] = $count > 0;
+        if ($termId <= 0) {
+            return [];
         }
 
-        return $result;
+        $chain     = [];
+        $currentId = $termId;
+        $maxDepth  = self::MAX_DEPTH;
+
+        while ($currentId > 0 && $maxDepth-- > 0) {
+            $chain[] = $currentId;
+            $term    = get_term($currentId, TaxonomyService::TAXONOMY_NAME);
+            if (! ($term instanceof WP_Term)) {
+                break;
+            }
+            $currentId = (int) $term->parent;
+        }
+
+        return $chain;
     }
 
     /**
@@ -88,7 +100,7 @@ class FolderTreeNavigator
         $reverse = [];
 
         $currentId = $folderId;
-        $maxDepth  = 64;
+        $maxDepth  = self::MAX_DEPTH;
 
         while ($currentId > 0 && $maxDepth-- > 0) {
             $folder = $this->repository->getById($currentId);
