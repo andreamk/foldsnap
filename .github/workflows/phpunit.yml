@@ -1,5 +1,10 @@
 name: PHPUnit
 on: [pull_request]
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
+
 jobs:
     test:
         runs-on: ubuntu-latest
@@ -28,25 +33,49 @@ jobs:
             - name: Validate composer.json
               run: composer validate --strict
 
-            - name: Cache Composer packages
-              id: composer-cache
+            - name: Get Composer cache directory
+              id: composer-cache-dir
+              run: echo "dir=$(composer config --global cache-files-dir)" >> $GITHUB_OUTPUT
+
+            - name: Cache Composer downloads
               uses: actions/cache@v4
               with:
-                  path: tools/extra-composer/phpunit/vendor
-                  key: ${{ runner.os }}-phpunit-${{ hashFiles('tools/extra-composer/phpunit/composer.lock') }}
+                  path: ${{ steps.composer-cache-dir.outputs.dir }}
+                  key: ${{ runner.os }}-php${{ matrix.php-versions }}-composer-phpunit-${{ hashFiles('tools/extra-composer/phpunit/composer.lock') }}
                   restore-keys: |
-                      ${{ runner.os }}-phpunit-
+                      ${{ runner.os }}-php${{ matrix.php-versions }}-composer-phpunit-
+                      ${{ runner.os }}-php${{ matrix.php-versions }}-composer-
 
             - name: Install PHPUnit dependencies
               run: composer update --working-dir=./tools/extra-composer/phpunit --prefer-dist --no-progress
 
+            - name: Resolve latest WordPress version
+              id: wp-version
+              run: |
+                  VERSION=$(curl -s https://api.wordpress.org/core/version-check/1.7/ | grep -o '"version":"[^"]*' | head -1 | sed 's/"version":"//')
+                  if [ -z "$VERSION" ]; then
+                      echo "Failed to resolve latest WordPress version"
+                      exit 1
+                  fi
+                  echo "Resolved latest WordPress version: $VERSION"
+                  echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+            - name: Cache WordPress core & test suite
+              id: wp-cache
+              uses: actions/cache@v4
+              with:
+                  path: |
+                      /tmp/wordpress
+                      /tmp/wordpress-tests-lib
+                  key: ${{ runner.os }}-wp-${{ steps.wp-version.outputs.version }}-${{ hashFiles('tools/phpunit-install-config-github.json') }}
+
             - name: Install SVN
+              if: steps.wp-cache.outputs.cache-hit != 'true'
               run: sudo apt-get update && sudo apt-get install -y subversion
 
             - name: Check versions
               run: |
                   curl --version;
-                  svn --version;
                   mysqladmin --version;
                   php --version;
 

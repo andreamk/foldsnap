@@ -148,6 +148,31 @@ class UninstallTests extends WP_UnitTestCase
     {
         Uninstall::run();
 
-        $this->assertTrue(true);
+        $this->assertFalse(get_option('foldsnap_opt_root_size'));
+        $this->assertFalse(get_option('foldsnap_opt_root_count'));
+    }
+
+    /**
+     * Test run cleans up Step 9 counter options + initialization flag
+     *
+     * Regression: the new `foldsnap_opt_root_size`, `foldsnap_opt_root_count`,
+     * `foldsnap_opt_counters_initialized` and `foldsnap_opt_recalc_stack`
+     * options must all be removed by uninstall via the OPTIONS_PREFIX sweep.
+     *
+     * @return void
+     */
+    public function test_run_deletes_counter_options(): void
+    {
+        update_option('foldsnap_opt_root_size', 12345);
+        update_option('foldsnap_opt_root_count', 6);
+        update_option('foldsnap_opt_counters_initialized', '1');
+        update_option('foldsnap_opt_recalc_stack', [1, 2, 3]);
+
+        Uninstall::run();
+
+        $this->assertFalse(get_option('foldsnap_opt_root_size'));
+        $this->assertFalse(get_option('foldsnap_opt_root_count'));
+        $this->assertFalse(get_option('foldsnap_opt_counters_initialized'));
+        $this->assertFalse(get_option('foldsnap_opt_recalc_stack'));
     }
 }

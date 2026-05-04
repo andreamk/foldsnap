@@ -9,12 +9,12 @@ disable-model-invocation: true
 Perform automated quality assurance by analyzing code changes and invoking appropriate specialized agents.
 
 **Usage:**
-- `/quality-check` - Compare current branch vs master (DEFAULT)
+- `/quality-check` - Compare current branch vs main (DEFAULT)
 - `/quality-check <branch-name>` - Compare current branch vs specified branch
 
 **Examples:**
 ```bash
-# Before creating a PR to master (most common)
+# Before creating a PR to main (most common)
 /quality-check
 
 # Compare to custom branch
@@ -23,10 +23,17 @@ Perform automated quality assurance by analyzing code changes and invoking appro
 
 **Process:**
 
-1. **Identify Changed Files**
-   - Determine target branch: argument provided or "master" (default)
-   - Get changed files: `git diff --name-status $TARGET_BRANCH...HEAD`
+1. **Gather Context and Build Summary**
+   - Determine target branch: argument provided or "main" (default)
+   - Run these commands to collect raw context:
+     - `git diff --name-status $TARGET_BRANCH...HEAD` (changed files list)
+     - `git log $TARGET_BRANCH...HEAD` (full commit messages, NOT --oneline)
    - Note: Uses three-dot syntax (...) to compare from common ancestor (uses local branch state)
+   - Write a **discursive context summary** (3-10 sentences) covering:
+     - What the branch does overall (purpose, scope)
+     - Key areas touched and why (based on commit messages)
+     - Notable patterns (refactoring, new features, bug fixes, etc.)
+   - Pass the context summary, the target branch, and the list of modified files to each sub-agent.
 
 2. **Apply Decision Tree** (determine which agents to invoke)
 
@@ -100,23 +107,42 @@ Perform automated quality assurance by analyzing code changes and invoking appro
    **quality-docs** - ALWAYS
    - Analyzes code changes to determine if documentation updates are needed
 
-3. **Invoke Agents in Parallel**
+3. **Invoke Quality Agents in Parallel**
    - Use Task tool to launch all matching agents in a SINGLE message
-   - Each agent gets the list of modified files for context
+   - Every agent receives the same three inputs: the context summary, the target branch, and the complete changed files list from step 1
+   - The file list must be passed as-is with no filtering, grouping, or per-agent selection — all agents get all files
+   - Each agent decides independently which files to analyze based on its own scope
    - Agents run independently and in parallel
    - Multiple agents may analyze the same file (e.g., security + performance on queries) - this is intentional
 
-4. **Present Consolidated Report**
-   - Analyze and consolidate all agent outputs
-   - Summary of which agents ran
-   - Key findings from each agent (prioritized by severity)
-   - Cross-reference findings between agents (e.g., security + performance on same code)
-   - Actionable recommendations
-   - Overall quality score
+4. **Consolidate Raw Reports**
+   - Collect all agent outputs into a single consolidated report
+   - Group findings by agent
+   - Do NOT filter or editorialize at this stage — preserve all raw findings exactly as reported
+
+5. **Invoke Validation Agent**
+   - Launch the **quality-validation** agent with:
+     - The full consolidated report from step 4
+   - The validation agent will:
+     - Read the actual code referenced by each finding
+     - Verify accuracy, proportionality, and project conventions
+     - Classify each as: CONFIRMED, UNCERTAIN, or INVALID
+   - Wait for the validation agent to complete before proceeding
+
+6. **Assemble Final Report**
+   - The validation agent returns only a verdicts table (CONFIRMED/UNCERTAIN/INVALID per finding)
+   - Use the verdicts to build the final report from the original agent outputs:
+     - **Confirmed Findings** — Include the FULL original agent content for each CONFIRMED finding
+     - **Uncertain Findings** — Include the FULL original agent content + the validator's reason for uncertainty
+     - **Invalid Findings** — Show only a summary table (finding + reason for removal). Do NOT include the original content.
+   - Add validation statistics: total findings, confirmed, uncertain, removed (with percentage)
+   - Add overall quality score
+   - Cross-reference confirmed findings between agents (e.g., security + performance on same code)
 
 **Decision Rule:**
-- **Default to YES**: When uncertain if an agent should run, invoke it (prefer false positives over false negatives)
-- **Run in Parallel**: Always invoke all matching agents in a single message for efficiency
+- **Default to YES**: When uncertain if a quality agent should run, invoke it (prefer false positives over false negatives)
+- **Run Quality Agents in Parallel**: Always invoke all matching quality agents in a single message for efficiency
+- **Validation is Sequential**: The validation agent MUST run after all quality agents complete
 - **Avoid over-engineering**: Prefer simple, proportional fixes over complex abstractions
 
 **Important:**

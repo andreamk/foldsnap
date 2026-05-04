@@ -1,13 +1,26 @@
 import { render, screen } from '@testing-library/react';
-import { useDispatch } from '@wordpress/data';
+import userEvent from '@testing-library/user-event';
+import { useDispatch, useSelect } from '@wordpress/data';
 import FolderSidebar from '../FolderSidebar';
 
-// Mock @wordpress/data
 jest.mock( '@wordpress/data', () => ( {
 	useDispatch: jest.fn(),
+	useSelect: jest.fn(),
 } ) );
 
-// Mock FolderTree to isolate FolderSidebar
+jest.mock( '@wordpress/components', () => ( {
+	ToggleControl: ( { label, checked, onChange } ) => (
+		<div data-testid="all-media-toggle">
+			<input
+				type="checkbox"
+				aria-label={ label }
+				checked={ checked }
+				onChange={ ( e ) => onChange( e.target.checked ) }
+			/>
+		</div>
+	),
+} ) );
+
 jest.mock( '../FolderTree', () => {
 	const MockFolderTree = () => (
 		<div data-testid="folder-tree">FolderTree</div>
@@ -15,7 +28,6 @@ jest.mock( '../FolderTree', () => {
 	return MockFolderTree;
 } );
 
-// Mock @dnd-kit/core
 const mockOnDragEnd = jest.fn();
 jest.mock( '@dnd-kit/core', () => ( {
 	DndContext: ( { children, onDragEnd } ) => {
@@ -27,115 +39,145 @@ jest.mock( '@dnd-kit/core', () => ( {
 	useSensors: jest.fn( () => [] ),
 } ) );
 
+const FOLDER_BY_ID = {
+	10: { id: 10, name: 'Photos', position: 0 },
+	20: { id: 20, name: 'Documents', position: 3 },
+};
+
+const setupSelect = ( { allMediaActive = false } = {} ) => {
+	useSelect.mockImplementation( ( fn ) =>
+		fn( () => ( {
+			getFolderById: ( id ) => FOLDER_BY_ID[ id ],
+			isAllMediaActive: () => allMediaActive,
+		} ) )
+	);
+};
+
 describe( 'FolderSidebar', () => {
 	let mockUpdateFolder;
+	let mockSetAllMedia;
 
 	beforeEach( () => {
 		mockUpdateFolder = jest.fn();
+		mockSetAllMedia = jest.fn();
 		useDispatch.mockReturnValue( {
 			updateFolder: mockUpdateFolder,
+			setAllMedia: mockSetAllMedia,
 		} );
+		setupSelect();
 		mockOnDragEnd.mockClear();
 	} );
 
-	it( 'renders FolderTree inside a DndContext', () => {
+	it( 'renders FolderTree inside DndContext', () => {
 		render( <FolderSidebar /> );
 		expect( screen.getByTestId( 'dnd-context' ) ).toBeInTheDocument();
 		expect( screen.getByTestId( 'folder-tree' ) ).toBeInTheDocument();
 	} );
 
-	it( 'renders the sidebar container div', () => {
+	it( 'renders the All Media toggle in the off state by default', () => {
+		render( <FolderSidebar /> );
+		const toggle = screen.getByTestId( 'all-media-toggle' );
+		const input = toggle.querySelector( 'input' );
+		expect( input.checked ).toBe( false );
+	} );
+
+	it( 'dispatches setAllMedia when the toggle is flipped', async () => {
+		const user = userEvent.setup();
+		render( <FolderSidebar /> );
+		await user.click(
+			screen.getByTestId( 'all-media-toggle' ).querySelector( 'input' )
+		);
+		expect( mockSetAllMedia ).toHaveBeenCalledWith( true );
+	} );
+
+	it( 'applies the all-media modifier class when active', () => {
+		setupSelect( { allMediaActive: true } );
 		const { container } = render( <FolderSidebar /> );
 		expect(
-			container.querySelector( '.foldsnap-sidebar' )
+			container.querySelector( '.foldsnap-sidebar--all-media' )
 		).toBeInTheDocument();
 	} );
 
-	it( 'does not render a content area', () => {
-		const { container } = render( <FolderSidebar /> );
-		expect(
-			container.querySelector( '.foldsnap-content' )
-		).not.toBeInTheDocument();
-	} );
-
-	it( 'does nothing on drag end when there is no over target', () => {
-		render( <FolderSidebar /> );
-		mockOnDragEnd( { active: { id: 1 }, over: null } );
-		expect( mockUpdateFolder ).not.toHaveBeenCalled();
-	} );
-
-	it( 'does nothing on drag end when active and over are the same', () => {
-		render( <FolderSidebar /> );
-		mockOnDragEnd( {
-			active: { id: 1, data: { current: { type: 'folder' } } },
-			over: { id: 1, data: { current: { type: 'folder' } } },
-		} );
-		expect( mockUpdateFolder ).not.toHaveBeenCalled();
-	} );
-
-	it( 'calls updateFolder with new parentId on folder reparent drop', () => {
+	it( 'no-ops on drag end when All Media is active', () => {
+		setupSelect( { allMediaActive: true } );
 		render( <FolderSidebar /> );
 		mockOnDragEnd( {
 			active: {
 				id: 10,
-				data: {
-					current: {
-						type: 'folder',
-						folder: { id: 10, name: 'Photos' },
-					},
-				},
+				data: { current: { type: 'folder', folderId: 10 } },
 			},
 			over: {
-				id: 'folder-drop-5',
-				data: { current: { type: 'folder', folderId: 5 } },
+				id: 'folder-drop-20',
+				data: { current: { type: 'folder', folderId: 20 } },
+			},
+		} );
+		expect( mockUpdateFolder ).not.toHaveBeenCalled();
+	} );
+
+	it( 'no-ops when over is null', () => {
+		render( <FolderSidebar /> );
+		mockOnDragEnd( { active: { id: 10 }, over: null } );
+		expect( mockUpdateFolder ).not.toHaveBeenCalled();
+	} );
+
+	it( 'no-ops when active and over are the same', () => {
+		render( <FolderSidebar /> );
+		mockOnDragEnd( {
+			active: {
+				id: 10,
+				data: { current: { type: 'folder', folderId: 10 } },
+			},
+			over: {
+				id: 10,
+				data: { current: { type: 'folder', folderId: 10 } },
+			},
+		} );
+		expect( mockUpdateFolder ).not.toHaveBeenCalled();
+	} );
+
+	it( 'reparents on folder-drop drop zone', () => {
+		render( <FolderSidebar /> );
+		mockOnDragEnd( {
+			active: {
+				id: 10,
+				data: { current: { type: 'folder', folderId: 10 } },
+			},
+			over: {
+				id: 'folder-drop-20',
+				data: { current: { type: 'folder', folderId: 20 } },
 			},
 		} );
 		expect( mockUpdateFolder ).toHaveBeenCalledWith( 10, {
 			name: 'Photos',
-			parentId: 5,
+			parentId: 20,
 		} );
 	} );
 
-	it( 'does not reparent when dropping folder onto itself', () => {
+	it( 'does not reparent when target is the same folder', () => {
 		render( <FolderSidebar /> );
 		mockOnDragEnd( {
 			active: {
-				id: 5,
-				data: {
-					current: {
-						type: 'folder',
-						folder: { id: 5, name: 'Photos' },
-					},
-				},
+				id: 10,
+				data: { current: { type: 'folder', folderId: 10 } },
 			},
 			over: {
-				id: 'folder-drop-5',
-				data: { current: { type: 'folder', folderId: 5 } },
+				id: 'folder-drop-10',
+				data: { current: { type: 'folder', folderId: 10 } },
 			},
 		} );
 		expect( mockUpdateFolder ).not.toHaveBeenCalled();
 	} );
 
-	it( 'calls updateFolder with new position on folder reorder drop', () => {
+	it( 'reorders by setting position to over folder position', () => {
 		render( <FolderSidebar /> );
 		mockOnDragEnd( {
 			active: {
 				id: 10,
-				data: {
-					current: {
-						type: 'folder',
-						folder: { id: 10, name: 'Photos' },
-					},
-				},
+				data: { current: { type: 'folder', folderId: 10 } },
 			},
 			over: {
 				id: 20,
-				data: {
-					current: {
-						type: 'folder',
-						folder: { id: 20, name: 'Documents', position: 3 },
-					},
-				},
+				data: { current: { type: 'folder', folderId: 20 } },
 			},
 		} );
 		expect( mockUpdateFolder ).toHaveBeenCalledWith( 10, {

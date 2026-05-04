@@ -1,73 +1,127 @@
 # Folder Data Model and Filtering
 
+Folders live as terms in a custom hierarchical taxonomy. Each folder carries pre-aggregated `total_media_count` and `total_size` term meta that the plugin maintains incrementally on every mutation. The Media Library is filtered by folder through three integration points (REST, AJAX grid, list-mode `pre_get_posts`) that all share a single `tax_query` builder.
+
 ## Storage
 
-Folders are stored as terms in a custom hierarchical taxonomy called `foldsnap_folder`, registered on the `attachment` post type. This leverages WordPress's built-in term infrastructure for hierarchies, counts, and relationships.
+### Taxonomy
 
-### Taxonomy Term
+`foldsnap_folder` is a hierarchical taxonomy attached to the `attachment` post type, registered with `show_ui = false`, `show_in_rest = false`, and the `_update_generic_term_count` callback. Folders are real WordPress terms; the parent–child relationship in `wp_term_taxonomy.parent` is the folder tree.
 
-Each folder corresponds to one row in `wp_terms` + `wp_term_taxonomy`. The taxonomy is hierarchical, so `parent` in `wp_term_taxonomy` represents the folder tree structure.
+### Term meta
 
-### Term Meta
+| Meta key                   | Stored as | Meaning                                                            |
+|----------------------------|-----------|--------------------------------------------------------------------|
+| `foldsnap_folder_color`    | string    | Hex color (e.g. `#ff0000`) or empty                                |
+| `foldsnap_folder_position` | string    | Sort position among siblings (cast to int on read)                 |
+| `foldsnap_folder_size`     | string    | Recursive total bytes for the folder and all its descendants       |
+| `foldsnap_folder_count`    | string    | Recursive total media count for the folder and all its descendants |
 
-| Meta key                    | Type   | Description                   |
-|-----------------------------|--------|-------------------------------|
-| `foldsnap_folder_color`     | string | Hex color (e.g., `#ff0000`)   |
-| `foldsnap_folder_position`  | string | Sort position (stored as string, cast to int) |
+The four keys are initialized at folder creation. They are kept in sync by the repository and the lifecycle service — see [Incremental counters](#incremental-counters).
 
-### FolderModel
+### Options
 
-`FolderModel` is a DTO built from a `WP_Term`. It captures the term data plus computed properties:
+Two site options hold the global Root counters (Root has no backing term):
 
-- **Direct properties** — id, name, slug, parentId, mediaCount, color, position
-- **Injected at tree build time** — `directSize` (bytes of media directly in this folder)
-- **Recursive getters** — `getTotalMediaCount()` and `getTotalSize()` walk the children tree
+| Option                    | Meaning                                       |
+|---------------------------|-----------------------------------------------|
+| `foldsnap_opt_root_size`  | Total bytes of every attachment on the site   |
+| `foldsnap_opt_root_count` | Total number of attachments on the site       |
 
-The model is constructed by `FolderRepository::getTree()`, which fetches all terms, computes folder sizes, injects them, and assembles the parent-child tree.
+These are recursive totals — when the user views Root, they see the whole site.
 
-## Folder Assignment
+## The virtual Root
 
-Each media item (attachment) can belong to **one folder** at a time. Assignment is a standard WordPress term relationship (`wp_term_relationships`).
+There is no term for Root. `FolderModel::ROOT_ID = 0` and `FolderModel::NO_PARENT = -1` are sentinels:
 
-- **Assigning** uses `wp_set_object_terms()` with `append=false`, which replaces any existing folder assignment.
-- **Removing** uses `wp_remove_object_terms()`.
-- **Deleting a folder** — WordPress automatically removes term relationships, so media items return to "unassigned" (root).
+- `id = 0` represents Root.
+- `parent_id = -1` (`NO_PARENT`) only ever appears on the Root model itself, distinguishing it from a real top-level folder whose `parent_id = 0`.
+- Top-level folders (children of Root) have `parent_id = 0`.
 
-## Filtering
+`FolderRepository::getById(0)` returns a synthetic `FolderModel::root(...)` populated from the option-backed counters. Mutating Root (rename, reparent, delete, removeMedia) is rejected by `FolderRepository::guardNotRoot()`. Assigning media to Root is semantically "unassign from any folder" and routes through `unassignMedia()`.
 
-Three mechanisms filter media by folder, covering all Media Library contexts:
+## FolderModel
 
-### Grid Mode (AJAX)
+`FolderModel` is an immutable DTO. All counter and metadata values are properties on the model, populated when the model is built — there is no lazy computation.
 
-The native WordPress media grid uses Backbone and loads attachments via the `query-attachments` AJAX endpoint. `MediaLibraryController::filterAttachmentsByFolder` hooks into the `ajax_query_attachments_args` filter.
+| Property            | Source                                                    |
+|---------------------|-----------------------------------------------------------|
+| `id`                | `wp_terms.term_id`                                        |
+| `name`, `slug`      | `wp_terms`                                                |
+| `parent_id`         | `wp_term_taxonomy.parent` (`-1` for Root)                 |
+| `media_count`       | `wp_term_taxonomy.count` (direct only)                    |
+| `total_media_count` | `foldsnap_folder_count` term meta (recursive)             |
+| `total_size`        | `foldsnap_folder_size` term meta (recursive)              |
+| `color`, `position` | `foldsnap_folder_color`, `foldsnap_folder_position`       |
+| `has_children`      | Bulk `Database::getChildrenCounts()` lookup at build time |
+| `is_root`           | `true` for the synthetic Root model only                  |
 
-The React store's media-mode-bridge sets `foldsnap_folder_id` on the Backbone collection's props, which arrive as `$_REQUEST['query']['foldsnap_folder_id']` in PHP.
+`FolderModel::fromTerms(WP_Term[])` is the bulk constructor. It primes the term-meta cache and the children-counts in two queries, then walks the input terms — the resulting list is fully populated without per-term round-trips. `FolderModel::fromTerm(WP_Term)` is a convenience wrapper around it.
 
-### List Mode (Server-Side)
+## Incremental counters
 
-In list mode, `upload.php` renders a standard `WP_Posts_List_Table` using `WP_Query`. `MediaLibraryController::filterListModeByFolder` hooks into `pre_get_posts` and reads `foldsnap_folder_id` from the URL.
+`total_media_count` and `total_size` are not computed on demand: they are stored on each folder and adjusted in place. Every mutation that changes a folder's contents emits a signed `(size, count)` delta and applies it to a chain of term IDs in a single bulk `UPDATE`.
 
-When the user clicks a folder in list mode, the JS bridge redirects to `upload.php?mode=list&foldsnap_folder_id=ID`.
+### Ancestor chain
 
-### REST API
+Given a folder `F`, the chain is `[F, parent(F), grandparent(F), ...]` up to (but not including) Root. The chain is exactly the set of terms whose `total_*` aggregates include `F`. Root is excluded because its totals live in options, not term meta.
 
-`RestApiController::getMedia` accepts a `folder_id` parameter and builds a `WP_Query` with the appropriate `tax_query`.
+### Bulk delta
 
-### Tax Query Construction
+`Database::bulkAdjustTermMeta($termIds, $metaKey, $delta)` runs:
 
-All three paths use `TaxonomyService::buildFolderTaxQuery()` as the single source of truth:
+```sql
+UPDATE wp_termmeta
+SET meta_value = GREATEST(0, CAST(meta_value AS SIGNED) + :delta)
+WHERE meta_key = :key
+  AND term_id IN (:ids)
+```
 
-- **folder_id = 0** (root/unassigned) — `NOT EXISTS` operator: matches attachments with no term in `foldsnap_folder`
-- **folder_id > 0** (specific folder) — Matches by `term_id` with `include_children => false`, so only direct children of a folder are shown, not media in subfolders
+`GREATEST(0, ...)` clamps at zero so a stale value can never go negative. The pre-condition is that every term in `$termIds` already has a row for the meta key — folders created via `FolderRepository::create()` satisfy this on insert; older terms are normalized by `Database::ensureFolderCountersInitialized()`.
 
-## Caching
+### Mutation flows
 
-Folder size computations involve joining `wp_term_relationships`, `wp_term_taxonomy`, and `wp_postmeta`. These are cached using WordPress object cache (`wp_cache_get/set`) under the `foldsnap` group:
+| Trigger              | Origin chain delta              | Destination chain delta         | Root option delta                      |
+|----------------------|---------------------------------|---------------------------------|----------------------------------------|
+| Reparent folder      | `−(subtreeSize, subtreeCount)`  | `+(subtreeSize, subtreeCount)`  | none — content stays inside Root total |
+| Delete folder        | `−(directSize, directCount)` from parent chain (subfolders are promoted, already counted) | n/a | none |
+| Assign media         | per-origin `−(size, count)`     | `+(totalMovedSize, count)`      | none |
+| Remove media         | `−(size, count)`                | n/a (media unassigns, stays in site) | none |
+| Upload (lifecycle)   | n/a                             | n/a                             | `+(size, 1)`                           |
+| Delete attachment    | `−(size, 1)` on its folder chain | n/a                             | `−(size, 1)`                           |
 
-| Cache key            | Contents                                    |
-|----------------------|---------------------------------------------|
-| `folder_sizes`       | Map of folder term ID → total bytes         |
-| `root_total_size`    | Bytes of unassigned media                   |
-| `root_media_count`   | Count of unassigned media                   |
+Folder mutations leave the global Root counters invariant: media stays inside the site, only the sub-folder it lives in changes.
 
-All three keys are invalidated by `FolderRepository::invalidateSizeCache()`, called after any assignment, removal, or deletion.
+### Lifecycle bridge
+
+`AttachmentLifecycleService` hooks `wp_generate_attachment_metadata` (filter, `'create'` context only — regenerations don't bump the counter) and `delete_attachment`. Both handlers queue work and register a `shutdown` action that flushes once at end of request, so a bulk upload of N files produces a single counter write per affected folder.
+
+### Recalculate
+
+`POST /foldsnap/v1/folders/recalculate` (admin only) runs a chunked, bottom-up rebuild of all `foldsnap_folder_size` and `foldsnap_folder_count` meta in case a third-party plugin (or a previous bug) leaves the values drifted. The recalculator walks leaf-first using `Database::getChildrenTotalsForFolders` so each parent's totals are summed from already-fixed children.
+
+**First-boot auto-schedule.** `Bootstrap::onInit` checks the `foldsnap_opt_counters_initialized` option. While that flag is unset, every page load schedules a single `foldsnap_counters_recalculate` cron event 5 seconds out (if one is not already pending). The cron handler runs one chunk and reschedules itself 30 seconds later until the recalculator reports `done`, at which point `CountersRecalculator` sets the flag to `'1'` and the auto-schedule path becomes a no-op. The manual REST endpoint above (with `reset=true`) clears the flag so the same chunked path runs again on demand.
+
+## Folder assignment
+
+Each attachment can belong to **one** folder at a time:
+
+- Assigning uses `wp_set_object_terms()` with `append=false`.
+- Removing uses `wp_remove_object_terms()`.
+- Assigning to Root (`folder_id = 0`) clears all folder relationships — the media surfaces as unassigned.
+- Deleting a folder removes term relationships; orphaned media surfaces as unassigned. Direct subfolders are promoted to the deleted folder's parent.
+
+After every assignment/removal the repository calls `wp_update_term_count_now()` on the affected folders so subsequent reads of `term_taxonomy.count` in the same request see fresh values (WordPress otherwise defers term recounts).
+
+## Filtering the Media Library
+
+`TaxonomyService::buildFolderTaxQuery(int $folderId): array` is the single source of truth for translating a folder selection into a `tax_query`:
+
+- `folder_id = 0` (Root) → `[['taxonomy' => 'foldsnap_folder', 'operator' => 'NOT EXISTS']]` — matches attachments with no folder term.
+- `folder_id > 0` → `[['taxonomy' => 'foldsnap_folder', 'field' => 'term_id', 'terms' => $folderId, 'include_children' => false]]` — only direct children, not descendant folders.
+
+Three callers feed this builder:
+
+- **Grid mode (AJAX).** `MediaLibraryController::filterAttachmentsByFolder` hooks `ajax_query_attachments_args`. The folder ID arrives in `$_REQUEST['query']['foldsnap_folder_id']`.
+- **List mode.** `MediaLibraryController::filterListModeByFolder` hooks `pre_get_posts` and reads `foldsnap_folder_id` from `$_GET`. Only fires for the main attachment query in admin list mode.
+- **REST.** `RestApiController::getMedia` reads `folder_id` from the request and builds a `WP_Query` with the same `tax_query`.

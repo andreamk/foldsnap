@@ -1,245 +1,143 @@
 import {
-	getFolders,
-	getSelectedFolderId,
-	isLoading,
-	getError,
-	getRootMediaCount,
-	getRootTotalSize,
+	getRootFolders,
+	getChildrenOf,
 	getFolderById,
+	isFolderExpanded,
+	isFolderLoaded,
+	isFolderFetching,
+	getParentPagination,
+	getSelectedFolderId,
+	isAllMediaActive,
+	getSearchQuery,
+	getSearchResults,
+	isSearchLoading,
+	getSearchPage,
+	getSearchTotalPages,
+	getSearchTotal,
+	getError,
 	getMedia,
 	isMediaLoading,
 	getMediaTotal,
 	getMediaTotalPages,
-	getSearchQuery,
-	getFilteredFolders,
 } from '../selectors';
 
 const makeState = ( overrides = {} ) => ( {
-	folders: [],
-	isLoading: false,
-	error: null,
+	foldersByParent: {},
+	foldersById: {},
+	loadedParents: [],
+	fetchingParents: [],
+	parentsPagination: {},
+	expandedIds: [],
 	selectedFolderId: null,
-	rootMediaCount: 0,
-	rootTotalSize: 0,
+	allMediaActive: false,
+	searchQuery: '',
+	searchResults: [],
+	searchPage: 0,
+	searchTotalPages: 0,
+	searchTotal: 0,
+	searchIsLoading: false,
+	error: null,
 	media: [],
 	mediaTotal: 0,
 	mediaTotalPages: 0,
 	mediaIsLoading: false,
-	searchQuery: '',
 	...overrides,
 } );
 
-const FOLDERS_TREE = [
-	{
-		id: 1,
-		name: 'Photos',
-		children: [
-			{ id: 3, name: 'Vacation', children: [] },
-			{ id: 4, name: 'Family', children: [] },
-		],
-	},
-	{
-		id: 2,
-		name: 'Documents',
-		children: [],
-	},
-];
-
 describe( 'selectors', () => {
-	describe( 'getFolders', () => {
-		it( 'returns the folders array from state', () => {
-			const state = makeState( { folders: FOLDERS_TREE } );
-			expect( getFolders( state ) ).toBe( FOLDERS_TREE );
+	describe( 'getChildrenOf / getRootFolders', () => {
+		it( 'returns the children list when present', () => {
+			const folders = [ { id: 1 }, { id: 2 } ];
+			const state = makeState( { foldersByParent: { 0: folders } } );
+			expect( getRootFolders( state ) ).toBe( folders );
+			expect( getChildrenOf( state, 0 ) ).toBe( folders );
 		} );
 
-		it( 'returns empty array when no folders loaded', () => {
-			expect( getFolders( makeState() ) ).toEqual( [] );
-		} );
-	} );
-
-	describe( 'getSelectedFolderId', () => {
-		it( 'returns null by default', () => {
-			expect( getSelectedFolderId( makeState() ) ).toBeNull();
-		} );
-
-		it( 'returns the selected folder ID when set', () => {
-			const state = makeState( { selectedFolderId: 5 } );
-			expect( getSelectedFolderId( state ) ).toBe( 5 );
-		} );
-	} );
-
-	describe( 'isLoading', () => {
-		it( 'returns false by default', () => {
-			expect( isLoading( makeState() ) ).toBe( false );
-		} );
-
-		it( 'returns true when loading', () => {
-			expect( isLoading( makeState( { isLoading: true } ) ) ).toBe(
-				true
-			);
-		} );
-	} );
-
-	describe( 'getError', () => {
-		it( 'returns null by default', () => {
-			expect( getError( makeState() ) ).toBeNull();
-		} );
-
-		it( 'returns the error string when set', () => {
-			const state = makeState( { error: 'Network failure' } );
-			expect( getError( state ) ).toBe( 'Network failure' );
-		} );
-	} );
-
-	describe( 'getRootMediaCount', () => {
-		it( 'returns 0 by default', () => {
-			expect( getRootMediaCount( makeState() ) ).toBe( 0 );
-		} );
-
-		it( 'returns the root media count', () => {
-			const state = makeState( { rootMediaCount: 42 } );
-			expect( getRootMediaCount( state ) ).toBe( 42 );
-		} );
-	} );
-
-	describe( 'getRootTotalSize', () => {
-		it( 'returns 0 by default', () => {
-			expect( getRootTotalSize( makeState() ) ).toBe( 0 );
-		} );
-
-		it( 'returns the root total size in bytes', () => {
-			const state = makeState( { rootTotalSize: 1024000 } );
-			expect( getRootTotalSize( state ) ).toBe( 1024000 );
+		it( 'returns a frozen empty array for missing parents', () => {
+			const a = getChildrenOf( makeState(), 99 );
+			const b = getChildrenOf( makeState(), 99 );
+			expect( a ).toEqual( [] );
+			expect( a ).toBe( b );
 		} );
 	} );
 
 	describe( 'getFolderById', () => {
-		it( 'finds a root-level folder by ID', () => {
-			const state = makeState( { folders: FOLDERS_TREE } );
-			const folder = getFolderById( state, 2 );
-			expect( folder ).toBeDefined();
-			expect( folder.name ).toBe( 'Documents' );
+		it( 'returns the folder by id (O(1) lookup)', () => {
+			const state = makeState( {
+				foldersById: { 5: { id: 5, name: 'Photos' } },
+			} );
+			expect( getFolderById( state, 5 ).name ).toBe( 'Photos' );
 		} );
 
-		it( 'finds a nested folder by ID (recursive search)', () => {
-			const state = makeState( { folders: FOLDERS_TREE } );
-			const folder = getFolderById( state, 3 );
-			expect( folder ).toBeDefined();
-			expect( folder.name ).toBe( 'Vacation' );
-		} );
-
-		it( 'returns undefined for a non-existent ID', () => {
-			const state = makeState( { folders: FOLDERS_TREE } );
-			expect( getFolderById( state, 999 ) ).toBeUndefined();
+		it( 'returns undefined when not found', () => {
+			expect( getFolderById( makeState(), 99 ) ).toBeUndefined();
 		} );
 	} );
 
-	describe( 'getMedia', () => {
-		it( 'returns empty array by default', () => {
-			expect( getMedia( makeState() ) ).toEqual( [] );
-		} );
-
-		it( 'returns the media array from state', () => {
-			const media = [ { id: 10 }, { id: 11 } ];
-			const state = makeState( { media } );
-			expect( getMedia( state ) ).toBe( media );
+	describe( 'isFolderExpanded / isFolderLoaded / isFolderFetching', () => {
+		it( 'reads boolean flags from membership lists', () => {
+			const state = makeState( {
+				expandedIds: [ 1, 2 ],
+				loadedParents: [ 0, 1 ],
+				fetchingParents: [ 5 ],
+			} );
+			expect( isFolderExpanded( state, 1 ) ).toBe( true );
+			expect( isFolderExpanded( state, 99 ) ).toBe( false );
+			expect( isFolderLoaded( state, 0 ) ).toBe( true );
+			expect( isFolderLoaded( state, 99 ) ).toBe( false );
+			expect( isFolderFetching( state, 5 ) ).toBe( true );
+			expect( isFolderFetching( state, 1 ) ).toBe( false );
 		} );
 	} );
 
-	describe( 'isMediaLoading', () => {
-		it( 'returns false by default', () => {
-			expect( isMediaLoading( makeState() ) ).toBe( false );
+	describe( 'getParentPagination', () => {
+		it( 'returns pagination for a parent or undefined', () => {
+			const state = makeState( {
+				parentsPagination: { 0: { page: 2, totalPages: 5 } },
+			} );
+			expect( getParentPagination( state, 0 ) ).toEqual( {
+				page: 2,
+				totalPages: 5,
+			} );
+			expect( getParentPagination( state, 99 ) ).toBeUndefined();
+		} );
+	} );
+
+	describe( 'simple field selectors', () => {
+		it( 'returns the corresponding state slice', () => {
+			const state = makeState( {
+				selectedFolderId: 7,
+				searchQuery: 'vac',
+				searchResults: [ { folder: { id: 1 }, breadcrumb: [] } ],
+				searchIsLoading: true,
+				searchPage: 1,
+				searchTotalPages: 3,
+				searchTotal: 50,
+				error: 'boom',
+				media: [ { id: 99 } ],
+				mediaIsLoading: true,
+				mediaTotal: 1,
+				mediaTotalPages: 1,
+			} );
+			expect( getSelectedFolderId( state ) ).toBe( 7 );
+			expect( getSearchQuery( state ) ).toBe( 'vac' );
+			expect( getSearchResults( state ) ).toHaveLength( 1 );
+			expect( isSearchLoading( state ) ).toBe( true );
+			expect( getSearchPage( state ) ).toBe( 1 );
+			expect( getSearchTotalPages( state ) ).toBe( 3 );
+			expect( getSearchTotal( state ) ).toBe( 50 );
+			expect( getError( state ) ).toBe( 'boom' );
+			expect( getMedia( state ) ).toHaveLength( 1 );
+			expect( isMediaLoading( state ) ).toBe( true );
+			expect( getMediaTotal( state ) ).toBe( 1 );
+			expect( getMediaTotalPages( state ) ).toBe( 1 );
 		} );
 
-		it( 'returns true when media is loading', () => {
+		it( 'isAllMediaActive returns the flag', () => {
+			expect( isAllMediaActive( makeState() ) ).toBe( false );
 			expect(
-				isMediaLoading( makeState( { mediaIsLoading: true } ) )
+				isAllMediaActive( makeState( { allMediaActive: true } ) )
 			).toBe( true );
-		} );
-	} );
-
-	describe( 'getMediaTotal', () => {
-		it( 'returns 0 by default', () => {
-			expect( getMediaTotal( makeState() ) ).toBe( 0 );
-		} );
-
-		it( 'returns the total media count', () => {
-			expect( getMediaTotal( makeState( { mediaTotal: 100 } ) ) ).toBe(
-				100
-			);
-		} );
-	} );
-
-	describe( 'getMediaTotalPages', () => {
-		it( 'returns 0 by default', () => {
-			expect( getMediaTotalPages( makeState() ) ).toBe( 0 );
-		} );
-
-		it( 'returns the total pages', () => {
-			expect(
-				getMediaTotalPages( makeState( { mediaTotalPages: 3 } ) )
-			).toBe( 3 );
-		} );
-	} );
-
-	describe( 'getSearchQuery', () => {
-		it( 'returns empty string by default', () => {
-			expect( getSearchQuery( makeState() ) ).toBe( '' );
-		} );
-
-		it( 'returns the current search query', () => {
-			expect(
-				getSearchQuery( makeState( { searchQuery: 'vacation' } ) )
-			).toBe( 'vacation' );
-		} );
-	} );
-
-	describe( 'getFilteredFolders', () => {
-		it( 'returns all folders when search query is empty', () => {
-			const state = makeState( {
-				folders: FOLDERS_TREE,
-				searchQuery: '',
-			} );
-			expect( getFilteredFolders( state ) ).toBe( FOLDERS_TREE );
-		} );
-
-		it( 'returns all folders when search query is only whitespace', () => {
-			const state = makeState( {
-				folders: FOLDERS_TREE,
-				searchQuery: '   ',
-			} );
-			expect( getFilteredFolders( state ) ).toBe( FOLDERS_TREE );
-		} );
-
-		it( 'filters folders by name (case-insensitive match)', () => {
-			const state = makeState( {
-				folders: FOLDERS_TREE,
-				searchQuery: 'DOC',
-			} );
-			const result = getFilteredFolders( state );
-			expect( result ).toHaveLength( 1 );
-			expect( result[ 0 ].name ).toBe( 'Documents' );
-		} );
-
-		it( 'includes ancestor folders when only a child matches', () => {
-			const state = makeState( {
-				folders: FOLDERS_TREE,
-				searchQuery: 'vacation',
-			} );
-			const result = getFilteredFolders( state );
-			// Only the Photos parent (id=1) should be included, containing Vacation child
-			expect( result ).toHaveLength( 1 );
-			expect( result[ 0 ].id ).toBe( 1 );
-			expect( result[ 0 ].children ).toHaveLength( 1 );
-			expect( result[ 0 ].children[ 0 ].name ).toBe( 'Vacation' );
-		} );
-
-		it( 'returns empty array when nothing matches', () => {
-			const state = makeState( {
-				folders: FOLDERS_TREE,
-				searchQuery: 'zzznomatch',
-			} );
-			expect( getFilteredFolders( state ) ).toHaveLength( 0 );
 		} );
 	} );
 } );

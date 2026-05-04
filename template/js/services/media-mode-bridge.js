@@ -79,10 +79,32 @@ export default function initMediaModeBridge() {
 		'foldsnap_folder_id'
 	);
 	if ( urlFolderId !== null ) {
-		window.wp?.data
-			?.dispatch( STORE_NAME )
-			?.setSelectedFolder( parseInt( urlFolderId, 10 ) );
+		const parsedId = parseInt( urlFolderId, 10 );
+		const dispatch = window.wp?.data?.dispatch( STORE_NAME );
+		dispatch?.setSelectedFolder( parsedId );
+		// Inflate the breadcrumb so the deep-linked folder is visible (and
+		// its ancestors expanded) on first paint of the tree.
+		dispatch?.expandPathTo?.( parsedId );
 	}
+
+	/**
+	 * Read the effective folder filter from the store.
+	 *
+	 * When "All Media" is on, the sidebar is bypassed: return null so the
+	 * native grid is unfiltered regardless of the user's last selection.
+	 *
+	 * @return {number|null} Folder ID to filter by, or null for unfiltered.
+	 */
+	const readEffectiveFolderId = () => {
+		const store = window.wp?.data?.select( STORE_NAME );
+		if ( ! store ) {
+			return null;
+		}
+		if ( store.isAllMediaActive() ) {
+			return null;
+		}
+		return store.getSelectedFolderId() ?? null;
+	};
 
 	let lastFolderId =
 		urlFolderId !== null ? parseInt( urlFolderId, 10 ) : null;
@@ -92,9 +114,7 @@ export default function initMediaModeBridge() {
 
 	// React store → native WP grid synchronisation.
 	subscribe( () => {
-		const folderId =
-			window.wp?.data?.select( STORE_NAME )?.getSelectedFolderId() ??
-			null;
+		const folderId = readEffectiveFolderId();
 		if ( folderId === lastFolderId ) {
 			return;
 		}
@@ -114,7 +134,10 @@ export default function initMediaModeBridge() {
 		let pollAttempts = 0;
 		const pollFrame = setInterval( () => {
 			pollAttempts++;
-			if ( applyGridFilter( lastFolderId ) || pollAttempts >= 40 ) {
+			if (
+				applyGridFilter( readEffectiveFolderId() ) ||
+				pollAttempts >= 40
+			) {
 				clearInterval( pollFrame );
 			}
 		}, 250 );

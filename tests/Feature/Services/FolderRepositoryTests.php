@@ -3,6 +3,10 @@
 /**
  * Tests for FolderRepository class
  *
+ * Covers folder CRUD only. Media-folder assignment lives in
+ * MediaFolderAssignmentServiceTests; counter math lives in
+ * FolderCounterServiceTests.
+ *
  * @package FoldSnap\Tests\Feature\Services
  */
 
@@ -11,14 +15,20 @@ declare(strict_types=1);
 namespace FoldSnap\Tests\Feature\Services;
 
 use FoldSnap\Models\FolderModel;
+use FoldSnap\Services\FolderCounterService;
+use FoldSnap\Services\FolderNameSanitizer;
 use FoldSnap\Services\FolderRepository;
+use FoldSnap\Services\MediaFolderAssignmentService;
 use FoldSnap\Services\TaxonomyService;
+use FoldSnap\Tests\TestsUtils\FolderRepositoryTestHelper;
 use InvalidArgumentException;
 use WP_UnitTestCase;
 
 class FolderRepositoryTests extends WP_UnitTestCase
 {
     private FolderRepository $repository;
+    private MediaFolderAssignmentService $assignments;
+    private FolderCounterService $counters;
 
     /**
      * Set up test environment
@@ -29,93 +39,35 @@ class FolderRepositoryTests extends WP_UnitTestCase
     {
         parent::setUp();
         TaxonomyService::register();
-        $this->repository = new FolderRepository();
+        $this->counters    = new FolderCounterService();
+        $this->repository  = new FolderRepository(new FolderNameSanitizer(), $this->counters);
+        $this->assignments = new MediaFolderAssignmentService($this->repository, $this->counters);
     }
 
     /**
-     * Test getAll returns empty array when no folders exist
+     * Test repository starts empty (no folders exist)
      *
      * @return void
      */
-    public function test_get_all_returns_empty_when_no_folders(): void
+    public function test_no_folders_exist_initially(): void
     {
-        $result = $this->repository->getAll();
-
-        $this->assertSame([], $result);
+        $this->assertSame([], FolderRepositoryTestHelper::getAll());
     }
 
     /**
-     * Test getAll returns all folders as flat list
+     * Test create persists folders so they show up in the term store
      *
      * @return void
      */
-    public function test_get_all_returns_all_folders(): void
+    public function test_create_persists_folders(): void
     {
-        $this->createTerm('Photos');
-        $this->createTerm('Documents');
+        $this->repository->create('Photos');
+        $this->repository->create('Documents');
 
-        $result = $this->repository->getAll();
+        $result = FolderRepositoryTestHelper::getAll();
 
         $this->assertCount(2, $result);
         $this->assertInstanceOf(FolderModel::class, $result[0]);
-        $this->assertInstanceOf(FolderModel::class, $result[1]);
-    }
-
-    /**
-     * Test getTree returns nested structure
-     *
-     * @return void
-     */
-    public function test_get_tree_returns_nested_structure(): void
-    {
-        $parentId = $this->createTerm('Parent');
-        $this->createTerm('Child', ['parent' => $parentId]);
-
-        $tree = $this->repository->getTree();
-
-        $this->assertCount(1, $tree);
-        $this->assertSame('Parent', $tree[0]->getName());
-        $this->assertCount(1, $tree[0]->getChildren());
-        $this->assertSame('Child', $tree[0]->getChildren()[0]->getName());
-    }
-
-    /**
-     * Test getTree sorts by position
-     *
-     * @return void
-     */
-    public function test_get_tree_sorts_by_position(): void
-    {
-        $id1 = $this->createTerm('Second');
-        $id2 = $this->createTerm('First');
-
-        update_term_meta($id1, FolderModel::META_POSITION, '2');
-        update_term_meta($id2, FolderModel::META_POSITION, '1');
-
-        $tree = $this->repository->getTree();
-
-        $this->assertCount(2, $tree);
-        $this->assertSame('First', $tree[0]->getName());
-        $this->assertSame('Second', $tree[1]->getName());
-    }
-
-    /**
-     * Test getTree handles multi-level nesting
-     *
-     * @return void
-     */
-    public function test_get_tree_handles_multi_level_nesting(): void
-    {
-        $rootId  = $this->createTerm('Root');
-        $childId = $this->createTerm('Child', ['parent' => $rootId]);
-        $this->createTerm('Grandchild', ['parent' => $childId]);
-
-        $tree = $this->repository->getTree();
-
-        $this->assertCount(1, $tree);
-        $this->assertCount(1, $tree[0]->getChildren());
-        $this->assertCount(1, $tree[0]->getChildren()[0]->getChildren());
-        $this->assertSame('Grandchild', $tree[0]->getChildren()[0]->getChildren()[0]->getName());
     }
 
     /**
@@ -141,9 +93,281 @@ class FolderRepositoryTests extends WP_UnitTestCase
      */
     public function test_get_by_id_returns_null_for_missing_term(): void
     {
-        $result = $this->repository->getById(999999);
+        $this->assertNull($this->repository->getById(999999));
+    }
 
-        $this->assertNull($result);
+    /**
+     * Test getByIds returns models for multiple terms
+     *
+     * @return void
+     */
+    public function test_get_by_ids_returns_multiple_models(): void
+    {
+        $a = $this->createTerm('A');
+        $b = $this->createTerm('B');
+        $c = $this->createTerm('C');
+
+        $result = $this->repository->getByIds([$a, $c]);
+
+        $this->assertCount(2, $result);
+        $ids = array_map(static fn (FolderModel $m): int => $m->getId(), $result);
+        $this->assertContains($a, $ids);
+        $this->assertContains($c, $ids);
+        $this->assertNotContains($b, $ids);
+    }
+
+    /**
+     * Test getByIds returns empty when input is empty
+     *
+     * @return void
+     */
+    public function test_get_by_ids_empty_input(): void
+    {
+        $this->assertSame([], $this->repository->getByIds([]));
+    }
+
+    /**
+     * Test getByIds skips negative IDs but accepts 0 as virtual Root
+     *
+     * @return void
+     */
+    public function test_get_by_ids_skips_negative_and_includes_root(): void
+    {
+        $a = $this->createTerm('A');
+
+        $result = $this->repository->getByIds([$a, 0, -5]);
+
+        // 0 = Root, -5 = invalid → 2 results: Root + A.
+        $this->assertCount(2, $result);
+        $ids = array_map(static fn ($m): int => $m->getId(), $result);
+        $this->assertContains(0, $ids);
+        $this->assertContains($a, $ids);
+    }
+
+    /**
+     * Test getByParent returns direct children sorted by position then name
+     *
+     * @return void
+     */
+    public function test_get_by_parent_sorts_children(): void
+    {
+        $parent = $this->createTerm('Parent');
+        $b      = $this->createTerm('Bravo', ['parent' => $parent]);
+        $a      = $this->createTerm('Alpha', ['parent' => $parent]);
+        $c      = $this->createTerm('Charlie', ['parent' => $parent]);
+
+        update_term_meta($a, FolderModel::META_POSITION, '2');
+        update_term_meta($b, FolderModel::META_POSITION, '2');
+        update_term_meta($c, FolderModel::META_POSITION, '1');
+
+        $children = $this->repository->getByParent($parent);
+
+        $this->assertCount(3, $children);
+        // Position 1 first.
+        $this->assertSame('Charlie', $children[0]->getName());
+        // Same position: alphabetical (Alpha before Bravo).
+        $this->assertSame('Alpha', $children[1]->getName());
+        $this->assertSame('Bravo', $children[2]->getName());
+    }
+
+    /**
+     * Test getByParent returns root-level folders for parent 0
+     *
+     * @return void
+     */
+    public function test_get_by_parent_returns_roots(): void
+    {
+        $rootA = $this->createTerm('Root A');
+        $rootB = $this->createTerm('Root B');
+        $this->createTerm('Nested', ['parent' => $rootA]);
+
+        $children = $this->repository->getByParent(0);
+
+        $this->assertCount(2, $children);
+        $names = array_map(static fn (FolderModel $m): string => $m->getName(), $children);
+        $this->assertContains('Root A', $names);
+        $this->assertContains('Root B', $names);
+    }
+
+    /**
+     * Test getByParent returns empty array for parent with no children
+     *
+     * @return void
+     */
+    public function test_get_by_parent_no_children(): void
+    {
+        $parent = $this->createTerm('Lonely');
+
+        $this->assertSame([], $this->repository->getByParent($parent));
+    }
+
+    /**
+     * Test getByParents returns map keyed by parent ID
+     *
+     * @return void
+     */
+    public function test_get_by_parents_returns_map(): void
+    {
+        $rootA  = $this->createTerm('A');
+        $rootB  = $this->createTerm('B');
+        $childA = $this->createTerm('A1', ['parent' => $rootA]);
+        $childB = $this->createTerm('B1', ['parent' => $rootB]);
+
+        $result = $this->repository->getByParents([$rootA, $rootB]);
+
+        $this->assertArrayHasKey($rootA, $result);
+        $this->assertArrayHasKey($rootB, $result);
+        $this->assertCount(1, $result[$rootA]);
+        $this->assertCount(1, $result[$rootB]);
+        $this->assertSame($childA, $result[$rootA][0]->getId());
+        $this->assertSame($childB, $result[$rootB][0]->getId());
+    }
+
+    /**
+     * Test getByParents includes empty arrays for parents without children
+     *
+     * @return void
+     */
+    public function test_get_by_parents_includes_empty_results(): void
+    {
+        $rootA = $this->createTerm('A');
+        $rootB = $this->createTerm('B');
+
+        $result = $this->repository->getByParents([$rootA, $rootB]);
+
+        $this->assertSame([], $result[$rootA]);
+        $this->assertSame([], $result[$rootB]);
+    }
+
+    /**
+     * Test search returns matching folders paginated
+     *
+     * @return void
+     */
+    public function test_search_returns_matching_folders(): void
+    {
+        $this->repository->create('Photos 2024');
+        $this->repository->create('Photos 2025');
+        $this->repository->create('Documents');
+
+        $result = $this->repository->search('Photos', 1, 50);
+
+        $this->assertSame(2, $result['total']);
+        $this->assertCount(2, $result['folders']);
+        $this->assertSame(1, $result['total_pages']);
+    }
+
+    /**
+     * Test search paginates correctly
+     *
+     * @return void
+     */
+    public function test_search_paginates(): void
+    {
+        for ($i = 1; $i <= 5; $i++) {
+            $this->repository->create('Photo ' . $i);
+        }
+
+        $page1 = $this->repository->search('Photo', 1, 2);
+        $page2 = $this->repository->search('Photo', 2, 2);
+        $page3 = $this->repository->search('Photo', 3, 2);
+
+        $this->assertSame(5, $page1['total']);
+        $this->assertSame(3, $page1['total_pages']);
+        $this->assertCount(2, $page1['folders']);
+        $this->assertCount(2, $page2['folders']);
+        $this->assertCount(1, $page3['folders']);
+    }
+
+    /**
+     * Test search returns empty result for empty query
+     *
+     * @return void
+     */
+    public function test_search_empty_query(): void
+    {
+        $this->repository->create('Photos');
+
+        $result = $this->repository->search('', 1, 50);
+
+        $this->assertSame(0, $result['total']);
+        $this->assertSame([], $result['folders']);
+        $this->assertSame(0, $result['total_pages']);
+    }
+
+    /**
+     * Test search is case-insensitive substring match
+     *
+     * @return void
+     */
+    public function test_search_case_insensitive_substring(): void
+    {
+        $this->repository->create('My Photos');
+        $this->repository->create('Photo Album');
+
+        $result = $this->repository->search('photo', 1, 50);
+
+        $this->assertSame(2, $result['total']);
+    }
+
+    /**
+     * Test getPath returns ancestor chain Root → target
+     *
+     * @return void
+     */
+    public function test_get_path_returns_ancestor_chain(): void
+    {
+        $topId        = $this->createTerm('Top');
+        $childId      = $this->createTerm('Child', ['parent' => $topId]);
+        $grandchildId = $this->createTerm('GC', ['parent' => $childId]);
+
+        $path = $this->repository->getPath($grandchildId);
+
+        // Root is always the first entry, before the user-created folders.
+        $this->assertCount(4, $path);
+        $this->assertTrue($path[0]->isRoot());
+        $this->assertSame($topId, $path[1]->getId());
+        $this->assertSame($childId, $path[2]->getId());
+        $this->assertSame($grandchildId, $path[3]->getId());
+    }
+
+    /**
+     * Test getPath returns Root + folder for a top-level folder
+     *
+     * @return void
+     */
+    public function test_get_path_for_top_level_folder(): void
+    {
+        $topId = $this->createTerm('Top');
+
+        $path = $this->repository->getPath($topId);
+
+        $this->assertCount(2, $path);
+        $this->assertTrue($path[0]->isRoot());
+        $this->assertSame($topId, $path[1]->getId());
+    }
+
+    /**
+     * Test getPath for the virtual Root returns just Root
+     *
+     * @return void
+     */
+    public function test_get_path_for_virtual_root(): void
+    {
+        $path = $this->repository->getPath(0);
+
+        $this->assertCount(1, $path);
+        $this->assertTrue($path[0]->isRoot());
+    }
+
+    /**
+     * Test getPath returns empty array for non-existent folder
+     *
+     * @return void
+     */
+    public function test_get_path_returns_empty_for_missing_folder(): void
+    {
+        $this->assertSame([], $this->repository->getPath(999999));
     }
 
     /**
@@ -263,6 +487,30 @@ class FolderRepositoryTests extends WP_UnitTestCase
     }
 
     /**
+     * Test create throws when parent ID does not exist
+     *
+     * @return void
+     */
+    public function test_create_throws_on_nonexistent_parent(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+
+        $this->repository->create('Orphan', 999999);
+    }
+
+    /**
+     * Test create throws on invalid color
+     *
+     * @return void
+     */
+    public function test_create_throws_on_invalid_color(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+
+        $this->repository->create('Folder', 0, 'not-a-color');
+    }
+
+    /**
      * Test update changes folder name
      *
      * @return void
@@ -286,65 +534,9 @@ class FolderRepositoryTests extends WP_UnitTestCase
         $parentId = $this->createTerm('New Parent');
         $model    = $this->repository->create('Child');
 
-        $updated = $this->repository->update($model->getId(), '', $parentId);
+        $updated = $this->repository->update($model->getId(), null, $parentId);
 
         $this->assertSame($parentId, $updated->getParentId());
-    }
-
-    /**
-     * Test moving a subtree updates recursive media counts
-     *
-     * Setup: A(media1,media2) > B(media3,media4), C(media5)
-     * Move B under C: A(media1,media2), C(media5) > B(media3,media4)
-     * Verify: A total=2, C total=3, B total=2
-     *
-     * @return void
-     */
-    public function test_update_parent_updates_recursive_media_counts(): void
-    {
-        $folderA = $this->createTerm('A');
-        $folderB = $this->createTerm('B', ['parent' => $folderA]);
-        $folderC = $this->createTerm('C');
-
-        $media1 = $this->factory()->attachment->create();
-        $media2 = $this->factory()->attachment->create();
-        $media3 = $this->factory()->attachment->create();
-        $media4 = $this->factory()->attachment->create();
-        $media5 = $this->factory()->attachment->create();
-
-        $this->repository->assignMedia($folderA, [$media1, $media2]);
-        $this->repository->assignMedia($folderB, [$media3, $media4]);
-        $this->repository->assignMedia($folderC, [$media5]);
-
-        // Before move: A total=4 (2 direct + B's 2), B total=2, C total=1
-        $treeBefore = $this->repository->getTree();
-        $aBefore    = $this->findInTree($treeBefore, $folderA);
-        $cBefore    = $this->findInTree($treeBefore, $folderC);
-
-        $this->assertSame(2, $aBefore->getMediaCount());
-        $this->assertSame(4, $aBefore->getTotalMediaCount());
-        $this->assertSame(1, $cBefore->getMediaCount());
-        $this->assertSame(1, $cBefore->getTotalMediaCount());
-
-        // Move B under C
-        $this->repository->update($folderB, '', $folderC);
-
-        // After move: A total=2, C total=3 (1 direct + B's 2), B total=2
-        $treeAfter = $this->repository->getTree();
-        $aAfter    = $this->findInTree($treeAfter, $folderA);
-        $cAfter    = $this->findInTree($treeAfter, $folderC);
-        $bAfter    = $this->findInTree($cAfter->getChildren(), $folderB);
-
-        $this->assertSame(2, $aAfter->getMediaCount());
-        $this->assertSame(2, $aAfter->getTotalMediaCount());
-        $this->assertSame(0, count($aAfter->getChildren()));
-
-        $this->assertSame(1, $cAfter->getMediaCount());
-        $this->assertSame(3, $cAfter->getTotalMediaCount());
-
-        $this->assertNotNull($bAfter);
-        $this->assertSame(2, $bAfter->getMediaCount());
-        $this->assertSame(2, $bAfter->getTotalMediaCount());
     }
 
     /**
@@ -356,7 +548,7 @@ class FolderRepositoryTests extends WP_UnitTestCase
     {
         $model = $this->repository->create('Folder');
 
-        $updated = $this->repository->update($model->getId(), '', -1, '#00ff00');
+        $updated = $this->repository->update($model->getId(), null, null, '#00ff00');
 
         $this->assertSame('#00ff00', $updated->getColor());
     }
@@ -370,7 +562,7 @@ class FolderRepositoryTests extends WP_UnitTestCase
     {
         $model = $this->repository->create('Folder');
 
-        $updated = $this->repository->update($model->getId(), '', -1, '', 10);
+        $updated = $this->repository->update($model->getId(), null, null, null, 10);
 
         $this->assertSame(10, $updated->getPosition());
     }
@@ -390,235 +582,6 @@ class FolderRepositoryTests extends WP_UnitTestCase
         $this->assertSame(0, $updated->getParentId());
         $this->assertSame('#ff0000', $updated->getColor());
         $this->assertSame(5, $updated->getPosition());
-    }
-
-    /**
-     * Test update throws for non-existent term
-     *
-     * @return void
-     */
-    public function test_update_throws_for_missing_term(): void
-    {
-        $this->expectException(InvalidArgumentException::class);
-
-        $this->repository->update(999999, 'Name');
-    }
-
-    /**
-     * Test delete removes folder
-     *
-     * @return void
-     */
-    public function test_delete_removes_folder(): void
-    {
-        $model = $this->repository->create('To Delete');
-
-        $result = $this->repository->delete($model->getId());
-
-        $this->assertTrue($result);
-        $this->assertNull($this->repository->getById($model->getId()));
-    }
-
-    /**
-     * Test delete throws for non-existent term
-     *
-     * @return void
-     */
-    public function test_delete_throws_for_missing_term(): void
-    {
-        $this->expectException(InvalidArgumentException::class);
-
-        $this->repository->delete(999999);
-    }
-
-    /**
-     * Test assignMedia sets term relationship
-     *
-     * @return void
-     */
-    public function test_assign_media_sets_relationship(): void
-    {
-        $folderId     = $this->createTerm('Photos');
-        $attachmentId = $this->factory()->attachment->create();
-
-        $this->repository->assignMedia($folderId, [$attachmentId]);
-
-        $terms = wp_get_object_terms($attachmentId, TaxonomyService::TAXONOMY_NAME);
-        $this->assertCount(1, $terms);
-        $this->assertSame($folderId, $terms[0]->term_id);
-
-        $folder = $this->repository->getById($folderId);
-        $this->assertSame(1, $folder->getMediaCount());
-    }
-
-    /**
-     * Test assignMedia replaces existing folder assignment
-     *
-     * @return void
-     */
-    public function test_assign_media_replaces_existing_assignment(): void
-    {
-        $folder1Id    = $this->createTerm('Folder A');
-        $folder2Id    = $this->createTerm('Folder B');
-        $attachmentId = $this->factory()->attachment->create();
-
-        $this->repository->assignMedia($folder1Id, [$attachmentId]);
-        $this->repository->assignMedia($folder2Id, [$attachmentId]);
-
-        $terms = wp_get_object_terms($attachmentId, TaxonomyService::TAXONOMY_NAME);
-        $this->assertCount(1, $terms);
-        $this->assertSame($folder2Id, $terms[0]->term_id);
-
-        $folder1 = $this->repository->getById($folder1Id);
-        $folder2 = $this->repository->getById($folder2Id);
-        $this->assertSame(0, $folder1->getMediaCount());
-        $this->assertSame(1, $folder2->getMediaCount());
-    }
-
-    /**
-     * Test assignMedia handles multiple media items
-     *
-     * @return void
-     */
-    public function test_assign_media_handles_multiple_items(): void
-    {
-        $folderId      = $this->createTerm('Photos');
-        $attachmentId1 = $this->factory()->attachment->create();
-        $attachmentId2 = $this->factory()->attachment->create();
-
-        $this->repository->assignMedia($folderId, [$attachmentId1, $attachmentId2]);
-
-        $terms1 = wp_get_object_terms($attachmentId1, TaxonomyService::TAXONOMY_NAME);
-        $terms2 = wp_get_object_terms($attachmentId2, TaxonomyService::TAXONOMY_NAME);
-
-        $this->assertCount(1, $terms1);
-        $this->assertSame($folderId, $terms1[0]->term_id);
-        $this->assertCount(1, $terms2);
-        $this->assertSame($folderId, $terms2[0]->term_id);
-
-        $folder = $this->repository->getById($folderId);
-        $this->assertSame(2, $folder->getMediaCount());
-    }
-
-    /**
-     * Test assignMedia throws for non-existent folder
-     *
-     * @return void
-     */
-    public function test_assign_media_throws_for_missing_folder(): void
-    {
-        $this->expectException(InvalidArgumentException::class);
-
-        $this->repository->assignMedia(999999, [1]);
-    }
-
-    /**
-     * Test removeMedia removes term relationship
-     *
-     * @return void
-     */
-    public function test_remove_media_removes_relationship(): void
-    {
-        $folderId     = $this->createTerm('Photos');
-        $attachmentId = $this->factory()->attachment->create();
-
-        $this->repository->assignMedia($folderId, [$attachmentId]);
-
-        $folderAfterAssign = $this->repository->getById($folderId);
-        $this->assertSame(1, $folderAfterAssign->getMediaCount());
-
-        $this->repository->removeMedia($folderId, [$attachmentId]);
-
-        $terms = wp_get_object_terms($attachmentId, TaxonomyService::TAXONOMY_NAME);
-        $this->assertCount(0, $terms);
-
-        $folderAfterRemove = $this->repository->getById($folderId);
-        $this->assertSame(0, $folderAfterRemove->getMediaCount());
-    }
-
-    /**
-     * Test removeMedia throws for non-existent folder
-     *
-     * @return void
-     */
-    public function test_remove_media_throws_for_missing_folder(): void
-    {
-        $this->expectException(InvalidArgumentException::class);
-
-        $this->repository->removeMedia(999999, [1]);
-    }
-
-    /**
-     * Test getRootMediaCount counts unassigned media
-     *
-     * @return void
-     */
-    public function test_get_root_media_count_counts_unassigned(): void
-    {
-        $this->factory()->attachment->create();
-        $this->factory()->attachment->create();
-
-        $count = $this->repository->getRootMediaCount();
-
-        $this->assertSame(2, $count);
-    }
-
-    /**
-     * Test getRootMediaCount excludes assigned media
-     *
-     * @return void
-     */
-    public function test_get_root_media_count_excludes_assigned(): void
-    {
-        $folderId = $this->createTerm('Photos');
-        $assigned = $this->factory()->attachment->create();
-        $this->factory()->attachment->create();
-
-        $this->repository->assignMedia($folderId, [$assigned]);
-
-        $this->assertSame(1, $this->repository->getRootMediaCount());
-
-        $folder = $this->repository->getById($folderId);
-        $this->assertSame(1, $folder->getMediaCount());
-    }
-
-    /**
-     * Test getRootMediaCount returns zero when all media assigned
-     *
-     * @return void
-     */
-    public function test_get_root_media_count_returns_zero_when_all_assigned(): void
-    {
-        $folderId     = $this->createTerm('Photos');
-        $attachmentId = $this->factory()->attachment->create();
-
-        $this->repository->assignMedia($folderId, [$attachmentId]);
-
-        $this->assertSame(0, $this->repository->getRootMediaCount());
-
-        $folder = $this->repository->getById($folderId);
-        $this->assertSame(1, $folder->getMediaCount());
-    }
-
-    /**
-     * Test delete releases media back to root
-     *
-     * @return void
-     */
-    public function test_delete_releases_media_to_root(): void
-    {
-        $folderId     = $this->createTerm('Photos');
-        $attachmentId = $this->factory()->attachment->create();
-
-        $this->repository->assignMedia($folderId, [$attachmentId]);
-
-        $folder = $this->repository->getById($folderId);
-        $this->assertSame(1, $folder->getMediaCount());
-        $this->assertSame(0, $this->repository->getRootMediaCount());
-
-        $this->repository->delete($folderId);
-
-        $this->assertSame(1, $this->repository->getRootMediaCount());
     }
 
     /**
@@ -665,108 +628,15 @@ class FolderRepositoryTests extends WP_UnitTestCase
     }
 
     /**
-     * Test getTree injects direct sizes
+     * Test update throws for non-existent term
      *
      * @return void
      */
-    public function test_get_tree_injects_direct_sizes(): void
-    {
-        $folderId     = $this->createTerm('Photos');
-        $attachmentId = $this->createAttachmentWithSize(2048);
-
-        $this->repository->assignMedia($folderId, [$attachmentId]);
-
-        $tree = $this->repository->getTree();
-
-        $this->assertCount(1, $tree);
-        $this->assertSame(2048, $tree[0]->getDirectSize());
-        $this->assertSame(2048, $tree[0]->getTotalSize());
-    }
-
-    /**
-     * Test getTree computes recursive total size
-     *
-     * @return void
-     */
-    public function test_get_tree_computes_recursive_total_size(): void
-    {
-        $parentId = $this->createTerm('Parent');
-        $childId  = $this->createTerm('Child', ['parent' => $parentId]);
-
-        $attachment1 = $this->createAttachmentWithSize(1000);
-        $attachment2 = $this->createAttachmentWithSize(2000);
-
-        $this->repository->assignMedia($parentId, [$attachment1]);
-        $this->repository->assignMedia($childId, [$attachment2]);
-
-        $tree = $this->repository->getTree();
-
-        $this->assertSame(1000, $tree[0]->getDirectSize());
-        $this->assertSame(3000, $tree[0]->getTotalSize());
-        $this->assertSame(2000, $tree[0]->getChildren()[0]->getDirectSize());
-        $this->assertSame(2000, $tree[0]->getChildren()[0]->getTotalSize());
-    }
-
-    /**
-     * Test getRootTotalSize returns size of unassigned media
-     *
-     * @return void
-     */
-    public function test_get_root_total_size_returns_unassigned_size(): void
-    {
-        $this->createAttachmentWithSize(1500);
-        $this->createAttachmentWithSize(2500);
-
-        $size = $this->repository->getRootTotalSize();
-
-        $this->assertSame(4000, $size);
-    }
-
-    /**
-     * Test getRootTotalSize excludes assigned media
-     *
-     * @return void
-     */
-    public function test_get_root_total_size_excludes_assigned(): void
-    {
-        $folderId = $this->createTerm('Photos');
-        $assigned = $this->createAttachmentWithSize(3000);
-        $this->createAttachmentWithSize(1000);
-
-        $this->repository->assignMedia($folderId, [$assigned]);
-
-        $size = $this->repository->getRootTotalSize();
-
-        $this->assertSame(1000, $size);
-    }
-
-    /**
-     * Test getRootTotalSize returns zero when no unassigned media
-     *
-     * @return void
-     */
-    public function test_get_root_total_size_returns_zero_when_all_assigned(): void
-    {
-        $folderId     = $this->createTerm('Photos');
-        $attachmentId = $this->createAttachmentWithSize(5000);
-
-        $this->repository->assignMedia($folderId, [$attachmentId]);
-
-        $size = $this->repository->getRootTotalSize();
-
-        $this->assertSame(0, $size);
-    }
-
-    /**
-     * Test create throws on invalid color
-     *
-     * @return void
-     */
-    public function test_create_throws_on_invalid_color(): void
+    public function test_update_throws_for_missing_term(): void
     {
         $this->expectException(InvalidArgumentException::class);
 
-        $this->repository->create('Folder', 0, 'not-a-color');
+        $this->repository->update(999999, 'Name');
     }
 
     /**
@@ -780,99 +650,86 @@ class FolderRepositoryTests extends WP_UnitTestCase
 
         $this->expectException(InvalidArgumentException::class);
 
-        $this->repository->update($model->getId(), '', -1, 'invalid');
+        $this->repository->update($model->getId(), null, null, 'invalid');
     }
 
     /**
-     * Test assignMedia throws on non-attachment post IDs
+     * Test reparenting a folder shifts the subtree totals between ancestor chains
      *
      * @return void
      */
-    public function test_assign_media_throws_on_non_attachment_ids(): void
+    public function test_update_reparent_shifts_subtree_totals(): void
     {
-        $folderId = $this->createTerm('Photos');
-        $pageId   = $this->factory()->post->create(['post_type' => 'page']);
+        $oldParent = $this->repository->create('Old');
+        $newParent = $this->repository->create('New');
+        $moving    = $this->repository->create('Moving', $oldParent->getId());
 
+        $att = $this->createAttachmentWithSize(2000);
+        $this->assignments->assign($moving->getId(), [$att]);
+
+        // Old chain contains Moving's totals before the move.
+        $this->assertSame('1', get_term_meta($oldParent->getId(), FolderModel::META_COUNT, true));
+        $this->assertSame('2000', get_term_meta($oldParent->getId(), FolderModel::META_SIZE, true));
+
+        $this->repository->update($moving->getId(), null, $newParent->getId());
+
+        $this->assertSame('0', get_term_meta($oldParent->getId(), FolderModel::META_COUNT, true));
+        $this->assertSame('0', get_term_meta($oldParent->getId(), FolderModel::META_SIZE, true));
+        $this->assertSame('1', get_term_meta($newParent->getId(), FolderModel::META_COUNT, true));
+        $this->assertSame('2000', get_term_meta($newParent->getId(), FolderModel::META_SIZE, true));
+        // The moved folder itself keeps its own totals.
+        $this->assertSame('1', get_term_meta($moving->getId(), FolderModel::META_COUNT, true));
+        $this->assertSame('2000', get_term_meta($moving->getId(), FolderModel::META_SIZE, true));
+    }
+
+    /**
+     * Test delete removes folder
+     *
+     * @return void
+     */
+    public function test_delete_removes_folder(): void
+    {
+        $model = $this->repository->create('To Delete');
+
+        $result = $this->repository->delete($model->getId());
+
+        $this->assertTrue($result);
+        $this->assertNull($this->repository->getById($model->getId()));
+    }
+
+    /**
+     * Test delete throws for non-existent term
+     *
+     * @return void
+     */
+    public function test_delete_throws_for_missing_term(): void
+    {
         $this->expectException(InvalidArgumentException::class);
 
-        $this->repository->assignMedia($folderId, [$pageId]);
+        $this->repository->delete(999999);
     }
 
     /**
-     * Test assignMedia throws when mixing valid and invalid IDs
+     * Test delete releases media back to root
      *
      * @return void
      */
-    public function test_assign_media_throws_on_mixed_valid_and_invalid_ids(): void
+    public function test_delete_releases_media_to_root(): void
     {
         $folderId     = $this->createTerm('Photos');
         $attachmentId = $this->factory()->attachment->create();
-        $pageId       = $this->factory()->post->create(['post_type' => 'page']);
 
-        $this->expectException(InvalidArgumentException::class);
+        $this->assignments->assign($folderId, [$attachmentId]);
 
-        $this->repository->assignMedia($folderId, [$attachmentId, $pageId]);
+        $this->assertSame(0, $this->counters->getUnassignedCount());
+
+        $this->repository->delete($folderId);
+
+        $this->assertSame(1, $this->counters->getUnassignedCount());
     }
 
     /**
-     * Test assignMedia accepts empty array without error
-     *
-     * @return void
-     */
-    public function test_assign_media_accepts_empty_array(): void
-    {
-        $folderId     = $this->createTerm('Photos');
-        $attachmentId = $this->factory()->attachment->create();
-
-        $this->repository->assignMedia($folderId, [$attachmentId]);
-        $this->repository->assignMedia($folderId, []);
-
-        $folder = $this->repository->getById($folderId);
-        $this->assertSame(1, $folder->getMediaCount());
-    }
-
-    /**
-     * Test removeMedia partial removal updates count correctly
-     *
-     * Assigns 3 media to a folder, removes 1, verifies count drops
-     * from 3 to 2 and the remaining 2 are still assigned.
-     *
-     * @return void
-     */
-    public function test_remove_media_partial_updates_count(): void
-    {
-        $folderId = $this->createTerm('Photos');
-        $media1   = $this->factory()->attachment->create();
-        $media2   = $this->factory()->attachment->create();
-        $media3   = $this->factory()->attachment->create();
-
-        $this->repository->assignMedia($folderId, [$media1, $media2, $media3]);
-
-        $folder = $this->repository->getById($folderId);
-        $this->assertSame(3, $folder->getMediaCount());
-
-        $this->repository->removeMedia($folderId, [$media2]);
-
-        $folderAfter = $this->repository->getById($folderId);
-        $this->assertSame(2, $folderAfter->getMediaCount());
-
-        $terms1 = wp_get_object_terms($media1, TaxonomyService::TAXONOMY_NAME);
-        $terms3 = wp_get_object_terms($media3, TaxonomyService::TAXONOMY_NAME);
-        $this->assertCount(1, $terms1);
-        $this->assertCount(1, $terms3);
-        $this->assertSame($folderId, $terms1[0]->term_id);
-        $this->assertSame($folderId, $terms3[0]->term_id);
-
-        $terms2 = wp_get_object_terms($media2, TaxonomyService::TAXONOMY_NAME);
-        $this->assertCount(0, $terms2);
-    }
-
-    /**
-     * Test deleting a parent folder orphans children to root
-     *
-     * Setup: Parent(media1,media2) > Child(media3,media4,media5)
-     * Delete Parent → Child becomes root-level, keeps its 3 media.
-     * Parent's 2 media become unassigned (root).
+     * Test deleting a parent folder orphans children to root and releases its direct media
      *
      * @return void
      */
@@ -885,45 +742,144 @@ class FolderRepositoryTests extends WP_UnitTestCase
         $media2 = $this->factory()->attachment->create();
         $media3 = $this->factory()->attachment->create();
         $media4 = $this->factory()->attachment->create();
-        $media5 = $this->factory()->attachment->create();
 
-        $this->repository->assignMedia($parentId, [$media1, $media2]);
-        $this->repository->assignMedia($childId, [$media3, $media4, $media5]);
-
-        // Before: parent total=5, child total=3, root unassigned=0
-        $treeBefore = $this->repository->getTree();
-        $this->assertCount(1, $treeBefore);
-        $this->assertSame(5, $treeBefore[0]->getTotalMediaCount());
-        $this->assertSame(0, $this->repository->getRootMediaCount());
+        $this->assignments->assign($parentId, [$media1, $media2]);
+        $this->assignments->assign($childId, [$media3, $media4]);
 
         $this->repository->delete($parentId);
 
-        // After: parent gone, child is root-level with 3 media, 2 media unassigned
         $this->assertNull($this->repository->getById($parentId));
 
         $child = $this->repository->getById($childId);
         $this->assertNotNull($child);
-        $this->assertSame(3, $child->getMediaCount());
+        $this->assertSame(2, $child->getMediaCount());
         $this->assertSame(0, $child->getParentId());
 
-        $this->assertSame(2, $this->repository->getRootMediaCount());
-
-        $treeAfter = $this->repository->getTree();
-        $this->assertCount(1, $treeAfter);
-        $this->assertSame('Child', $treeAfter[0]->getName());
-        $this->assertSame(3, $treeAfter[0]->getTotalMediaCount());
+        // The 2 media that were directly on the deleted parent are now unassigned.
+        $this->assertSame(2, $this->counters->getUnassignedCount());
     }
 
     /**
-     * Test create throws when parent ID does not exist
+     * Test deleting a folder subtracts its direct totals from ancestors
+     *
+     * Sub-folder counters stay invariant: their subtrees are intact, only the
+     * promotion to grandparent changes — and ancestors already counted them
+     * via the deleted folder.
      *
      * @return void
      */
-    public function test_create_throws_on_nonexistent_parent(): void
+    public function test_delete_subtracts_direct_totals_from_ancestors(): void
+    {
+        $grand  = $this->repository->create('Grand');
+        $parent = $this->repository->create('Parent', $grand->getId());
+        $child  = $this->repository->create('Child', $parent->getId());
+
+        $direct = $this->createAttachmentWithSize(400);
+        $deep   = $this->createAttachmentWithSize(600);
+        $this->assignments->assign($parent->getId(), [$direct]);
+        $this->assignments->assign($child->getId(), [$deep]);
+
+        // Pre-delete: grand sees both attachments via parent.
+        $this->assertSame('2', get_term_meta($grand->getId(), FolderModel::META_COUNT, true));
+        $this->assertSame('1000', get_term_meta($grand->getId(), FolderModel::META_SIZE, true));
+
+        $this->repository->delete($parent->getId());
+
+        // Grand loses parent's direct media (1 / 400) but still aggregates the
+        // promoted Child's subtree (1 / 600).
+        $this->assertSame('1', get_term_meta($grand->getId(), FolderModel::META_COUNT, true));
+        $this->assertSame('600', get_term_meta($grand->getId(), FolderModel::META_SIZE, true));
+
+        // Child's own counters are unchanged.
+        $this->assertSame('1', get_term_meta($child->getId(), FolderModel::META_COUNT, true));
+        $this->assertSame('600', get_term_meta($child->getId(), FolderModel::META_SIZE, true));
+    }
+
+    /**
+     * Test create() initializes count + size meta to zero
+     *
+     * @return void
+     */
+    public function test_create_initializes_counter_meta(): void
+    {
+        $folder = $this->repository->create('Folder');
+
+        $this->assertSame('0', get_term_meta($folder->getId(), FolderModel::META_SIZE, true));
+        $this->assertSame('0', get_term_meta($folder->getId(), FolderModel::META_COUNT, true));
+    }
+
+    // -------------------------------------------------------------------------
+    // Virtual Root behavior
+    // -------------------------------------------------------------------------
+
+    /**
+     * Test getById(0) returns the virtual Root folder
+     *
+     * @return void
+     */
+    public function test_get_by_id_returns_virtual_root(): void
+    {
+        $root = $this->repository->getById(0);
+
+        $this->assertNotNull($root);
+        $this->assertSame(0, $root->getId());
+        $this->assertTrue($root->isRoot());
+    }
+
+    /**
+     * Test Root's direct media count equals the unassigned count
+     *
+     * @return void
+     */
+    public function test_root_media_count_matches_unassigned_count(): void
+    {
+        $folder = $this->createTerm('Photos');
+        $att1   = $this->factory()->attachment->create(); // assigned
+        $this->factory()->attachment->create_many(2);     // 2 unassigned
+        $this->assignments->assign($folder, [$att1]);
+
+        $root = $this->repository->getById(0);
+
+        $this->assertNotNull($root);
+        $this->assertSame(2, $root->getMediaCount());
+    }
+
+    /**
+     * Test update() on Root throws InvalidArgumentException
+     *
+     * @return void
+     */
+    public function test_update_root_throws(): void
     {
         $this->expectException(InvalidArgumentException::class);
+        $this->repository->update(0, 'New Name');
+    }
 
-        $this->repository->create('Orphan', 999999);
+    /**
+     * Test delete() on Root throws InvalidArgumentException
+     *
+     * @return void
+     */
+    public function test_delete_root_throws(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->repository->delete(0);
+    }
+
+    /**
+     * Test getByIds includes the Root entry when 0 is requested
+     *
+     * @return void
+     */
+    public function test_get_by_ids_includes_root_when_requested(): void
+    {
+        $a = $this->createTerm('A');
+
+        $result = $this->repository->getByIds([0, $a]);
+        $ids    = array_map(static fn ($m): int => $m->getId(), $result);
+
+        $this->assertContains(0, $ids);
+        $this->assertContains($a, $ids);
     }
 
     /**
@@ -959,23 +915,5 @@ class FolderRepositoryTests extends WP_UnitTestCase
         );
 
         return $attachmentId;
-    }
-
-    /**
-     * Find a folder by ID in a tree (searches root level only)
-     *
-     * @param FolderModel[] $tree     Array of folder models
-     * @param int           $folderId Folder ID to find
-     *
-     * @return FolderModel|null
-     */
-    private function findInTree(array $tree, int $folderId): ?FolderModel
-    {
-        foreach ($tree as $folder) {
-            if ($folder->getId() === $folderId) {
-                return $folder;
-            }
-        }
-        return null;
     }
 }

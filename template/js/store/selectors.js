@@ -1,78 +1,164 @@
-/**
- * Returns the full flat-to-tree folder array.
- *
- * @param {Object} state Store state.
- * @return {Array} Folder tree.
- */
-export const getFolders = ( state ) => state.folders;
+import { ROOT_PARENT_ID } from './constants';
+
+const EMPTY_ARRAY = Object.freeze( [] );
 
 /**
- * Returns the currently selected folder ID (null = root / all media).
+ * Returns the children of a parent folder, or an empty array if not loaded.
+ *
+ * Always returns the same frozen empty array reference for missing slots so
+ * downstream useSelect comparisons stay stable.
+ *
+ * @param {Object} state    Store state.
+ * @param {number} parentId Parent folder ID (0 = root).
+ * @return {Array} Children folders.
+ */
+export const getChildrenOf = ( state, parentId ) =>
+	state.foldersByParent[ parentId ] ?? EMPTY_ARRAY;
+
+/**
+ * Returns the root-level folders (children of parent 0).
  *
  * @param {Object} state Store state.
- * @return {number|null} Selected folder ID.
+ * @return {Array} Root folders.
+ */
+export const getRootFolders = ( state ) =>
+	getChildrenOf( state, ROOT_PARENT_ID );
+
+/**
+ * O(1) lookup of a folder by ID.
+ *
+ * @param {Object} state    Store state.
+ * @param {number} folderId Folder ID.
+ * @return {Object|undefined} Folder or undefined.
+ */
+export const getFolderById = ( state, folderId ) =>
+	state.foldersById[ folderId ];
+
+/**
+ * Whether the user has expanded this folder in the tree.
+ *
+ * @param {Object} state    Store state.
+ * @param {number} folderId Folder ID.
+ * @return {boolean} Expansion flag.
+ */
+export const isFolderExpanded = ( state, folderId ) =>
+	state.expandedIds.includes( folderId );
+
+/**
+ * Returns the full set of expanded folder IDs.
+ *
+ * @param {Object} state Store state.
+ * @return {number[]} Expanded folder IDs.
+ */
+export const getExpandedIds = ( state ) => state.expandedIds;
+
+/**
+ * Whether the children of this parent have been fetched at least once.
+ *
+ * @param {Object} state    Store state.
+ * @param {number} parentId Parent folder ID.
+ * @return {boolean} Loaded flag.
+ */
+export const isFolderLoaded = ( state, parentId ) =>
+	state.loadedParents.includes( parentId );
+
+/**
+ * Whether a fetch for this parent's children is currently in flight.
+ *
+ * @param {Object} state    Store state.
+ * @param {number} parentId Parent folder ID.
+ * @return {boolean} Fetching flag.
+ */
+export const isFolderFetching = ( state, parentId ) =>
+	state.fetchingParents.includes( parentId );
+
+/**
+ * Pagination state for a parent's children list.
+ *
+ * @param {Object} state    Store state.
+ * @param {number} parentId Parent folder ID.
+ * @return {{page: number, totalPages: number}|undefined} Pagination or undefined.
+ */
+export const getParentPagination = ( state, parentId ) =>
+	state.parentsPagination[ parentId ];
+
+/**
+ * Currently selected folder ID (null = root / All Media).
+ *
+ * @param {Object} state Store state.
+ * @return {number|null} Selected ID.
  */
 export const getSelectedFolderId = ( state ) => state.selectedFolderId;
 
 /**
- * Returns whether the folder tree is loading.
+ * Whether the "All Media" override is active.
+ *
+ * When true the sidebar is rendered inert and the native media grid stops
+ * being filtered by folder.
+ *
+ * @param {Object} state Store state.
+ * @return {boolean} Active flag.
+ */
+export const isAllMediaActive = ( state ) => state.allMediaActive;
+
+/**
+ * Current search query string.
+ *
+ * @param {Object} state Store state.
+ * @return {string} Query.
+ */
+export const getSearchQuery = ( state ) => state.searchQuery;
+
+/**
+ * Current search result entries (each: { folder, breadcrumb }).
+ *
+ * @param {Object} state Store state.
+ * @return {Array} Results.
+ */
+export const getSearchResults = ( state ) => state.searchResults;
+
+/**
+ * Whether the search request is currently in flight.
  *
  * @param {Object} state Store state.
  * @return {boolean} Loading flag.
  */
-export const isLoading = ( state ) => state.isLoading;
+export const isSearchLoading = ( state ) => state.searchIsLoading;
 
 /**
- * Returns the last error message, or null if none.
+ * Current page of the active search.
  *
  * @param {Object} state Store state.
- * @return {string|null} Error message.
+ * @return {number} Page number.
+ */
+export const getSearchPage = ( state ) => state.searchPage;
+
+/**
+ * Total pages of the active search.
+ *
+ * @param {Object} state Store state.
+ * @return {number} Total pages.
+ */
+export const getSearchTotalPages = ( state ) => state.searchTotalPages;
+
+/**
+ * Total result count of the active search.
+ *
+ * @param {Object} state Store state.
+ * @return {number} Total results.
+ */
+export const getSearchTotal = ( state ) => state.searchTotal;
+
+/**
+ * Last error message, or null.
+ *
+ * @param {Object} state Store state.
+ * @return {string|null} Error.
  */
 export const getError = ( state ) => state.error;
 
 /**
- * Returns the count of media items not assigned to any folder (root).
- *
- * @param {Object} state Store state.
- * @return {number} Root media count.
- */
-export const getRootMediaCount = ( state ) => state.rootMediaCount;
-
-/**
- * Returns the total size (bytes) of media not assigned to any folder (root).
- *
- * @param {Object} state Store state.
- * @return {number} Root total size in bytes.
- */
-export const getRootTotalSize = ( state ) => state.rootTotalSize;
-
-/**
- * Finds a folder by ID within the tree (recursive search).
- *
- * @param {Object} state    Store state.
- * @param {number} folderId Folder term ID.
- * @return {Object|undefined} Folder object or undefined.
- */
-export const getFolderById = ( state, folderId ) => {
-	const search = ( folders ) => {
-		for ( const folder of folders ) {
-			if ( folder.id === folderId ) {
-				return folder;
-			}
-			if ( folder.children?.length ) {
-				const found = search( folder.children );
-				if ( found ) {
-					return found;
-				}
-			}
-		}
-		return undefined;
-	};
-	return search( state.folders );
-};
-
-/**
- * Returns the current page of media items.
+ * Current page of media items.
  *
  * @param {Object} state Store state.
  * @return {Array} Media items.
@@ -80,7 +166,7 @@ export const getFolderById = ( state, folderId ) => {
 export const getMedia = ( state ) => state.media;
 
 /**
- * Returns whether media is currently loading.
+ * Whether media is currently loading.
  *
  * @param {Object} state Store state.
  * @return {boolean} Loading flag.
@@ -88,55 +174,17 @@ export const getMedia = ( state ) => state.media;
 export const isMediaLoading = ( state ) => state.mediaIsLoading;
 
 /**
- * Returns the total number of media items for the current folder/query.
+ * Total media count for the active folder/query.
  *
  * @param {Object} state Store state.
- * @return {number} Total media count.
+ * @return {number} Total.
  */
 export const getMediaTotal = ( state ) => state.mediaTotal;
 
 /**
- * Returns the total number of pages for the current media query.
+ * Total pages for the active media query.
  *
  * @param {Object} state Store state.
  * @return {number} Total pages.
  */
 export const getMediaTotalPages = ( state ) => state.mediaTotalPages;
-
-/**
- * Returns the current folder search query string.
- *
- * @param {Object} state Store state.
- * @return {string} Search query.
- */
-export const getSearchQuery = ( state ) => state.searchQuery;
-
-/**
- * Filters the folder tree by the current search query.
- * If a child matches, its ancestors are included too.
- *
- * @param {Object} state Store state.
- * @return {Array} Filtered folder tree.
- */
-export const getFilteredFolders = ( state ) => {
-	const query = state.searchQuery.trim().toLowerCase();
-	if ( ! query ) {
-		return state.folders;
-	}
-
-	const filterTree = ( folders ) => {
-		const result = [];
-		for ( const folder of folders ) {
-			const filteredChildren = folder.children?.length
-				? filterTree( folder.children )
-				: [];
-			const nameMatches = folder.name.toLowerCase().includes( query );
-			if ( nameMatches || filteredChildren.length ) {
-				result.push( { ...folder, children: filteredChildren } );
-			}
-		}
-		return result;
-	};
-
-	return filterTree( state.folders );
-};

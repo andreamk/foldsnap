@@ -1,27 +1,38 @@
-import { useDispatch } from '@wordpress/data';
+import { ToggleControl } from '@wordpress/components';
+import { useDispatch, useSelect } from '@wordpress/data';
 import {
 	DndContext,
 	PointerSensor,
 	useSensor,
 	useSensors,
 } from '@dnd-kit/core';
+import { __ } from '@wordpress/i18n';
 import { STORE_NAME } from '../store/constants';
 import FolderTree from './FolderTree';
 
 /**
  * Root sidebar component mounted inside the native WordPress Media Library.
  *
- * Wraps FolderTree in a DndContext that handles:
- * - Folder reordering (drag folder onto a sibling position)
- * - Folder reparenting (drag folder onto a drop zone of another folder)
+ * Wraps FolderTree in a DndContext for folder reorder/reparent and exposes
+ * the "All Media" toggle that disables the folder UI entirely. When the
+ * toggle is on, the folder tree is rendered inert (greyed out, not
+ * interactive) and the native media grid stops being filtered.
  *
- * Media assignment is handled via HTML5 native drag & drop from the
- * WordPress media grid (see index.js and FolderItem.jsx).
+ * The dnd-kit data payload only carries folder IDs — the active folder's
+ * current name (required by `updateFolder`) is read from the store via
+ * `getFolderById()` at drop time.
  *
  * @return {JSX.Element} The rendered sidebar.
  */
 const FolderSidebar = () => {
-	const { updateFolder } = useDispatch( STORE_NAME );
+	const { updateFolder, setAllMedia } = useDispatch( STORE_NAME );
+	const { getFolderById, allMediaActive } = useSelect( ( select ) => {
+		const store = select( STORE_NAME );
+		return {
+			getFolderById: store.getFolderById,
+			allMediaActive: store.isAllMediaActive(),
+		};
+	}, [] );
 
 	const sensors = useSensors(
 		useSensor( PointerSensor, {
@@ -29,12 +40,10 @@ const FolderSidebar = () => {
 		} )
 	);
 
-	/**
-	 * Handles the end of a drag operation (folder reorder/reparent only).
-	 *
-	 * @param {Object} event DndKit drag end event.
-	 */
 	const handleDragEnd = ( event ) => {
+		if ( allMediaActive ) {
+			return;
+		}
 		const { active, over } = event;
 		if ( ! over || active.id === over.id ) {
 			return;
@@ -43,34 +52,65 @@ const FolderSidebar = () => {
 		const activeType = active.data.current?.type;
 		const overType = over.data.current?.type;
 
-		if ( activeType === 'folder' && overType === 'folder' ) {
-			const activeFolder = active.data.current.folder;
-			const overData = over.data.current;
-
-			// Drop on a folder-drop zone → reparent
-			if ( over.id.toString().startsWith( 'folder-drop-' ) ) {
-				const targetFolderId = overData.folderId;
-				if ( activeFolder.id !== targetFolderId ) {
-					updateFolder( activeFolder.id, {
-						name: activeFolder.name,
-						parentId: targetFolderId,
-					} );
-				}
-				return;
-			}
-
-			// Drop on sortable folder → reorder (same parent assumed)
-			updateFolder( activeFolder.id, {
-				name: activeFolder.name,
-				position: over.data.current?.folder?.position ?? 0,
-			} );
+		if ( activeType !== 'folder' || overType !== 'folder' ) {
+			return;
 		}
+
+		const activeFolderId = active.data.current.folderId;
+		const activeFolder = getFolderById( activeFolderId );
+		if ( ! activeFolder ) {
+			return;
+		}
+
+		// Drop on a folder-drop zone → reparent
+		if ( over.id.toString().startsWith( 'folder-drop-' ) ) {
+			const targetFolderId = over.data.current.folderId;
+			if ( activeFolder.id !== targetFolderId ) {
+				updateFolder( activeFolder.id, {
+					name: activeFolder.name,
+					parentId: targetFolderId,
+				} );
+			}
+			return;
+		}
+
+		// Drop on sortable folder → reorder (same parent assumed)
+		const overFolder = getFolderById( over.data.current.folderId );
+		updateFolder( activeFolder.id, {
+			name: activeFolder.name,
+			position: overFolder?.position ?? 0,
+		} );
 	};
 
 	return (
 		<DndContext sensors={ sensors } onDragEnd={ handleDragEnd }>
-			<div className="foldsnap-sidebar">
-				<FolderTree />
+			<div
+				className={ [
+					'foldsnap-sidebar',
+					allMediaActive ? 'foldsnap-sidebar--all-media' : '',
+				]
+					.filter( Boolean )
+					.join( ' ' ) }
+			>
+				<div className="foldsnap-sidebar__all-media-toggle">
+					<ToggleControl
+						__nextHasNoMarginBottom
+						label={ __( 'All Media', 'foldsnap' ) }
+						help={ __(
+							'Bypass the folder sidebar and show every media item.',
+							'foldsnap'
+						) }
+						checked={ allMediaActive }
+						onChange={ setAllMedia }
+					/>
+				</div>
+				<div
+					className="foldsnap-sidebar__tree"
+					inert={ allMediaActive ? '' : undefined }
+					aria-hidden={ allMediaActive ? 'true' : undefined }
+				>
+					<FolderTree />
+				</div>
 			</div>
 		</DndContext>
 	);

@@ -21,3 +21,7 @@ defined('ABSPATH') || exit;
 $foldsnapBootFile = __FILE__;
 
 require_once __DIR__ . '/foldsnap-main.php';
+
+register_deactivation_hook(__FILE__, static function (): void {
+    wp_clear_scheduled_hook('foldsnap_recalc_chunk');
+});

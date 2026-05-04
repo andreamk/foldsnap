@@ -1,134 +1,133 @@
-import { useState } from '@wordpress/element';
+import { useState, useEffect } from '@wordpress/element';
 import { TextControl, Button, Spinner, Notice } from '@wordpress/components';
 import { useSelect, useDispatch } from '@wordpress/data';
-import {
-	SortableContext,
-	verticalListSortingStrategy,
-} from '@dnd-kit/sortable';
 import { __ } from '@wordpress/i18n';
-import { STORE_NAME } from '../store/constants';
+import { STORE_NAME, ROOT_PARENT_ID } from '../store/constants';
+import useDebouncedCallback, {
+	SEARCH_DEBOUNCE_MS,
+} from '../hooks/useDebouncedCallback';
 import FolderItem from './FolderItem';
 import CreateFolderModal from './CreateFolderModal';
+import SearchResultsList from './SearchResultsList';
 
 /**
- * Sidebar folder tree with search, root item, and "New Folder" button.
+ * Sidebar folder tree with debounced search and a "New Folder" button.
  *
- * @return {JSX.Element} The rendered folder tree.
+ * Two display modes mutually exclusive:
+ *   - search active → SearchResultsList (paginated server-side)
+ *   - empty query   → root folders + on-demand expand via FolderItem
+ *
+ * Search input is locally controlled (no roundtrip on every keystroke);
+ * dispatches setSearchQuery + searchFolders only after the debounce window.
+ *
+ * @return {JSX.Element} Rendered folder tree.
  */
 const FolderTree = () => {
 	const [ isModalOpen, setIsModalOpen ] = useState( false );
 	const [ modalParentId, setModalParentId ] = useState( 0 );
+	const [ inputValue, setInputValue ] = useState( '' );
 
 	const {
-		folders,
-		filteredFolders,
+		rootHydrated,
+		isRootLoading,
 		selectedFolderId,
-		isLoading,
 		error,
-		rootMediaCount,
+		searchQuery,
 	} = useSelect( ( select ) => {
 		const store = select( STORE_NAME );
 		return {
-			folders: store.getFolders(),
-			filteredFolders: store.getFilteredFolders(),
+			rootHydrated: store.getFolderById( ROOT_PARENT_ID ) !== undefined,
+			isRootLoading:
+				! store.isFolderLoaded( ROOT_PARENT_ID ) &&
+				store.isFolderFetching( ROOT_PARENT_ID ),
 			selectedFolderId: store.getSelectedFolderId(),
-			isLoading: store.isLoading(),
 			error: store.getError(),
-			rootMediaCount: store.getRootMediaCount(),
+			searchQuery: store.getSearchQuery(),
 		};
-	} );
+	}, [] );
 
-	const { setSelectedFolder, setSearchQuery } = useDispatch( STORE_NAME );
+	const { setSelectedFolder, setSearchQuery, searchFolders, clearSearch } =
+		useDispatch( STORE_NAME );
 
-	const searchQuery = useSelect( ( select ) =>
-		select( STORE_NAME ).getSearchQuery()
-	);
+	useEffect( () => {
+		// Keep the local input in sync with external resets (e.g. a search
+		// result click clears the query).
+		if ( searchQuery !== inputValue ) {
+			setInputValue( searchQuery );
+		}
+		// Sync only on external changes; not on every render.
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [ searchQuery ] );
 
-	const handleRootSelect = () => {
-		setSelectedFolder( null );
+	const commitSearch = useDebouncedCallback( ( value ) => {
+		setSearchQuery( value );
+		if ( value.trim() === '' ) {
+			clearSearch();
+		} else {
+			searchFolders( value );
+		}
+	}, SEARCH_DEBOUNCE_MS );
+
+	const handleSearchChange = ( value ) => {
+		setInputValue( value );
+		commitSearch( value );
 	};
 
-	const handleOpenModal = ( parentId = 0 ) => {
+	const handleOpenModal = ( parentId = ROOT_PARENT_ID ) => {
 		setModalParentId( parentId );
 		setIsModalOpen( true );
 	};
 
 	const handleCloseModal = () => {
 		setIsModalOpen( false );
-		setModalParentId( 0 );
+		setModalParentId( ROOT_PARENT_ID );
 	};
 
-	const rootFolderIds = folders.map( ( f ) => f.id );
+	const isSearching = searchQuery.trim() !== '';
 
 	return (
 		<div className="foldsnap-folder-tree">
-			{ /* Search input */ }
 			<div className="foldsnap-folder-tree__search">
 				<TextControl
+					__nextHasNoMarginBottom
+					__next40pxDefaultSize
 					label={ __( 'Search folders', 'foldsnap' ) }
 					hideLabelFromVision
 					placeholder={ __( 'Search folders…', 'foldsnap' ) }
-					value={ searchQuery }
-					onChange={ setSearchQuery }
+					value={ inputValue }
+					onChange={ handleSearchChange }
 					className="foldsnap-search-input"
 				/>
 			</div>
 
-			{ /* Loading / error states */ }
-			{ isLoading && (
-				<div className="foldsnap-folder-tree__loading">
-					<Spinner />
-				</div>
-			) }
-			{ error && ! isLoading && (
+			{ error && (
 				<Notice status="error" isDismissible={ false }>
 					{ error }
 				</Notice>
 			) }
 
-			{ /* Root "All Media" item */ }
-			<div
-				className={ [
-					'foldsnap-root-item',
-					selectedFolderId === null
-						? 'foldsnap-root-item--selected'
-						: '',
-				]
-					.filter( Boolean )
-					.join( ' ' ) }
-				role="button"
-				tabIndex={ 0 }
-				onClick={ handleRootSelect }
-				onKeyDown={ ( e ) => e.key === 'Enter' && handleRootSelect() }
-			>
-				<span className="foldsnap-root-item__label">
-					{ __( 'All Media', 'foldsnap' ) }
-				</span>
-				<span className="foldsnap-root-item__badge">
-					{ rootMediaCount }
-				</span>
-			</div>
-
-			{ /* Folder list with sortable context for root-level reordering */ }
-			{ ! isLoading && ! error && (
-				<SortableContext
-					items={ rootFolderIds }
-					strategy={ verticalListSortingStrategy }
-				>
-					{ filteredFolders.map( ( folder ) => (
+			{ isSearching ? (
+				<SearchResultsList />
+			) : (
+				<>
+					{ isRootLoading && ! rootHydrated && (
+						<div className="foldsnap-folder-tree__loading">
+							<Spinner />
+						</div>
+					) }
+					{ rootHydrated && (
 						<FolderItem
-							key={ folder.id }
-							folder={ folder }
+							key={ ROOT_PARENT_ID }
+							folderId={ ROOT_PARENT_ID }
 							selectedFolderId={ selectedFolderId }
 							onSelect={ setSelectedFolder }
 							depth={ 0 }
 							onAddSubfolder={ handleOpenModal }
 						/>
-					) ) }
-				</SortableContext>
+					) }
+				</>
 			) }
 
-			{ /* New Folder button */ }
 			<div className="foldsnap-folder-tree__actions">
 				<Button
 					variant="secondary"
@@ -139,11 +138,9 @@ const FolderTree = () => {
 				</Button>
 			</div>
 
-			{ /* Create folder modal */ }
 			{ isModalOpen && (
 				<CreateFolderModal
 					parentId={ modalParentId }
-					folders={ folders }
 					onClose={ handleCloseModal }
 				/>
 			) }

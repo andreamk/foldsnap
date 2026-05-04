@@ -15,6 +15,9 @@ Review architectural decisions and design quality in complex changes.
 - Separation of concerns
 - Dependency direction and injection patterns
 - Single Responsibility Principle adherence
+- Encapsulation (visibility and public surface)
+- Single Source of Truth (no duplicated facts/state across the system)
+- Signature regularity (narrow input/output types, no sentinel values)
 - Abstraction quality and cohesion
 - Frontend/Backend boundary design (React ↔ REST API ↔ PHP)
 - **Any other architectural concerns**
@@ -51,6 +54,23 @@ Review architectural decisions and design quality in complex changes.
 **Single Responsibility:**
 - One class, one reason to change
 - Avoid God classes
+
+**Encapsulation:**
+- Private/protected by default; public only when there's a real external caller
+- No leaking of internal state (raw arrays/entities) through public methods
+- No public setters/getters that expose mutable internals unnecessarily
+
+**Single Source of Truth:**
+- A given fact, rule, or piece of state is represented in exactly one place
+- No parallel data structures that must be kept in sync (constants, mappings, derived state)
+- Derived values computed from the source, not stored separately
+
+**Signature Regularity:**
+- Prefer narrow, uniform input/output types; mixing semantically distinct states in one return value (e.g. `Folder|false|null` where `false` = error, `null` = not found) is usually worth avoiding
+- Sentinel values (`-1` = "no update", `0` = "missing", `false` = "error") are usually better expressed as `null` or a distinct type
+- Wide union parameters (`int|string|Folder`) force every caller to re-normalize and are usually worth narrowing
+- This is a guideline, not a rule: legitimate exceptions exist (e.g. a function that genuinely returns "found"/"not found" via `?Folder`, or framework signatures that must accept varied input). Flag only when the irregularity is gratuitous and the caller-side cost is visible
+- Only evaluate the signature itself — do not speculate about redesigning the broader data model
 
 **Appropriate Abstraction:**
 - Interfaces hide implementation details
@@ -93,9 +113,9 @@ Review architectural decisions and design quality in complex changes.
 
 ## Severity Guidelines
 
-**High** - Circular dependencies, business logic in wrong layer, god classes (>500 lines), violates SOLID, React components with PHP business logic
-**Medium** - Tight coupling, missing abstractions, unclear responsibilities
-**Low** - Could be cleaner, minor coupling issues
+**High** - Circular dependencies, business logic in wrong layer, god classes (>500 lines), violates SOLID, React components with PHP business logic, same fact/state stored in two places that must be kept in sync, return type mixing 3+ semantically distinct states
+**Medium** - Tight coupling, missing abstractions, unclear responsibilities, public method/property without external caller, derived value cached separately from its source, sentinel value in signature where `null` or a distinct type would be cleaner
+**Low** - Could be cleaner, minor coupling issues, overly permissive visibility
 
 ## Critical Rules
 

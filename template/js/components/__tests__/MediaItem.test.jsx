@@ -1,4 +1,5 @@
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import MediaItem from '../MediaItem';
 import formatSize from '../../utils/format-size';
 
@@ -154,7 +155,8 @@ describe( 'MediaItem', () => {
 		).not.toBeInTheDocument();
 	} );
 
-	it( 'calls onSelect with media id on click', () => {
+	it( 'calls onSelect with media id on click', async () => {
+		const user = userEvent.setup();
 		const onSelect = jest.fn();
 		render(
 			<MediaItem
@@ -164,14 +166,15 @@ describe( 'MediaItem', () => {
 				selectedIds={ [] }
 			/>
 		);
-		fireEvent.click( screen.getByText( 'Beach Photo' ) );
+		await user.click( screen.getByText( 'Beach Photo' ) );
 		expect( onSelect ).toHaveBeenCalledWith( 42, {
 			shift: false,
 			ctrl: false,
 		} );
 	} );
 
-	it( 'passes shift modifier on shift-click', () => {
+	it( 'passes shift modifier on shift-click', async () => {
+		const user = userEvent.setup();
 		const onSelect = jest.fn();
 		render(
 			<MediaItem
@@ -181,16 +184,17 @@ describe( 'MediaItem', () => {
 				selectedIds={ [] }
 			/>
 		);
-		fireEvent.click( screen.getByText( 'Beach Photo' ), {
-			shiftKey: true,
-		} );
+		await user.keyboard( '{Shift>}' );
+		await user.click( screen.getByText( 'Beach Photo' ) );
+		await user.keyboard( '{/Shift}' );
 		expect( onSelect ).toHaveBeenCalledWith( 7, {
 			shift: true,
 			ctrl: false,
 		} );
 	} );
 
-	it( 'passes ctrl modifier on ctrl-click', () => {
+	it( 'passes ctrl modifier on ctrl-click', async () => {
+		const user = userEvent.setup();
 		const onSelect = jest.fn();
 		render(
 			<MediaItem
@@ -200,16 +204,17 @@ describe( 'MediaItem', () => {
 				selectedIds={ [] }
 			/>
 		);
-		fireEvent.click( screen.getByText( 'Beach Photo' ), {
-			ctrlKey: true,
-		} );
+		await user.keyboard( '{Control>}' );
+		await user.click( screen.getByText( 'Beach Photo' ) );
+		await user.keyboard( '{/Control}' );
 		expect( onSelect ).toHaveBeenCalledWith( 3, {
 			shift: false,
 			ctrl: true,
 		} );
 	} );
 
-	it( 'calls onSelect on Enter key press', () => {
+	it( 'calls onSelect on Enter key press', async () => {
+		const user = userEvent.setup();
 		const onSelect = jest.fn();
 		render(
 			<MediaItem
@@ -219,9 +224,9 @@ describe( 'MediaItem', () => {
 				selectedIds={ [] }
 			/>
 		);
-		fireEvent.keyDown( screen.getByRole( 'button' ), {
-			key: 'Enter',
-		} );
+		const item = screen.getByRole( 'button' );
+		item.focus();
+		await user.keyboard( '{Enter}' );
 		expect( onSelect ).toHaveBeenCalledWith( 5, {
 			shift: false,
 			ctrl: false,
