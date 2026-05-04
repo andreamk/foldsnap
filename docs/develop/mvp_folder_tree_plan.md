@@ -722,6 +722,68 @@ Rinviato per non gonfiare il fix del Root: la maniglia angolare di default basta
 
 Rinviato per non gonfiare lo Step 8B: la persistenza minima (set espansione + toggle All Media) è già attiva, gli altri pezzi sono raffinamenti UX da fare in una passata dedicata dopo aver verificato l'esperienza reale.
 
+### TODO-10 — Filesize meta numerico dedicato (P6/P7)
+
+**Problema**: `Database::getGlobalTotalSize` e `Database::getUnassignedAttachmentMeta` caricano tutta la `_wp_attachment_metadata` serializzata in PHP e ne fanno `maybe_unserialize` per estrarre `filesize`. Su 10k attachment significa 10–30MB caricati e 10k unserialize per ogni cache miss di `getUnassignedSize()` (che si invalida ad ogni assign/unassign/remove/delete-attachment) e ad ogni `finalizeRoot()` del recalc.
+
+**Da fare**:
+1. Nuovo meta key `_foldsnap_filesize` (numerico, intero bytes).
+2. `AttachmentLifecycleService::onMetadataGenerated` popola il meta dopo che WP ha generato la metadata standard.
+3. Backfill one-shot dentro `CountersRecalculator` (o uno step dedicato del recalc) che legge `_wp_attachment_metadata`, ne estrae `filesize` e scrive `_foldsnap_filesize`. Idempotente: skip se il meta esiste già.
+4. Riscrivere `getGlobalTotalSize` e `getUnassignedAttachmentMeta` come `SUM(meta_value)` su `_foldsnap_filesize` con LEFT JOIN su `wp_term_relationships` per la versione "unassigned". Niente più PHP-side unserialize.
+5. Rimuovere `Database::extractFileSize` se non serve più (resta utile per `getMediaFileSizes` e `getDirectSizesForFolders` che leggono per-attachment in altri code path — valutare se conviene migrare anche quelli).
+
+**Impatto utente**: scompare la latenza visibile sulla sidebar dopo mutazioni media su siti con migliaia di attachment. È la fix con il valore pratico più alto del round.
+
+### TODO-11 — Cache group `foldsnap` non registrato come non-persistent (PA3)
+
+**Problema**: `FolderCounterService` usa `wp_cache_set/get(..., 'foldsnap')` ma il gruppo non è dichiarato. Su siti con object cache persistente (Redis/Memcached, comuni su WordPress.com / Pantheon / Kinsta), il gruppo viene persistito tra request. L'invalidazione c'è ad ogni mutation ma è facile rompere l'invariante con request concorrenti, e si possono lasciare valori stale persistiti.
+
+**Da fare**: una riga in `Bootstrap::onInit()`:
+```php
+wp_cache_add_non_persistent_groups(['foldsnap']);
+```
+
+Va chiamata prima di qualunque accesso a `wp_cache_*` con quel gruppo, quindi presto in `onInit`.
+
+**Verifica**: test che mocka `wp_cache_add_non_persistent_groups` e verifica la chiamata. In integrazione, comportamento invariato sui setup di test (no persistent backend).
+
+### TODO-12 — Race read-then-write sui Root counters (P3)
+
+**Problema**: `FolderCounterService::adjustRoot` legge l'option, somma il delta in PHP, riscrive. Due upload concorrenti che leggono lo stesso valore producono lost-update. Il recalc cron è la safety net (TODO-1) ma nel frattempo l'utente vede numeri sbagliati.
+
+**Da fare** (in due passi indipendenti):
+1. **Subito (banale)**: passare `false` come 3° argomento a tutti i `update_option` in `FolderCounterService` (`OPT_ROOT_SIZE`, `OPT_ROOT_COUNT`) e in `CountersRecalculator::processChunk` (`OPT_INITIALIZED`, `OPT_STACK`). Evita che le option vengano caricate via `wp_load_alloptions` su ogni request. Non risolve la race, è igiene.
+2. **Per la race**: sostituire il read-modify-write con un UPDATE atomico SQL-level:
+   ```sql
+   UPDATE wp_options
+   SET option_value = GREATEST(0, CAST(option_value AS SIGNED) + :delta)
+   WHERE option_name = :name
+   ```
+   Bypassa l'API `update_option`, va inserito in `Database` con cache invalidation manuale (`wp_cache_delete($name, 'options')`). Pattern già usato da `bulkAdjustTermMeta`.
+
+**Da valutare**: se in pratica il drift è osservabile su siti reali con multi-editor. Se no, basta il punto 1 + affidarsi al recalc cron (TODO-1). Il punto 2 si fa solo se i support tickets lo richiedono.
+
+### TODO-13 — Bug latente: `?? 1` vs `?? totalPages` in `loadMoreChildren` (E5)
+
+**Problema**: in `template/js/store/actions.js`, `fetchChildren` fa `response.total_pages ?? 1` mentre `loadMoreChildren` fa `response.total_pages ?? totalPages`. Se in futuro il backend smette di emettere `total_pages` (es. refactor della response shape), `fetchChildren` blocca l'utente a "pagina 1 di 1" mentre `loadMoreChildren` mantiene il valore precedente — comportamento divergente sullo stesso campo.
+
+Oggi non si attiva perché il backend emette sempre `total_pages`. Va sistemato quando si collassano le due funzioni in un'unica generator parametrizzata (E5 del review).
+
+**Da fare**: collassare `fetchChildren` e `loadMoreChildren` in una sola generator parametrizzata da `{ startAction, successAction, errorAction, page }`. Usare un default coerente per `total_pages` (probabilmente `?? totalPages` in entrambi i casi, perché "1" è una bugia se la pagina è già caricata).
+
+### TODO-14 — Allineamento documenti `docs/` con il codice (D1–D5)
+
+**Problema**: la review ha trovato 5 imprecisioni nei documenti `docs/` (source of truth):
+
+1. **`docs/04_1_UI_react-architecture.md:76`** — cita `getRootFolder()` (singolare) che non esiste. I selettori reali sono `getRootFolders()` (plurale, top-level) e `getFolderById(0)` (root model). `getSelectedFolderId` è in tabella ma non nel prose summary.
+2. **`docs/04_1_UI_react-architecture.md:80`** — dice che `getChildrenOf(0)` è wired a un resolver. I resolver veri sono `getRootFolders` e `getFolderById` (`template/js/store/resolvers.js`). Il secondo (con expandPathTo per id positivi) non è documentato.
+3. **`docs/03_1_MEDIA_folder-system.md:103`** — cita il cron event `foldsnap_counters_recalculate`. Il valore reale di `CountersRecalculator::CRON_ACTION` è `foldsnap_recalc_chunk`. Chi debugga seguendo il doc cerca il nome sbagliato.
+4. **`docs/01_1_ARCH_overview.md:43`** — dice "On every admin request Bootstrap checks…". `Bootstrap::onInit` è hookato su `'init'`, che fira anche su frontend. Solo `ControllersManager` è dentro `is_admin()`. Va sostituito con "On every WordPress request".
+5. **`docs/03_1_MEDIA_folder-system.md:41`** — cita `unassignMedia()` come metodo, ma l'API attuale è `MediaFolderAssignmentService::unassign()` / `remove()`. La regola concettuale ("assegnare a Root = unassign") è corretta e va tenuta, va solo rimosso il nome del metodo.
+
+**Da fare**: 5 edit puntuali ai 3 file. Nessun cambio di codice.
+
 ### TODO-6 — Chiarire `MediaItem` `useDraggable`: completare o rimuovere
 
 **Problema**: `template/js/components/MediaItem.jsx` usa `useDraggable` di `@dnd-kit/core` per rendere draggable i media della `MediaGrid` interna (sidebar React). Ma:
