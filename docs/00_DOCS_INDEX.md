@@ -21,5 +21,6 @@ Technical documentation for FoldSnap — a WordPress plugin that adds folder man
 - **[99_2_APPENDIX_write_tests_guide.md](99_2_APPENDIX_write_tests_guide.md)** — Test writing standards (PHPUnit and Jest/RTL)
 - **[99_3_APPENDIX_prefix_standards.md](99_3_APPENDIX_prefix_standards.md)** — Prefix naming conventions by context
 - **[99_4_APPENDIX_react_setup.md](99_4_APPENDIX_react_setup.md)** — React source structure, build pipeline, linting, and test setup
+- **[99_5_APPENDIX_known_issues.md](99_5_APPENDIX_known_issues.md)** — Documented false positives and tooling limitations intentionally left unfixed
 - **[99_6_APPENDIX_utility_commands.md](99_6_APPENDIX_utility_commands.md)** — Composer and npm command reference
 - **[99_7_APPENDIX_release_process.md](99_7_APPENDIX_release_process.md)** — Release script, version locations, changelog format
