@@ -91,7 +91,8 @@ On store init, both keys are read and dispatched as a single `HYDRATE` action th
 
 The `template/js/hooks/` directory holds reusable hooks consumed by multiple components.
 
-- **`useDebouncedCallback(callback, delay)`** — returns a stable wrapper that resets a shared timer on every call and only fires `callback(...args)` once `delay` ms have passed without further calls. Pending timer is cleared on unmount. Used by `FolderTree` and `FolderPicker` for the search input (`SEARCH_DEBOUNCE_MS = 300`).
+- **`useDebouncedCallback(callback, delay)`** — returns a stable wrapper that resets a shared timer on every call and only fires `callback(...args)` once `delay` ms have passed without further calls. Pending timer is cleared on unmount. Used by `FolderTree` and indirectly by `useLocalFolderSearch` (`SEARCH_DEBOUNCE_MS = 300`).
+- **`useLocalFolderSearch({ perPage })`** — self-contained folder search isolated from the global store search slice. Returns `{ inputValue, activeQuery, results, isLoading, setInput }`. Discards out-of-order responses via a ref. Used by `FolderPicker`; reusable for any future "pick a folder" flow that must not overwrite the sidebar's active query.
 
 ## Drag and drop
 
@@ -112,13 +113,15 @@ The native WordPress media grid renders Backbone-managed `<li class="attachment"
 
 ## Media-mode bridge
 
-`media-mode-bridge.js` synchronises the React folder selection with the native WordPress media display:
+`media-mode-bridge.js` is a thin orchestrator that subscribes to the store and dispatches each folder change to one of the focused side-effect modules in `services/`:
 
-- **Grid mode** — sets/unsets `foldsnap_folder_id` on the Backbone `Attachments` collection, triggering an AJAX refetch.
-- **List mode** — redirects to `upload.php?foldsnap_folder_id=ID`.
-- **Mode toggle links** — patches the grid/list switch URLs so the current folder survives the mode change.
-- **All Media bypass** — when `allMediaActive` is on, the bridge clears the folder filter so the native grid shows every attachment.
-- **Grid refresh** — exposes `window.foldsnap.refreshGrid()` for the non-bundled dragdrop script to re-fetch the live Backbone collection after assigning media.
+| Module | Responsibility |
+|--------|---------------|
+| `grid-reflector.js` | Writes `foldsnap_folder_id` on the live Backbone `Attachments` collection (AJAX refetch). Caches the collection across modal open/close. Polls until `wp.media.frame` exists. Installs `window.foldsnap.refreshGrid()` for cross-bundle calls from the dragdrop script. |
+| `list-mode-redirector.js` | List mode: redirects to `upload.php?foldsnap_folder_id=ID`. |
+| `view-switch-links.js` | Patches the `.view-switch` grid/list toggle hrefs so the current folder survives the mode change. |
+
+When `allMediaActive` is on, the orchestrator passes `null` as the effective folder so the grid is unfiltered.
 
 URL → store bootstrap is performed by the `bootFromUrl` action (dispatched once from `index.js` before the bridge runs): it reads `foldsnap_folder_id` from `window.location.search` and selects that folder, defaulting to root (id 0) when the parameter is absent so the grid is always filtered by some folder.
 
