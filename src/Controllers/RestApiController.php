@@ -24,6 +24,7 @@ use FoldSnap\Services\FolderNameSanitizer;
 use FoldSnap\Services\FolderRepository;
 use FoldSnap\Services\MediaFolderAssignmentService;
 use FoldSnap\Services\TaxonomyService;
+use FoldSnap\Utils\Sanitize;
 use WP_Error;
 use WP_REST_Request;
 use WP_REST_Response;
@@ -526,7 +527,7 @@ final class RestApiController
         /** @var array<int, mixed> $rawParentIds */
         $rawParentIds = $request['parent_ids'];
         $parentIds    = array_values(array_unique(array_map(
-            static fn ($v): int => absint(is_scalar($v) ? (string) $v : ''),
+            static fn ($v): int => Sanitize::toInt($v),
             $rawParentIds
         )));
 

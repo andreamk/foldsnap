@@ -10,6 +10,7 @@ declare(strict_types=1);
 
 namespace FoldSnap\Models;
 
+use FoldSnap\Utils\Sanitize;
 use WP_Term;
 
 /**
@@ -290,14 +291,9 @@ final class FolderModel
             $color = '';
         }
 
-        $position = get_term_meta($term->term_id, self::META_POSITION, true);
-        $position = is_numeric($position) ? (int) $position : 0;
-
-        $totalCount = get_term_meta($term->term_id, self::META_COUNT, true);
-        $totalCount = is_numeric($totalCount) ? (int) $totalCount : 0;
-
-        $totalSize = get_term_meta($term->term_id, self::META_SIZE, true);
-        $totalSize = is_numeric($totalSize) ? (int) $totalSize : 0;
+        $position   = Sanitize::toInt(get_term_meta($term->term_id, self::META_POSITION, true));
+        $totalCount = Sanitize::toInt(get_term_meta($term->term_id, self::META_COUNT, true));
+        $totalSize  = Sanitize::toInt(get_term_meta($term->term_id, self::META_SIZE, true));
 
         return new self(
             $term->term_id,

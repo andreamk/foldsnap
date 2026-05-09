@@ -20,6 +20,7 @@ declare(strict_types=1);
 namespace FoldSnap\Services;
 
 use FoldSnap\Models\FolderModel;
+use FoldSnap\Utils\Sanitize;
 
 class FolderCounterService
 {
@@ -207,7 +208,6 @@ class FolderCounterService
      */
     private function getIntOption(string $optionName, int $default = 0): int
     {
-        $raw = get_option($optionName, $default);
-        return is_numeric($raw) ? (int) $raw : $default;
+        return Sanitize::toInt(get_option($optionName, $default), $default);
     }
 }

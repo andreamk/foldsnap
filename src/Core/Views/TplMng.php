@@ -11,6 +11,7 @@ declare(strict_types=1);
 namespace FoldSnap\Core\Views;
 
 use FoldSnap\Core\Controllers\PageAction;
+use FoldSnap\Utils\Sanitize;
 use Exception;
 
 final class TplMng
@@ -261,7 +262,8 @@ final class TplMng
             return $default;
         }
 
-        return is_scalar($this->renderData[$key]) ? (string) $this->renderData[$key] : $default;
+        $value = $this->renderData[$key];
+        return is_scalar($value) ? Sanitize::str($value) : $default;
     }
 
     /**
@@ -278,7 +280,8 @@ final class TplMng
             return $default;
         }
 
-        return is_scalar($this->renderData[$key]) ? (bool) $this->renderData[$key] : $default;
+        $value = $this->renderData[$key];
+        return is_scalar($value) ? Sanitize::toBool($value) : $default;
     }
 
     /**
@@ -393,7 +396,7 @@ final class TplMng
             throw new Exception('String value ' . esc_html($key) . ' not found');
         }
 
-        return is_scalar($this->renderData[$key]) ? (string) $this->renderData[$key] : '';
+        return Sanitize::str($this->renderData[$key]);
     }
 
     /**
@@ -409,7 +412,7 @@ final class TplMng
             throw new Exception('Boolean value ' . esc_html($key) . ' not found');
         }
 
-        return is_scalar($this->renderData[$key]) ? (bool) $this->renderData[$key] : false;
+        return Sanitize::toBool($this->renderData[$key]);
     }
 
     /**

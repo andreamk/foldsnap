@@ -356,13 +356,37 @@ class SanitizeTests extends TestCase
     }
 
     /**
-     * Test toInt returns default for float string
+     * Test toInt truncates positive float string toward zero
      *
      * @return void
      */
-    public function test_toInt_returns_default_for_float_string(): void
+    public function test_toInt_truncates_positive_float_string(): void
     {
-        $this->assertSame(0, Sanitize::toInt('3.14'));
+        $this->assertSame(3, Sanitize::toInt('3.14'));
+        $this->assertSame(3, Sanitize::toInt('3.99'));
+    }
+
+    /**
+     * Test toInt truncates negative float string toward zero
+     *
+     * @return void
+     */
+    public function test_toInt_truncates_negative_float_string(): void
+    {
+        $this->assertSame(-3, Sanitize::toInt('-3.5'));
+        $this->assertSame(-3, Sanitize::toInt('-3.99'));
+    }
+
+    /**
+     * Test toInt returns default for non-numeric string
+     *
+     * @return void
+     */
+    public function test_toInt_returns_default_for_non_scalar_input(): void
+    {
+        $this->assertSame(0, Sanitize::toInt([1, 2]));
+        $this->assertSame(0, Sanitize::toInt(null));
+        $this->assertSame(-1, Sanitize::toInt(null, -1));
     }
 
     /**
@@ -383,6 +407,77 @@ class SanitizeTests extends TestCase
     public function test_toInt_returns_default_for_empty_string(): void
     {
         $this->assertSame(0, Sanitize::toInt(''));
+    }
+
+    /**
+     * Test toFloat converts valid float string
+     *
+     * @return void
+     */
+    public function test_toFloat_converts_valid_float_string(): void
+    {
+        $this->assertSame(3.14, Sanitize::toFloat('3.14'));
+    }
+
+    /**
+     * Test toFloat converts integer string
+     *
+     * @return void
+     */
+    public function test_toFloat_converts_integer_string(): void
+    {
+        $this->assertSame(42.0, Sanitize::toFloat('42'));
+    }
+
+    /**
+     * Test toFloat returns default for non numeric string
+     *
+     * @return void
+     */
+    public function test_toFloat_returns_default_for_non_numeric_string(): void
+    {
+        $this->assertSame(0.0, Sanitize::toFloat('abc'));
+    }
+
+    /**
+     * Test toFloat returns custom default for invalid input
+     *
+     * @return void
+     */
+    public function test_toFloat_returns_custom_default_for_invalid_input(): void
+    {
+        $this->assertSame(-1.5, Sanitize::toFloat('abc', -1.5));
+    }
+
+    /**
+     * Test toFloat handles negative numbers
+     *
+     * @return void
+     */
+    public function test_toFloat_handles_negative_numbers(): void
+    {
+        $this->assertSame(-2.5, Sanitize::toFloat('-2.5'));
+    }
+
+    /**
+     * Test toFloat returns default for empty string
+     *
+     * @return void
+     */
+    public function test_toFloat_returns_default_for_empty_string(): void
+    {
+        $this->assertSame(0.0, Sanitize::toFloat(''));
+    }
+
+    /**
+     * Test toFloat returns default for non-scalar input
+     *
+     * @return void
+     */
+    public function test_toFloat_returns_default_for_non_scalar_input(): void
+    {
+        $this->assertSame(0.0, Sanitize::toFloat([1.0, 2.0]));
+        $this->assertSame(0.0, Sanitize::toFloat(null));
     }
 
     /**
