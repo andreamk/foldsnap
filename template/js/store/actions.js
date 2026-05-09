@@ -581,3 +581,22 @@ export const setAllMedia = ( active ) => ( {
 	type: ACTION_TYPES.SET_ALL_MEDIA,
 	active: Boolean( active ),
 } );
+
+/**
+ * Bootstrap the selected folder from the URL.
+ *
+ * Reads `foldsnap_folder_id` from `window.location.search`, defaulting to
+ * the root (id 0) when the parameter is absent so the grid is always
+ * filtered by some folder. The "All Media" toggle is the explicit opt-in
+ * for an unfiltered view.
+ *
+ * @return {Iterable} Action generator.
+ */
+export function* bootFromUrl() {
+	const urlFolderId = new URLSearchParams( window.location.search ).get(
+		'foldsnap_folder_id'
+	);
+	const folderId = urlFolderId !== null ? parseInt( urlFolderId, 10 ) : 0;
+	yield setSelectedFolder( folderId );
+	yield* expandPathTo( folderId );
+}

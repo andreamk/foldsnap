@@ -1,6 +1,8 @@
 import { createRoot } from '@wordpress/element';
+import { dispatch } from '@wordpress/data';
 import FolderSidebar from './components/FolderSidebar';
 import initMediaModeBridge from './services/media-mode-bridge';
+import { STORE_NAME } from './store/constants';
 import './store'; // Ensure store is registered
 
 /**
@@ -16,5 +18,6 @@ if ( wpbodyContent && wpbodyContent.parentNode ) {
 	const root = createRoot( container );
 	root.render( <FolderSidebar /> );
 
+	dispatch( STORE_NAME ).bootFromUrl();
 	initMediaModeBridge();
 }

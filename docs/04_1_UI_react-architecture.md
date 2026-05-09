@@ -117,8 +117,10 @@ The native WordPress media grid renders Backbone-managed `<li class="attachment"
 - **Grid mode** — sets/unsets `foldsnap_folder_id` on the Backbone `Attachments` collection, triggering an AJAX refetch.
 - **List mode** — redirects to `upload.php?foldsnap_folder_id=ID`.
 - **Mode toggle links** — patches the grid/list switch URLs so the current folder survives the mode change.
-- **URL persistence** — reads `foldsnap_folder_id` on load and pre-selects the folder in the store.
 - **All Media bypass** — when `allMediaActive` is on, the bridge clears the folder filter so the native grid shows every attachment.
+- **Grid refresh** — exposes `window.foldsnap.refreshGrid()` for the non-bundled dragdrop script to re-fetch the live Backbone collection after assigning media.
+
+URL → store bootstrap is performed by the `bootFromUrl` action (dispatched once from `index.js` before the bridge runs): it reads `foldsnap_folder_id` from `window.location.search` and selects that folder, defaulting to root (id 0) when the parameter is absent so the grid is always filtered by some folder.
 
 ## Build pipeline
 
