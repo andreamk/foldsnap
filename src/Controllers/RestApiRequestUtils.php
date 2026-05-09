@@ -16,6 +16,7 @@ namespace FoldSnap\Controllers;
 
 use Exception;
 use FoldSnap\Utils\Log;
+use FoldSnap\Utils\Sanitize;
 use InvalidArgumentException;
 use WP_Error;
 use WP_REST_Request;
@@ -68,7 +69,7 @@ trait RestApiRequestUtils
 
         $intIds = [];
         foreach ($rawIds as $rawId) {
-            $intIds[] = absint(is_scalar($rawId) ? (string) $rawId : '');
+            $intIds[] = Sanitize::toInt($rawId);
         }
 
         return array_values(array_filter($intIds, static fn (int $id): bool => $id > 0));

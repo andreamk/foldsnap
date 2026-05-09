@@ -32,6 +32,8 @@ declare(strict_types=1);
 
 namespace FoldSnap\Services;
 
+use FoldSnap\Utils\Sanitize;
+
 class Database
 {
     /**
@@ -174,7 +176,7 @@ class Database
             )
         );
 
-        return is_numeric($count) ? (int) $count : 0;
+        return Sanitize::toInt($count);
     }
 
     /**
@@ -260,7 +262,7 @@ class Database
             )
         );
 
-        return is_numeric($count) ? (int) $count : 0;
+        return Sanitize::toInt($count);
     }
 
     /**
@@ -349,7 +351,7 @@ class Database
                     continue;
                 }
 
-                $childId = property_exists($row, 'term_id') && is_numeric($row->term_id) ? (int) $row->term_id : 0;
+                $childId = property_exists($row, 'term_id') ? Sanitize::toInt($row->term_id) : 0;
 
                 if ($childId <= 0 || isset($seen[$childId])) {
                     continue;
@@ -412,10 +414,7 @@ class Database
 
         $ids = [];
         foreach ($rows as $val) {
-            if (! is_numeric($val)) {
-                continue;
-            }
-            $tid = (int) $val;
+            $tid = Sanitize::toInt($val);
             if ($tid > 0) {
                 $ids[] = $tid;
             }
@@ -476,8 +475,8 @@ class Database
                 continue;
             }
 
-            $parentId = property_exists($row, 'parent') && is_numeric($row->parent) ? (int) $row->parent : -1;
-            $count    = property_exists($row, 'child_count') && is_numeric($row->child_count) ? (int) $row->child_count : 0;
+            $parentId = property_exists($row, 'parent') ? Sanitize::toInt($row->parent, -1) : -1;
+            $count    = property_exists($row, 'child_count') ? Sanitize::toInt($row->child_count) : 0;
 
             // parent=0 is valid: it's the top-level (children of the virtual Root).
             if ($parentId >= 0 && array_key_exists($parentId, $counts)) {
@@ -540,8 +539,8 @@ class Database
                 continue;
             }
 
-            $termId = property_exists($row, 'term_id') && is_numeric($row->term_id) ? (int) $row->term_id : 0;
-            $count  = property_exists($row, 'count') && is_numeric($row->count) ? (int) $row->count : 0;
+            $termId = property_exists($row, 'term_id') ? Sanitize::toInt($row->term_id) : 0;
+            $count  = property_exists($row, 'count') ? Sanitize::toInt($row->count) : 0;
 
             if ($termId > 0) {
                 $counts[$termId] = $count;
@@ -601,8 +600,8 @@ class Database
                 continue;
             }
 
-            $postId    = property_exists($row, 'post_id') && is_numeric($row->post_id) ? (int) $row->post_id : 0;
-            $metaValue = property_exists($row, 'meta_value') && is_string($row->meta_value) ? $row->meta_value : '';
+            $postId    = property_exists($row, 'post_id') ? Sanitize::toInt($row->post_id) : 0;
+            $metaValue = property_exists($row, 'meta_value') ? Sanitize::str($row->meta_value) : '';
 
             if ($postId <= 0 || '' === $metaValue) {
                 continue;
@@ -729,9 +728,9 @@ class Database
                 continue;
             }
 
-            $parentId = property_exists($row, 'parent_id') && is_numeric($row->parent_id) ? (int) $row->parent_id : 0;
-            $count    = property_exists($row, 'total_count') && is_numeric($row->total_count) ? (int) $row->total_count : 0;
-            $size     = property_exists($row, 'total_size') && is_numeric($row->total_size) ? (int) $row->total_size : 0;
+            $parentId = property_exists($row, 'parent_id') ? Sanitize::toInt($row->parent_id) : 0;
+            $count    = property_exists($row, 'total_count') ? Sanitize::toInt($row->total_count) : 0;
+            $size     = property_exists($row, 'total_size') ? Sanitize::toInt($row->total_size) : 0;
 
             if ($parentId > 0) {
                 $result[$parentId] = [
@@ -798,8 +797,8 @@ class Database
                 if (! is_object($row)) {
                     continue;
                 }
-                $tid = property_exists($row, 'term_id') && is_numeric($row->term_id) ? (int) $row->term_id : 0;
-                $key = property_exists($row, 'meta_key') && is_string($row->meta_key) ? $row->meta_key : '';
+                $tid = property_exists($row, 'term_id') ? Sanitize::toInt($row->term_id) : 0;
+                $key = property_exists($row, 'meta_key') ? Sanitize::str($row->meta_key) : '';
                 if ($tid > 0 && '' !== $key) {
                     $present[$tid][$key] = true;
                 }
@@ -878,8 +877,8 @@ class Database
                 continue;
             }
 
-            $folderId  = property_exists($row, 'folder_id') && is_numeric($row->folder_id) ? (int) $row->folder_id : 0;
-            $metaValue = property_exists($row, 'meta_value') && is_string($row->meta_value) ? $row->meta_value : '';
+            $folderId  = property_exists($row, 'folder_id') ? Sanitize::toInt($row->folder_id) : 0;
+            $metaValue = property_exists($row, 'meta_value') ? Sanitize::str($row->meta_value) : '';
 
             if ($folderId <= 0 || '' === $metaValue) {
                 continue;

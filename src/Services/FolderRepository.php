@@ -279,7 +279,7 @@ class FolderRepository
             ]
         );
 
-        $total = is_numeric($countResult) ? (int) $countResult : 0;
+        $total = Sanitize::toInt($countResult);
 
         $terms = get_terms(
             [

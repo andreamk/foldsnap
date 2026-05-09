@@ -39,19 +39,28 @@ final class Sanitize
      *
      * Base behavior: always removes non-stamp control characters (x00-x08, x0B, x0C, x0E-x1F, x7F-x9F).
      *
+     * Non-scalar input (array, object, null) returns empty string. Scalar input
+     * (string, int, float, bool) is cast to string before processing.
+     *
      * Flags (combinable via bitwise OR):
      * - STRIP_NEWLINES:    also strip \r and \n
      * - STRIP_WHITESPACE:  also strip all whitespace (includes newlines, spaces, tabs)
      * - STRIP_TRIM:        trim leading/trailing whitespace after stripping (implies STRIP_NEWLINES)
      * - STRIP_HTML_ESCAPE: HTML-escape the result (XSS protection)
      *
-     * @param string $string Input string
-     * @param int    $flags  Bitmask of STRIP_* constants
+     * @param mixed $string Input value (scalar values are cast to string; non-scalar returns '')
+     * @param int   $flags  Bitmask of STRIP_* constants
      *
      * @return string
      */
-    public static function str(string $string, int $flags = 0): string
+    public static function str($string, int $flags = 0): string
     {
+        if (!is_scalar($string)) {
+            return '';
+        }
+
+        $string = (string) $string;
+
         if ($flags & self::STRIP_WHITESPACE) {
             $pattern = '/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F\r\n\s]/u';
         } elseif (($flags & self::STRIP_NEWLINES) || ($flags & self::STRIP_TRIM)) {
@@ -99,15 +108,22 @@ final class Sanitize
      * Strict sanitization for a single string value: only alphanumeric characters
      * and custom extra characters are kept.
      *
-     * @param string $input            Input string
+     * Non-scalar input (array, object, null) returns empty string. Scalar input
+     * (string, int, float, bool) is cast to string before processing.
+     *
+     * @param mixed  $input            Input value (scalar values are cast to string; non-scalar returns '')
      * @param string $extraAcceptChars Extra accepted characters
      *
      * @return string
      */
-    public static function strictStr(string $input, string $extraAcceptChars = ''): string
+    public static function strictStr($input, string $extraAcceptChars = ''): string
     {
+        if (!is_scalar($input)) {
+            return '';
+        }
+
         $regex  = '/[^a-zA-Z0-9' . preg_quote($extraAcceptChars, '/') . ' ]/m';
-        $result = preg_replace($regex, '', $input);
+        $result = preg_replace($regex, '', (string) $input);
         return (null === $result ? '' : $result);
     }
 
@@ -134,28 +150,67 @@ final class Sanitize
     }
 
     /**
-     * Sanitize string value to integer.
+     * Sanitize value to integer.
      *
-     * @param string $input   Input value as string
-     * @param int    $default Default value if input is not valid
+     * Non-scalar input (array, object, null) returns the default. Numeric scalar
+     * input is truncated toward zero (e.g., '3.9' → 3, '-3.9' → -3). Non-numeric
+     * strings return the default.
+     *
+     * @param mixed $input   Input value (numeric scalars are truncated; non-scalar/non-numeric returns default)
+     * @param int   $default Default value if input is not a valid number
      *
      * @return int
      */
-    public static function toInt(string $input, int $default = 0): int
+    public static function toInt($input, int $default = 0): int
     {
-        $result = filter_var($input, FILTER_VALIDATE_INT, ['options' => ['default' => $default]]);
-        return is_int($result) ? $result : $default;
+        if (!is_scalar($input)) {
+            return $default;
+        }
+
+        if (!is_numeric($input)) {
+            return $default;
+        }
+
+        return (int) (float) $input;
     }
 
     /**
-     * Sanitize string value to boolean.
+     * Sanitize value to float.
      *
-     * @param string $input Input value as string
+     * Non-scalar input (array, object, null) returns the default. Scalar input
+     * is cast to string before validation via FILTER_VALIDATE_FLOAT.
+     *
+     * @param mixed $input   Input value (scalar values are validated; non-scalar returns default)
+     * @param float $default Default value if input is not a valid float
+     *
+     * @return float
+     */
+    public static function toFloat($input, float $default = 0.0): float
+    {
+        if (!is_scalar($input)) {
+            return $default;
+        }
+
+        $result = filter_var((string) $input, FILTER_VALIDATE_FLOAT, ['options' => ['default' => $default]]);
+        return is_float($result) ? $result : $default;
+    }
+
+    /**
+     * Sanitize value to boolean.
+     *
+     * Non-scalar input (array, object, null) returns false. Scalar input is
+     * validated via FILTER_VALIDATE_BOOLEAN.
+     *
+     * @param mixed $input Input value (scalar values are validated; non-scalar returns false)
      *
      * @return bool
      */
-    public static function toBool(string $input): bool
+    public static function toBool($input): bool
     {
+        if (!is_scalar($input)) {
+            return false;
+        }
+
         return filter_var($input, FILTER_VALIDATE_BOOLEAN);
     }
 

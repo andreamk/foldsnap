@@ -20,6 +20,7 @@ declare(strict_types=1);
 namespace FoldSnap\Services;
 
 use FoldSnap\Models\FolderModel;
+use FoldSnap\Utils\Sanitize;
 
 class CountersRecalculator
 {
@@ -160,11 +161,9 @@ class CountersRecalculator
         if (is_array($raw)) {
             $ints = [];
             foreach ($raw as $val) {
-                if (is_numeric($val)) {
-                    $id = (int) $val;
-                    if ($id > 0) {
-                        $ints[] = $id;
-                    }
+                $id = Sanitize::toInt($val);
+                if ($id > 0) {
+                    $ints[] = $id;
                 }
             }
             return $ints;
