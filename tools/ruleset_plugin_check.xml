@@ -21,6 +21,17 @@
     <rule ref="WordPress.DB"/>
     <rule ref="WordPress.CodeAnalysis"/>
     <rule ref="WordPress.WP"/>
+
+    <!-- Plugin-prefix checks (matches WP.org Plugin Check) -->
+    <rule ref="WordPress.NamingConventions.PrefixAllGlobals">
+        <properties>
+            <property name="prefixes" type="array">
+                <element value="foldsnap"/>
+                <element value="FoldSnap"/>
+                <element value="FOLDSNAP"/>
+            </property>
+        </properties>
+    </rule>
     <rule ref="WordPress.DateTime"/>
     <rule ref="WordPress.PHP.DevelopmentFunctions"/>
     <rule ref="WordPress.PHP.DiscouragedPHPFunctions"/>
@@ -64,5 +75,20 @@
     </rule>
     <rule ref="Generic.PHP.DisallowShortOpenTag"/>
     <rule ref="Generic.PHP.DisallowAlternativePHPTags"/>
+
+    <!-- BOM not allowed: prevents headers-already-sent issues -->
+    <rule ref="Generic.Files.ByteOrderMark"/>
+
+    <!-- Functions discouraged on WP.org for hosting/runtime safety -->
+    <rule ref="Squiz.PHP.DiscouragedFunctions">
+        <properties>
+            <property name="forbiddenFunctions" type="array">
+                <element key="set_time_limit" value="null"/>
+                <element key="ini_set" value="null"/>
+                <element key="ini_alter" value="null"/>
+                <element key="dl" value="null"/>
+            </property>
+        </properties>
+    </rule>
 
 </ruleset>

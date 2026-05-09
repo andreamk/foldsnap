@@ -144,30 +144,35 @@ final class TplMng
      */
     public function render(string $slugTpl, array $args = [], bool $echo = true): string
     {
+        $origRenderData = $this->renderData;
         ob_start();
-        if (($renderFile = $this->getFileTemplate($slugTpl)) !== false) {
-            $origRenderData = $this->renderData;
-            if (is_null($this->renderData)) {
-                $this->renderData = array_merge($this->globalData, $args);
+        try {
+            if (($renderFile = $this->getFileTemplate($slugTpl)) !== false) {
+                if (is_null($this->renderData)) {
+                    $this->renderData = array_merge($this->globalData, $args);
+                } else {
+                    $this->renderData = array_merge($this->renderData, $args);
+                }
+
+                /** @var array<string, mixed> $filteredData */
+                // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.DynamicHooknameFound -- getDataHook() always returns a string starting with "foldsnap_"; PHPCS cannot resolve the static method return value.
+                $filteredData     = apply_filters(self::getDataHook($slugTpl), $this->renderData);
+                $this->renderData = $filteredData;
+
+                $tplMng = $this;
+                require($renderFile);
             } else {
-                $this->renderData = array_merge($this->renderData, $args);
+                echo '<p>FILE TPL NOT FOUND: ' . esc_html($slugTpl) . '</p>';
             }
-
-            /** @var array<string, mixed> $filteredData */
-            $filteredData     = apply_filters(self::getDataHook($slugTpl), $this->renderData);
-            $this->renderData = $filteredData;
-
-            $tplMng = $this;
-            require($renderFile);
+        } finally {
+            $obContent        = (string) ob_get_clean();
             $this->renderData = $origRenderData;
-        } else {
-            echo '<p>FILE TPL NOT FOUND: ' . esc_html($slugTpl) . '</p>';
         }
 
-        $obContent    = (string) ob_get_clean();
+        // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.DynamicHooknameFound -- getRenderHook() always returns a string starting with "foldsnap_"; PHPCS cannot resolve the static method return value.
         $renderResult = apply_filters(self::getRenderHook($slugTpl), $obContent);
         if (!is_string($renderResult)) {
-            throw new Exception('Unespected filter return; filter: ' . esc_html(self::getRenderHook($slugTpl)));
+            throw new Exception('Unexpected filter return; filter: ' . esc_html(self::getRenderHook($slugTpl)));
         }
 
         if (self::$stripSpaces) {
@@ -559,25 +564,25 @@ final class TplMng
      * Get input name
      *
      * @param string $field    field name
-     * @param string $subInxed sub index
+     * @param string $subIndex sub index
      *
      * @return string
      */
-    public static function getInputName(string $field, string $subInxed = ''): string
+    public static function getInputName(string $field, string $subIndex = ''): string
     {
-        return 'foldsnap_input_' . $field . (strlen($subInxed) ? '_' . $subInxed : '');
+        return 'foldsnap_input_' . $field . (strlen($subIndex) ? '_' . $subIndex : '');
     }
 
     /**
      * Get input id
      *
      * @param string $field    field name
-     * @param string $subInxed sub index
+     * @param string $subIndex sub index
      *
      * @return string
      */
-    public static function getInputId(string $field, string $subInxed = ''): string
+    public static function getInputId(string $field, string $subIndex = ''): string
     {
-        return self::getInputName($field, $subInxed);
+        return self::getInputName($field, $subIndex);
     }
 }

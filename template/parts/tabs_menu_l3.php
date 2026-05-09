@@ -10,7 +10,11 @@ declare(strict_types=1);
 
 defined('ABSPATH') || exit;
 
-/** @var \FoldSnap\Core\Views\TplMng $tplMng */
+/**
+ * @var \FoldSnap\Core\Views\TplMng $tplMng
+ *
+ * phpcs:disable WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedVariableFound -- Template variables are local to the TplMng::render() include scope, not actually global.
+ */
 
 /** @var \FoldSnap\Core\Controllers\SubMenuItem[] $menuItemsL3 */
 $menuItemsL3 = $tplMng->getDataValueArray('menuItemsL3', []);
