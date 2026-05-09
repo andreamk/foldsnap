@@ -12,11 +12,11 @@ FolderSidebar              (DndContext + All Media toggle)
     ├── FolderItem         (single folder node, recursive for children)
     │   └── FolderItem     (nested children)
     ├── SearchResultsList  (rendered instead of the tree while a query is active)
-    ├── CreateFolderModal  (lazy-loaded; uses FolderPicker for parent selection)
-    │   └── FolderPicker   (mini-tree + search, also reusable elsewhere)
-    └── MediaGrid          (paginated media grid for the selected folder)
-        └── MediaItem      (single thumbnail, draggable via jQuery UI)
+    └── CreateFolderModal  (lazy-loaded; uses FolderPicker for parent selection)
+        └── FolderPicker   (mini-tree + search, also reusable elsewhere)
 ```
+
+The visible media grid is the **native WordPress Backbone grid** (or list-table in list mode), not a React component. React only owns the sidebar; the grid is reflected to the current folder selection by `services/media-mode-bridge.js`.
 
 `FolderPicker` is a self-contained mini-tree that reads the same `foldsnap/folders` store: it lists root folders, allows expanding any branch, and exposes its own debounced search. It is rendered inside `CreateFolderModal` to pick a parent and is reusable for any future "pick a folder" flow.
 
@@ -43,8 +43,6 @@ The store does not hold a fully expanded tree. Children are loaded lazily, one p
 | `searchQuery`        | `string`                               |                                                    |
 | `searchResults`      | `{ folder, breadcrumb }[]`             | One entry per match                                |
 | `searchPage`, `searchTotalPages`, `searchTotal`, `searchIsLoading` | various | Search pagination state |
-| `media`              | `MediaItem[]`                          | Current page of media for the selected folder      |
-| `mediaTotal`, `mediaTotalPages`, `mediaIsLoading`                  | various | Media list state |
 | `error`              | `string\|null`                         |                                                    |
 
 The full Root folder object (with its global counters) lives inside `foldersById[0]` like any other folder; there are no separate `rootMediaCount` / `rootTotalSize` slices.
@@ -59,7 +57,6 @@ Async actions use generators with a custom `API_FETCH` control that delegates to
 - `expandFolder(folderId)` — marks expanded and triggers `fetchChildren` if not already loaded.
 - `expandPathTo(folderId)` — GETs `/folders/{id}/path`, dispatches `APPLY_PATH_TOTALS`, then `fetchChildrenBatch` for every ancestor so the tree is inflated with one fetch per level.
 - `searchFolders(query, { perPage })` / `loadMoreSearchResults` / `clearSearch`.
-- `fetchMedia(folderId, page, perPage)`.
 
 Mutation actions hit the REST endpoint, then run `applyMutationEnvelope(response)` which dispatches:
 
@@ -67,13 +64,15 @@ Mutation actions hit the REST endpoint, then run `applyMutationEnvelope(response
 - `APPLY_PATH_TOTALS` — for each chain in `paths`, merge `total_*` updates into `foldersById` and the parent slots.
 - `APPLY_AFFECTED_PARENTS` — flip `has_children` on the parents in the list.
 
-`createFolder`, `updateFolder`, and the media actions also refresh the affected parent slot(s) via `fetchChildren` to pick up server-side ordering. `updateFolder` detects reparenting from the envelope and refreshes both the old and new parent slots.
+`createFolder` and `updateFolder` also refresh the affected parent slot(s) via `fetchChildren` to pick up server-side ordering. `updateFolder` detects reparenting from the envelope and refreshes both the old and new parent slots.
+
+`assignMedia` only patches the React store; the visible Backbone grid is refreshed independently by the dragdrop bridge via `window.foldsnap.refreshGrid()`.
 
 `deleteFolder` dispatches `REMOVE_FOLDER` (drops it from `foldersById` and its parent slot, clears it from `expandedIds`), then merges the envelope's `root` and `affected_parents`.
 
 ### Selectors
 
-Direct slice access (`getFolderById`, `getChildrenOf`, `getExpandedIds`, `isFolderLoaded`, `isFolderFetching`, `getParentPagination`), search and media selectors, plus `getRootFolder()` which returns `foldersById[0]`.
+Direct slice access (`getFolderById`, `getChildrenOf`, `getExpandedIds`, `isFolderLoaded`, `isFolderFetching`, `getParentPagination`), search selectors, plus `getRootFolder()` which returns `foldersById[0]`.
 
 ### Resolvers
 

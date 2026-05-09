@@ -15,10 +15,6 @@ import {
 	getSearchTotalPages,
 	getSearchTotal,
 	getError,
-	getMedia,
-	isMediaLoading,
-	getMediaTotal,
-	getMediaTotalPages,
 } from '../selectors';
 
 const makeState = ( overrides = {} ) => ( {
@@ -37,10 +33,6 @@ const makeState = ( overrides = {} ) => ( {
 	searchTotal: 0,
 	searchIsLoading: false,
 	error: null,
-	media: [],
-	mediaTotal: 0,
-	mediaTotalPages: 0,
-	mediaIsLoading: false,
 	...overrides,
 } );
 
@@ -114,10 +106,6 @@ describe( 'selectors', () => {
 				searchTotalPages: 3,
 				searchTotal: 50,
 				error: 'boom',
-				media: [ { id: 99 } ],
-				mediaIsLoading: true,
-				mediaTotal: 1,
-				mediaTotalPages: 1,
 			} );
 			expect( getSelectedFolderId( state ) ).toBe( 7 );
 			expect( getSearchQuery( state ) ).toBe( 'vac' );
@@ -127,10 +115,6 @@ describe( 'selectors', () => {
 			expect( getSearchTotalPages( state ) ).toBe( 3 );
 			expect( getSearchTotal( state ) ).toBe( 50 );
 			expect( getError( state ) ).toBe( 'boom' );
-			expect( getMedia( state ) ).toHaveLength( 1 );
-			expect( isMediaLoading( state ) ).toBe( true );
-			expect( getMediaTotal( state ) ).toBe( 1 );
-			expect( getMediaTotalPages( state ) ).toBe( 1 );
 		} );
 
 		it( 'isAllMediaActive returns the flag', () => {

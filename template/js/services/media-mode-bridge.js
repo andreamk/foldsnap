@@ -32,24 +32,20 @@ const findLiveCollection = () => {
 };
 
 const applyGridFilter = ( folderId ) => {
-	try {
-		const candidate = findLiveCollection();
-		if ( candidate ) {
-			cachedGridCollection = candidate;
-		}
-		const target = cachedGridCollection;
-		if ( ! target ) {
-			return false;
-		}
-		if ( folderId === null ) {
-			target.props.unset( 'foldsnap_folder_id' );
-		} else {
-			target.props.set( { foldsnap_folder_id: folderId } );
-		}
-		return true;
-	} catch {
+	const candidate = findLiveCollection();
+	if ( candidate ) {
+		cachedGridCollection = candidate;
+	}
+	const target = cachedGridCollection;
+	if ( ! target?.props ) {
 		return false;
 	}
+	if ( folderId === null ) {
+		target.props.unset( 'foldsnap_folder_id' );
+	} else {
+		target.props.set( { foldsnap_folder_id: folderId } );
+	}
+	return true;
 };
 
 /**
@@ -140,8 +136,8 @@ export default function initMediaModeBridge() {
 
 	let lastFolderId = initialFolderId;
 
-	// Deferred: update mode toggle links once the DOM is fully rendered.
-	setTimeout( () => updateModeToggleLinks( lastFolderId ), 500 );
+	// Script enqueued in footer: `.view-switch` links already exist in DOM.
+	updateModeToggleLinks( lastFolderId );
 
 	// React store → native WP grid synchronisation.
 	subscribe( () => {

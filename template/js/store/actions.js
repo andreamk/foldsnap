@@ -541,6 +541,9 @@ export function* deleteFolder( id ) {
 /**
  * Assign media items to a folder.
  *
+ * The visible WordPress media grid is refreshed independently by the
+ * dragdrop bridge via `window.foldsnap.refreshGrid()`.
+ *
  * @param {number}   folderId Folder ID.
  * @param {number[]} mediaIds Attachment IDs.
  * @return {Iterable} Action generator.
@@ -552,24 +555,6 @@ export function* assignMedia( folderId, mediaIds ) {
 		data: { media_ids: mediaIds },
 	} );
 	yield* applyMutationEnvelope( response );
-	yield* fetchMedia( folderId );
-}
-
-/**
- * Remove media items from a folder.
- *
- * @param {number}   folderId Folder ID.
- * @param {number[]} mediaIds Attachment IDs.
- * @return {Iterable} Action generator.
- */
-export function* removeMedia( folderId, mediaIds ) {
-	const response = yield apiFetch( {
-		path: `/foldsnap/v1/folders/${ folderId }/media`,
-		method: 'DELETE',
-		data: { media_ids: mediaIds },
-	} );
-	yield* applyMutationEnvelope( response );
-	yield* fetchMedia( folderId );
 }
 
 /**
@@ -596,30 +581,3 @@ export const setAllMedia = ( active ) => ( {
 	type: ACTION_TYPES.SET_ALL_MEDIA,
 	active: Boolean( active ),
 } );
-
-/**
- * Fetch a paginated page of media for a folder (or root if null/0).
- *
- * @param {number|null} folderId Folder ID (null/0 = root).
- * @param {number}      page     Page number.
- * @param {number}      perPage  Items per page.
- * @return {Iterable} Action generator.
- */
-export function* fetchMedia( folderId, page = 1, perPage = 40 ) {
-	yield { type: ACTION_TYPES.FETCH_MEDIA_START };
-	try {
-		const id = folderId ?? 0;
-		const response = yield apiFetch( {
-			path: `/foldsnap/v1/media?folder_id=${ id }&page=${ page }&per_page=${ perPage }`,
-			method: 'GET',
-		} );
-		yield {
-			type: ACTION_TYPES.FETCH_MEDIA_SUCCESS,
-			media: response.media,
-			total: response.total,
-			totalPages: response.total_pages,
-		};
-	} catch ( error ) {
-		yield { type: ACTION_TYPES.FETCH_MEDIA_ERROR, error: error.message };
-	}
-}

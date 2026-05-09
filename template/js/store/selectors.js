@@ -156,35 +156,3 @@ export const getSearchTotal = ( state ) => state.searchTotal;
  * @return {string|null} Error.
  */
 export const getError = ( state ) => state.error;
-
-/**
- * Current page of media items.
- *
- * @param {Object} state Store state.
- * @return {Array} Media items.
- */
-export const getMedia = ( state ) => state.media;
-
-/**
- * Whether media is currently loading.
- *
- * @param {Object} state Store state.
- * @return {boolean} Loading flag.
- */
-export const isMediaLoading = ( state ) => state.mediaIsLoading;
-
-/**
- * Total media count for the active folder/query.
- *
- * @param {Object} state Store state.
- * @return {number} Total.
- */
-export const getMediaTotal = ( state ) => state.mediaTotal;
-
-/**
- * Total pages for the active media query.
- *
- * @param {Object} state Store state.
- * @return {number} Total pages.
- */
-export const getMediaTotalPages = ( state ) => state.mediaTotalPages;

@@ -43,11 +43,6 @@ const DEFAULT_STATE = {
 	searchIsLoading: false,
 
 	error: null,
-
-	media: [],
-	mediaTotal: 0,
-	mediaTotalPages: 0,
-	mediaIsLoading: false,
 };
 
 const reducer = ( state = DEFAULT_STATE, action ) => {
@@ -268,21 +263,6 @@ const reducer = ( state = DEFAULT_STATE, action ) => {
 						: state.selectedFolderId,
 			};
 		}
-
-		case ACTION_TYPES.FETCH_MEDIA_START:
-			return { ...state, mediaIsLoading: true };
-
-		case ACTION_TYPES.FETCH_MEDIA_SUCCESS:
-			return {
-				...state,
-				mediaIsLoading: false,
-				media: action.media,
-				mediaTotal: action.total,
-				mediaTotalPages: action.totalPages,
-			};
-
-		case ACTION_TYPES.FETCH_MEDIA_ERROR:
-			return { ...state, mediaIsLoading: false, error: action.error };
 
 		default:
 			return state;
