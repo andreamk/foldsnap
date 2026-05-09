@@ -74,18 +74,17 @@ const updateModeToggleLinks = ( folderId ) => {
 export default function initMediaModeBridge() {
 	const isListMode = window.foldsnap_data?.mediaMode === 'list';
 
-	// Pre-select folder from URL parameter (persisted across page reloads).
+	// Pre-select folder from URL parameter, or fall back to root (id 0)
+	// so the grid is never silently unfiltered on first load. The
+	// "All Media" toggle is the explicit opt-in for an unfiltered view.
 	const urlFolderId = new URLSearchParams( window.location.search ).get(
 		'foldsnap_folder_id'
 	);
-	if ( urlFolderId !== null ) {
-		const parsedId = parseInt( urlFolderId, 10 );
-		const dispatch = window.wp?.data?.dispatch( STORE_NAME );
-		dispatch?.setSelectedFolder( parsedId );
-		// Inflate the breadcrumb so the deep-linked folder is visible (and
-		// its ancestors expanded) on first paint of the tree.
-		dispatch?.expandPathTo?.( parsedId );
-	}
+	const initialFolderId =
+		urlFolderId !== null ? parseInt( urlFolderId, 10 ) : 0;
+	const dispatch = window.wp?.data?.dispatch( STORE_NAME );
+	dispatch?.setSelectedFolder( initialFolderId );
+	dispatch?.expandPathTo?.( initialFolderId );
 
 	/**
 	 * Read the effective folder filter from the store.
@@ -106,8 +105,7 @@ export default function initMediaModeBridge() {
 		return store.getSelectedFolderId() ?? null;
 	};
 
-	let lastFolderId =
-		urlFolderId !== null ? parseInt( urlFolderId, 10 ) : null;
+	let lastFolderId = initialFolderId;
 
 	// Deferred: update mode toggle links once the DOM is fully rendered.
 	setTimeout( () => updateModeToggleLinks( lastFolderId ), 500 );
