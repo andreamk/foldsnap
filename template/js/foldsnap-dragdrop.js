@@ -133,7 +133,10 @@
 
 					wp.data
 						.dispatch( STORE_NAME )
-						.assignMedia( folderId, mediaIds );
+						.assignMedia( folderId, mediaIds )
+						.then( () => {
+							window.foldsnap?.refreshGrid?.();
+						} );
 				},
 			} );
 		} );
@@ -149,58 +152,74 @@
 	}
 
 	/**
-	 * Observe DOM mutations to handle dynamically loaded attachments
-	 * (infinite scroll) and re-rendered folder items (React updates).
+	 * Watch a container for added subtrees. Calls `onAdd()` once per
+	 * mutation batch when at least one added node matches `selector`.
+	 *
+	 * @param {Element}  container Container to observe.
+	 * @param {string}   selector  CSS selector to match against added nodes.
+	 * @param {Function} onAdd     Callback to run on match.
 	 */
-	function observeMutations() {
+	function observeAdditions( container, selector, onAdd ) {
+		if ( ! container ) {
+			return;
+		}
 		const observer = new MutationObserver( ( mutations ) => {
-			let needDraggables = false;
-			let needDroppables = false;
-
-			for ( let i = 0; i < mutations.length; i++ ) {
-				for ( let j = 0; j < mutations[ i ].addedNodes.length; j++ ) {
-					const node = mutations[ i ].addedNodes[ j ];
+			for ( const mutation of mutations ) {
+				for ( const node of mutation.addedNodes ) {
 					if ( node.nodeType !== Node.ELEMENT_NODE ) {
 						continue;
 					}
-					if ( node.classList.contains( 'attachment' ) ) {
-						needDraggables = true;
-					}
 					if (
-						node.classList.contains( 'foldsnap-folder-item' ) ||
-						( node.querySelector &&
-							node.querySelector( '.foldsnap-folder-item' ) )
+						node.matches?.( selector ) ||
+						node.querySelector?.( selector )
 					) {
-						needDroppables = true;
-					}
-					if (
-						node.querySelector &&
-						node.querySelector( '.attachment' )
-					) {
-						needDraggables = true;
+						onAdd();
+						return;
 					}
 				}
 			}
-
-			if ( needDraggables ) {
-				initDraggables();
-			}
-			if ( needDroppables ) {
-				initDroppables();
-			}
 		} );
+		observer.observe( container, { childList: true, subtree: true } );
+	}
 
-		observer.observe( document.body, {
-			childList: true,
-			subtree: true,
-		} );
+	/**
+	 * Wait for an element to appear (created by Backbone or React after
+	 * page load), up to ~10s. Calls `onReady(element)` once when found.
+	 *
+	 * @param {Function} getEl   Selector callback returning the element or null.
+	 * @param {Function} onReady Callback receiving the element.
+	 */
+	function whenReady( getEl, onReady ) {
+		let attempts = 0;
+		const timer = setInterval( () => {
+			const el = getEl();
+			if ( el || ++attempts >= 40 ) {
+				clearInterval( timer );
+				if ( el ) {
+					onReady( el );
+				}
+			}
+		}, 250 );
 	}
 
 	$( () => {
-		setTimeout( () => {
-			initDraggables();
-			initDroppables();
-			observeMutations();
-		}, 500 );
+		whenReady(
+			() => document.querySelector( '.attachments-browser' ),
+			( container ) => {
+				initDraggables();
+				observeAdditions( container, '.attachment', initDraggables );
+			}
+		);
+		whenReady(
+			() => document.getElementById( 'foldsnap-sidebar' ),
+			( container ) => {
+				initDroppables();
+				observeAdditions(
+					container,
+					'.foldsnap-folder-item',
+					initDroppables
+				);
+			}
+		);
 	} );
 } )( jQuery, window.wp );

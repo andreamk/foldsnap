@@ -14,9 +14,7 @@ import {
 	updateFolder,
 	deleteFolder,
 	assignMedia,
-	removeMedia,
 	setSelectedFolder,
-	fetchMedia,
 } from '../actions';
 
 /**
@@ -351,7 +349,7 @@ describe( 'deleteFolder', () => {
 	} );
 } );
 
-describe( 'assignMedia / removeMedia', () => {
+describe( 'assignMedia', () => {
 	it( 'POSTs media_ids and applies envelope', () => {
 		const yields = drive( assignMedia( 5, [ 10, 11 ] ), [
 			{
@@ -362,15 +360,10 @@ describe( 'assignMedia / removeMedia', () => {
 				root_media_count: 0,
 				root_total_size: 0,
 			},
-			{
-				media: [],
-				total: 0,
-				total_pages: 0,
-			},
 		] );
 		const types = yields.map( ( y ) => y.type );
 		expect( types ).toContain( ACTION_TYPES.UPSERT_FOLDER );
-		expect( types ).toContain( ACTION_TYPES.FETCH_MEDIA_START );
+		expect( types ).toContain( ACTION_TYPES.APPLY_AFFECTED_PARENTS );
 	} );
 
 	it( 'applies one APPLY_PATH_TOTALS per chain in paths', () => {
@@ -386,7 +379,6 @@ describe( 'assignMedia / removeMedia', () => {
 				root_media_count: 0,
 				root_total_size: 0,
 			},
-			{ media: [], total: 0, total_pages: 0 },
 		] );
 		const pathTotals = yields.filter(
 			( y ) => y.type === ACTION_TYPES.APPLY_PATH_TOTALS
@@ -395,56 +387,14 @@ describe( 'assignMedia / removeMedia', () => {
 		expect( pathTotals[ 0 ].path[ 0 ].id ).toBe( 5 );
 		expect( pathTotals[ 1 ].path[ 0 ].id ).toBe( 9 );
 	} );
-
-	it( 'DELETEs media and refreshes media list', () => {
-		const yields = drive( removeMedia( 5, [ 10 ] ), [
-			{
-				removed: true,
-				folder: { id: 5, parent_id: 0 },
-				paths: [ [ { id: 5, parent_id: 0 } ] ],
-				affected_parents: [],
-				root_media_count: 1,
-				root_total_size: 100,
-			},
-			{ media: [], total: 0, total_pages: 0 },
-		] );
-		const types = yields.map( ( y ) => y.type );
-		expect( types ).toContain( ACTION_TYPES.FETCH_MEDIA_START );
-	} );
 } );
 
-describe( 'setSelectedFolder / fetchMedia', () => {
-	it( 'setSelectedFolder is a plain action', () => {
+describe( 'setSelectedFolder', () => {
+	it( 'is a plain action', () => {
 		expect( setSelectedFolder( 5 ) ).toEqual( {
 			type: ACTION_TYPES.SET_SELECTED_FOLDER,
 			folderId: 5,
 		} );
 		expect( setSelectedFolder( null ).folderId ).toBeNull();
-	} );
-
-	it( 'fetchMedia uses folder_id=0 for null and dispatches SUCCESS', () => {
-		const yields = drive( fetchMedia( null ), [
-			{ media: [ { id: 1 } ], total: 1, total_pages: 1 },
-		] );
-		expect( yields[ 1 ].request.path ).toBe(
-			'/foldsnap/v1/media?folder_id=0&page=1&per_page=40'
-		);
-		expect( yields[ 2 ] ).toEqual( {
-			type: ACTION_TYPES.FETCH_MEDIA_SUCCESS,
-			media: [ { id: 1 } ],
-			total: 1,
-			totalPages: 1,
-		} );
-	} );
-
-	it( 'fetchMedia dispatches ERROR on throw', () => {
-		const gen = fetchMedia( 1 );
-		gen.next();
-		gen.next();
-		const r = gen.throw( new Error( 'timeout' ) );
-		expect( r.value ).toEqual( {
-			type: ACTION_TYPES.FETCH_MEDIA_ERROR,
-			error: 'timeout',
-		} );
 	} );
 } );

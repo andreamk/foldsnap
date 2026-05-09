@@ -12,11 +12,11 @@ FolderSidebar              (DndContext + All Media toggle)
     ├── FolderItem         (single folder node, recursive for children)
     │   └── FolderItem     (nested children)
     ├── SearchResultsList  (rendered instead of the tree while a query is active)
-    ├── CreateFolderModal  (lazy-loaded; uses FolderPicker for parent selection)
-    │   └── FolderPicker   (mini-tree + search, also reusable elsewhere)
-    └── MediaGrid          (paginated media grid for the selected folder)
-        └── MediaItem      (single thumbnail, draggable via jQuery UI)
+    └── CreateFolderModal  (lazy-loaded; uses FolderPicker for parent selection)
+        └── FolderPicker   (mini-tree + search, also reusable elsewhere)
 ```
+
+The visible media grid is the **native WordPress Backbone grid** (or list-table in list mode), not a React component. React only owns the sidebar; the grid is reflected to the current folder selection by `services/media-mode-bridge.js`.
 
 `FolderPicker` is a self-contained mini-tree that reads the same `foldsnap/folders` store: it lists root folders, allows expanding any branch, and exposes its own debounced search. It is rendered inside `CreateFolderModal` to pick a parent and is reusable for any future "pick a folder" flow.
 
@@ -43,8 +43,6 @@ The store does not hold a fully expanded tree. Children are loaded lazily, one p
 | `searchQuery`        | `string`                               |                                                    |
 | `searchResults`      | `{ folder, breadcrumb }[]`             | One entry per match                                |
 | `searchPage`, `searchTotalPages`, `searchTotal`, `searchIsLoading` | various | Search pagination state |
-| `media`              | `MediaItem[]`                          | Current page of media for the selected folder      |
-| `mediaTotal`, `mediaTotalPages`, `mediaIsLoading`                  | various | Media list state |
 | `error`              | `string\|null`                         |                                                    |
 
 The full Root folder object (with its global counters) lives inside `foldersById[0]` like any other folder; there are no separate `rootMediaCount` / `rootTotalSize` slices.
@@ -59,7 +57,6 @@ Async actions use generators with a custom `API_FETCH` control that delegates to
 - `expandFolder(folderId)` — marks expanded and triggers `fetchChildren` if not already loaded.
 - `expandPathTo(folderId)` — GETs `/folders/{id}/path`, dispatches `APPLY_PATH_TOTALS`, then `fetchChildrenBatch` for every ancestor so the tree is inflated with one fetch per level.
 - `searchFolders(query, { perPage })` / `loadMoreSearchResults` / `clearSearch`.
-- `fetchMedia(folderId, page, perPage)`.
 
 Mutation actions hit the REST endpoint, then run `applyMutationEnvelope(response)` which dispatches:
 
@@ -67,13 +64,15 @@ Mutation actions hit the REST endpoint, then run `applyMutationEnvelope(response
 - `APPLY_PATH_TOTALS` — for each chain in `paths`, merge `total_*` updates into `foldersById` and the parent slots.
 - `APPLY_AFFECTED_PARENTS` — flip `has_children` on the parents in the list.
 
-`createFolder`, `updateFolder`, and the media actions also refresh the affected parent slot(s) via `fetchChildren` to pick up server-side ordering. `updateFolder` detects reparenting from the envelope and refreshes both the old and new parent slots.
+`createFolder` and `updateFolder` also refresh the affected parent slot(s) via `fetchChildren` to pick up server-side ordering. `updateFolder` detects reparenting from the envelope and refreshes both the old and new parent slots.
+
+`assignMedia` only patches the React store; the visible Backbone grid is refreshed independently by the dragdrop bridge via `window.foldsnap.refreshGrid()`.
 
 `deleteFolder` dispatches `REMOVE_FOLDER` (drops it from `foldersById` and its parent slot, clears it from `expandedIds`), then merges the envelope's `root` and `affected_parents`.
 
 ### Selectors
 
-Direct slice access (`getFolderById`, `getChildrenOf`, `getExpandedIds`, `isFolderLoaded`, `isFolderFetching`, `getParentPagination`), search and media selectors, plus `getRootFolder()` which returns `foldersById[0]`.
+Direct slice access (`getFolderById`, `getChildrenOf`, `getExpandedIds`, `isFolderLoaded`, `isFolderFetching`, `getParentPagination`), search selectors, plus `getRootFolder()` which returns `foldersById[0]`.
 
 ### Resolvers
 
@@ -92,7 +91,8 @@ On store init, both keys are read and dispatched as a single `HYDRATE` action th
 
 The `template/js/hooks/` directory holds reusable hooks consumed by multiple components.
 
-- **`useDebouncedCallback(callback, delay)`** — returns a stable wrapper that resets a shared timer on every call and only fires `callback(...args)` once `delay` ms have passed without further calls. Pending timer is cleared on unmount. Used by `FolderTree` and `FolderPicker` for the search input (`SEARCH_DEBOUNCE_MS = 300`).
+- **`useDebouncedCallback(callback, delay)`** — returns a stable wrapper that resets a shared timer on every call and only fires `callback(...args)` once `delay` ms have passed without further calls. Pending timer is cleared on unmount. Used by `FolderTree` and indirectly by `useLocalFolderSearch` (`SEARCH_DEBOUNCE_MS = 300`).
+- **`useLocalFolderSearch({ perPage })`** — self-contained folder search isolated from the global store search slice. Returns `{ inputValue, activeQuery, results, isLoading, setInput }`. Discards out-of-order responses via a ref. Used by `FolderPicker`; reusable for any future "pick a folder" flow that must not overwrite the sidebar's active query.
 
 ## Drag and drop
 
@@ -113,13 +113,17 @@ The native WordPress media grid renders Backbone-managed `<li class="attachment"
 
 ## Media-mode bridge
 
-`media-mode-bridge.js` synchronises the React folder selection with the native WordPress media display:
+`media-mode-bridge.js` is a thin orchestrator that subscribes to the store and dispatches each folder change to one of the focused side-effect modules in `services/`:
 
-- **Grid mode** — sets/unsets `foldsnap_folder_id` on the Backbone `Attachments` collection, triggering an AJAX refetch.
-- **List mode** — redirects to `upload.php?foldsnap_folder_id=ID`.
-- **Mode toggle links** — patches the grid/list switch URLs so the current folder survives the mode change.
-- **URL persistence** — reads `foldsnap_folder_id` on load and pre-selects the folder in the store.
-- **All Media bypass** — when `allMediaActive` is on, the bridge clears the folder filter so the native grid shows every attachment.
+| Module | Responsibility |
+|--------|---------------|
+| `grid-reflector.js` | Writes `foldsnap_folder_id` on the live Backbone `Attachments` collection (AJAX refetch). Caches the collection across modal open/close. Polls until `wp.media.frame` exists. Installs `window.foldsnap.refreshGrid()` for cross-bundle calls from the dragdrop script. |
+| `list-mode-redirector.js` | List mode: redirects to `upload.php?foldsnap_folder_id=ID`. |
+| `view-switch-links.js` | Patches the `.view-switch` grid/list toggle hrefs so the current folder survives the mode change. |
+
+When `allMediaActive` is on, the orchestrator passes `null` as the effective folder so the grid is unfiltered.
+
+URL → store bootstrap is performed by the `bootFromUrl` action (dispatched once from `index.js` before the bridge runs): it reads `foldsnap_folder_id` from `window.location.search` and selects that folder, defaulting to root (id 0) when the parameter is absent so the grid is always filtered by some folder.
 
 ## Build pipeline
 

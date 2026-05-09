@@ -15,7 +15,6 @@ describe( 'reducer', () => {
 		expect( state.allMediaActive ).toBe( false );
 		expect( state.searchQuery ).toBe( '' );
 		expect( state.searchResults ).toEqual( [] );
-		expect( state.media ).toEqual( [] );
 	} );
 
 	it( 'HYDRATE seeds expandedIds and allMediaActive', () => {
@@ -362,32 +361,6 @@ describe( 'reducer', () => {
 			expect( state.foldersByParent[ 0 ] ).toEqual( [] );
 			expect( state.expandedIds ).toEqual( [] );
 			expect( state.selectedFolderId ).toBeNull();
-		} );
-	} );
-
-	describe( 'FETCH_MEDIA_*', () => {
-		it( 'tracks loading flag and stores results on success', () => {
-			let state = reducer( baseState(), {
-				type: ACTION_TYPES.FETCH_MEDIA_START,
-			} );
-			expect( state.mediaIsLoading ).toBe( true );
-			state = reducer( state, {
-				type: ACTION_TYPES.FETCH_MEDIA_SUCCESS,
-				media: [ { id: 10 } ],
-				total: 1,
-				totalPages: 1,
-			} );
-			expect( state.media ).toHaveLength( 1 );
-			expect( state.mediaIsLoading ).toBe( false );
-		} );
-
-		it( 'records error on ERROR', () => {
-			const state = reducer( baseState(), {
-				type: ACTION_TYPES.FETCH_MEDIA_ERROR,
-				error: 'timeout',
-			} );
-			expect( state.error ).toBe( 'timeout' );
-			expect( state.mediaIsLoading ).toBe( false );
 		} );
 	} );
 } );
