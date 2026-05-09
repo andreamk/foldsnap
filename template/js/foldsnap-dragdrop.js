@@ -133,7 +133,14 @@
 
 					wp.data
 						.dispatch( STORE_NAME )
-						.assignMedia( folderId, mediaIds );
+						.assignMedia( folderId, mediaIds )
+						.then( () => {
+							try {
+								wp.media?.frame?.content
+									?.get( 'browse' )
+									?.collection?._requery( true );
+							} catch ( e ) {} // eslint-disable-line no-empty
+						} );
 				},
 			} );
 		} );
