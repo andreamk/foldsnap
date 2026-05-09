@@ -8,6 +8,64 @@ FoldSnap e' un plugin WordPress per la gestione di cartelle nella Media Library.
 
 ---
 
+## Stato attuale (allineamento con il codice — aggiornato 2026-05-09)
+
+Questa sezione riflette lo stato del codice oggi. Le sezioni "Panoramica file" e "Step di implementazione" sotto sono storiche: descrivono l'intento del piano al momento della scrittura, non lo stato finale.
+
+### Stato per step
+
+| Step | Stato | Note |
+|------|-------|------|
+| 0 — Preparazione | ✅ Completato | |
+| 1 — TaxonomyService + Bootstrap | ✅ Completato | |
+| 2 — FolderModel | ✅ Completato | Modello rifattorizzato in Step 8 (rimossi `addChild`, `children[]`, `directSize`, totali ricorsivi) |
+| 3 — FolderRepository | ✅ Completato | Refattorizzato in Step 8 (rimossi `getTree`, `buildTree`, `computeFolderSizes`) |
+| 3b — Size + sanitizzazione nomi | ✅ Completato | Sanitizzazione estratta in `FolderNameSanitizer` (service dedicato) |
+| 4 — RestApiController + endpoint | ✅ Completato | Controller splittato in `RestApiController`, `RestApiFolderMutationsController`, `RestApiFolderPresenter`, `RestApiRequestUtils` |
+| 5 — Store @wordpress/data | ✅ Completato | Stato shape totalmente rivisto in Step 8; **slice `media` poi rimossa** (vedi Step 7) |
+| 6 — Folder tree + ricerca + DnD | ✅ Completato | |
+| 6b — Integrazione Media Library nativa | ✅ Completato | `App.jsx` rimosso, mount diretto su `#foldsnap-sidebar` |
+| 7 — Media grid React | ⚠️ Deviazione | `MediaGrid.jsx`/`MediaItem.jsx` **rimossi** dal commit `b51fdd3` (2026-05-09). La griglia visibile è la Backbone nativa di WP; il DnD media→folder gira via `template/js/foldsnap-dragdrop.js`. Decisione coerente con TODO-6 del piano (opzione "rimuovere") |
+| 8 — Architettura pulita (DTO + API flat) | ✅ Completato | |
+| 9 — Contatori incrementali | ✅ Completato | Logica spalmata su `FolderCounterService`, `CountersRecalculator`, `AttachmentLifecycleService`, `MediaFolderAssignmentService` |
+| 10 — Uninstall cleanup | ⚠️ Aperto | `src/Core/Uninstall.php` pulisce options, transients e disarma il cron `foldsnap_recalc_chunk`, ma **NON** chiama `deleteTaxonomyTerms()`. I termini `foldsnap_folder` e i loro term meta restano in DB dopo uninstall. Da chiudere se si vuole completare lo step come scritto |
+| 11 — Verifica finale | n/a | Verifica continua via `composer fullcheck` |
+
+### File aggiunti rispetto al piano originale
+
+**PHP** (oltre ai 4 previsti in "Panoramica file"):
+- `src/Controllers/MediaLibraryController.php` (Step 6b)
+- `src/Controllers/RestApiFolderMutationsController.php`, `RestApiFolderPresenter.php`, `RestApiRequestUtils.php` (refactor di Step 4)
+- `src/Services/FolderNameSanitizer.php` (estratto da Step 3b)
+- `src/Services/FolderTreeNavigator.php` (Step 8)
+- `src/Services/MediaFolderAssignmentService.php` (estratto da `FolderRepository`)
+- `src/Services/FolderCounterService.php`, `CountersRecalculator.php`, `AttachmentLifecycleService.php` (Step 9)
+- `src/Services/Database.php` (helper SQL condiviso, Step 8/9)
+
+**JS** (oltre ai 12 previsti in "Panoramica file"):
+- `template/js/components/FolderSidebar.jsx` (sostituisce `App.jsx` in Step 6b)
+- `template/js/components/FolderPicker.jsx` (estratto per CreateFolderModal con lazy load)
+- `template/js/components/SearchResultsList.jsx` (Step 8B)
+- `template/js/store/persistence.js` (Step 8B)
+- `template/js/utils/build-children-map.js`, `format-size.js` (Step 8B + utility)
+- `template/js/hooks/useDebouncedCallback.js`, `useLocalFolderSearch.js`
+- `template/js/services/media-mode-bridge.js` (bridge React store ↔ Backbone), `grid-reflector.js`, `list-mode-redirector.js`, `view-switch-links.js`
+- `template/js/foldsnap-dragdrop.js` (jQuery UI bridge per DnD su griglia nativa, Step 7 sostitutivo)
+
+**File previsti dal piano ma rimossi/non più presenti:**
+- `template/js/components/App.jsx` (rimosso in Step 6b come previsto)
+- `template/js/components/MediaGrid.jsx`, `MediaItem.jsx` e relativi test (rimossi in commit `b51fdd3`, deviazione da Step 7)
+- Slice `media` dello store: state (`media`, `mediaTotal`, `mediaTotalPages`, `mediaIsLoading`), action `fetchMedia`, selectors `getMedia`/`isMediaLoading`/`getMediaTotal`/`getMediaTotalPages` (rimossi insieme alla MediaGrid React)
+
+### Punto attuale
+
+Il piano è funzionalmente completo. La branch corrente lavora su rifiniture UI (refactor bootstrap, modularizzazione service bridge, miglioramenti UX della sidebar). Restano aperti:
+
+1. **Step 10** — `deleteTaxonomyTerms()` in Uninstall (vedi tabella sopra)
+2. I **TODO post-MVP** (1–14) elencati in fondo al documento
+
+---
+
 ## Panoramica file
 
 ### PHP — Nuovi (4 sorgenti)
@@ -297,7 +355,10 @@ Strategia MVP: dopo ogni mutazione, re-fetch dell'intero albero (semplice, affid
 
 **Verifica:** `composer fullcheck`
 
-### Step 7 — Media grid + drag & drop media + test
+### Step 7 — Media grid + drag & drop media + test ⚠️ DEVIATO
+
+**Stato (2026-05-09)**: implementato originariamente come previsto, poi **rimosso** nel commit `b51fdd3`. `MediaGrid.jsx`, `MediaItem.jsx` e la slice `media` dello store sono stati eliminati a favore della griglia Backbone nativa di WordPress. Il DnD media→folder gira via `template/js/foldsnap-dragdrop.js` (jQuery UI bridge sulla griglia nativa). Decisione coerente con TODO-6. La descrizione qui sotto è storica.
+
 
 **Crea `template/js/components/MediaGrid.jsx`:**
 - Usa `useSelect` per leggere `getMedia`, `isMediaLoading`, `getMediaTotal`, `getMediaTotalPages` dallo store
@@ -603,7 +664,10 @@ Note implementative:
 
 **Verifica**: `/test-coverage` sui file modificati, poi `composer fullcheck`. Test manuale: caricare un file in root → contatore root incrementa; spostare in cartella nested → root decrementa, cartella+antenati incrementano; cancellare → decremento; corrompere a mano un meta e chiamare recalculate → ripristino.
 
-### Step 10 — Uninstall cleanup + test
+### Step 10 — Uninstall cleanup + test ⚠️ APERTO
+
+**Stato (2026-05-09)**: parzialmente implementato. `src/Core/Uninstall.php` pulisce options e transients (prefisso `foldsnap_opt_`/`foldsnap_`), disarma il cron `foldsnap_recalc_chunk` e fa `wp_cache_flush()`, ma **non chiama** `deleteTaxonomyTerms()`. I termini `foldsnap_folder` e i loro term meta restano in DB dopo uninstall. Da chiudere se si vuole completare lo step come scritto.
+
 
 **Modifica `src/Core/Uninstall.php`:**
 - Aggiungere `self::deleteTaxonomyTerms()` in `cleanSite()`
