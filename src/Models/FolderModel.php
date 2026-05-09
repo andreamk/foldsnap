@@ -291,9 +291,9 @@ final class FolderModel
             $color = '';
         }
 
-        $position = Sanitize::toInt(get_term_meta($term->term_id, self::META_POSITION, true));
+        $position   = Sanitize::toInt(get_term_meta($term->term_id, self::META_POSITION, true));
         $totalCount = Sanitize::toInt(get_term_meta($term->term_id, self::META_COUNT, true));
-        $totalSize = Sanitize::toInt(get_term_meta($term->term_id, self::META_SIZE, true));
+        $totalSize  = Sanitize::toInt(get_term_meta($term->term_id, self::META_SIZE, true));
 
         return new self(
             $term->term_id,
