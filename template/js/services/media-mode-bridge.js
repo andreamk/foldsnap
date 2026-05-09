@@ -11,16 +11,40 @@ import { STORE_NAME } from '../store/constants';
  * @param {number|null} folderId Folder to filter by, or null for all media.
  * @return {boolean} Whether the filter was applied (frame ready).
  */
+// Cached reference to the live grid collection. Captured the first time
+// `browse.collection` is reachable. Persists across modal open/close,
+// where `browse.collection` is transiently null but the underlying
+// Backbone collection (which the DOM grid observes) is still alive.
+let cachedGridCollection = null;
+
+const findLiveCollection = () => {
+	const frame = window.wp?.media?.frame;
+	if ( ! frame ) {
+		return null;
+	}
+	const fromBrowse = frame.content?.get?.( 'browse' )?.collection;
+	if ( fromBrowse ) {
+		return fromBrowse;
+	}
+	// `frame.states` is a Backbone collection of state models keyed by id.
+	const libState = frame.states?.get?.( 'library' );
+	return libState?.get?.( 'library' ) || null;
+};
+
 const applyGridFilter = ( folderId ) => {
 	try {
-		const browse = window.wp?.media?.frame?.content?.get( 'browse' );
-		if ( ! browse?.collection ) {
+		const candidate = findLiveCollection();
+		if ( candidate ) {
+			cachedGridCollection = candidate;
+		}
+		const target = cachedGridCollection;
+		if ( ! target ) {
 			return false;
 		}
 		if ( folderId === null ) {
-			browse.collection.props.unset( 'foldsnap_folder_id' );
+			target.props.unset( 'foldsnap_folder_id' );
 		} else {
-			browse.collection.props.set( { foldsnap_folder_id: folderId } );
+			target.props.set( { foldsnap_folder_id: folderId } );
 		}
 		return true;
 	} catch {
@@ -73,6 +97,15 @@ const updateModeToggleLinks = ( folderId ) => {
  */
 export default function initMediaModeBridge() {
 	const isListMode = window.foldsnap_data?.mediaMode === 'list';
+
+	// Expose a stable grid refresh entry-point for non-bundled scripts
+	// (e.g. the jQuery dragdrop bridge) so they can trigger a re-fetch
+	// of the live Backbone collection without duplicating lookup logic.
+	window.foldsnap = window.foldsnap || {};
+	window.foldsnap.refreshGrid = () => {
+		const target = findLiveCollection() || cachedGridCollection;
+		target?._requery?.( true );
+	};
 
 	// Pre-select folder from URL parameter, or fall back to root (id 0)
 	// so the grid is never silently unfiltered on first load. The
