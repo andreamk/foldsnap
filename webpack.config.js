@@ -6,6 +6,10 @@ module.exports = {
 	...defaultConfig,
 	entry: {
 		'foldsnap-admin': path.resolve( __dirname, 'template/js/index.js' ),
+		'foldsnap-settings': path.resolve(
+			__dirname,
+			'template/js/settings.js'
+		),
 	},
 	output: {
 		...defaultConfig.output,

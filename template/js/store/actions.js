@@ -443,6 +443,10 @@ export function* createFolder( {
 	yield* applyMutationEnvelope( response );
 	// Refresh the parent slot to reflect the new sibling order from the server.
 	yield* fetchChildren( parentId );
+	// Expand the parent so the newly created subfolder is immediately visible.
+	if ( parentId ) {
+		yield { type: ACTION_TYPES.EXPAND_FOLDER, folderId: parentId };
+	}
 }
 
 /**
@@ -506,6 +510,10 @@ export function* updateFolder( id, { name, parentId, color, position } = {} ) {
 		yield* applyMutationEnvelope( response );
 		yield* fetchChildren( oldParentId );
 		yield* fetchChildren( newParentId );
+		// Expand the new parent so the moved folder is immediately visible.
+		yield { type: ACTION_TYPES.EXPAND_FOLDER, folderId: newParentId };
+		// Keep the moved folder selected so the user doesn't lose context.
+		yield setSelectedFolder( id );
 	} else {
 		yield* applyMutationEnvelope( response );
 	}
@@ -599,4 +607,28 @@ export function* bootFromUrl() {
 	const folderId = urlFolderId !== null ? parseInt( urlFolderId, 10 ) : 0;
 	yield setSelectedFolder( folderId );
 	yield* expandPathTo( folderId );
+
+	// Re-hydrate children for folders the user had previously expanded
+	// (persisted in localStorage). Without this, the chevron icon shows
+	// "expanded" but the children list stays empty until the user
+	// collapses + re-expands.
+	const persistedExpanded = yield {
+		type: 'SELECT',
+		selector: 'getExpandedIds',
+		args: [],
+	};
+	const stillNeedFetch = [];
+	for ( const id of persistedExpanded ?? [] ) {
+		const isLoaded = yield {
+			type: 'SELECT',
+			selector: 'isFolderLoaded',
+			args: [ id ],
+		};
+		if ( ! isLoaded ) {
+			stillNeedFetch.push( id );
+		}
+	}
+	if ( stillNeedFetch.length > 0 ) {
+		yield* fetchChildrenBatch( stillNeedFetch );
+	}
 }

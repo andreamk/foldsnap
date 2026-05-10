@@ -456,6 +456,44 @@ class RestApiControllerTests extends WP_UnitTestCase
         $this->assertContains($newParent->getId(), $affectedIds);
     }
 
+    /**
+     * Test reparent envelope includes ancestor chains for BOTH old and new parents.
+     *
+     * Without the old chain in `paths`, the client could not refresh counts/sizes
+     * upstream of the source folder after a move.
+     *
+     * @return void
+     */
+    public function test_update_folder_reparent_paths_include_old_chain(): void
+    {
+        $oldParent = $this->repository->create('Old Parent');
+        $newParent = $this->repository->create('New Parent');
+        $child     = $this->repository->create('Child', $oldParent->getId());
+
+        $request = new WP_REST_Request('PUT', '/foldsnap/v1/folders/' . $child->getId());
+        $request->set_param('parent_id', (string) $newParent->getId());
+
+        $response = $this->dispatchRequest($request);
+        $data     = $response->get_data();
+
+        $this->assertSame(200, $response->get_status());
+
+        // Flatten all folder IDs that appear in any returned path chain.
+        $idsInPaths = [];
+        foreach ($data['paths'] as $chain) {
+            foreach ($chain as $folder) {
+                $idsInPaths[] = $folder['id'];
+            }
+        }
+
+        $this->assertContains(
+            $oldParent->getId(),
+            $idsInPaths,
+            'Old parent must appear in `paths` so client can refresh its counts on reparent.'
+        );
+        $this->assertContains($newParent->getId(), $idsInPaths);
+    }
+
     // -------------------------------------------------------------------------
     // DELETE /folders/{id}
     // -------------------------------------------------------------------------

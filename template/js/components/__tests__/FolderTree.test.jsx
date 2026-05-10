@@ -139,19 +139,6 @@ describe( 'FolderTree', () => {
 		expect( screen.getByText( 'Network failure' ) ).toBeInTheDocument();
 	} );
 
-	it( 'opens and closes the create folder modal', async () => {
-		setupSelect( makeStoreState() );
-		render( <FolderTree /> );
-		await user.click( screen.getByText( '+ New Folder' ) );
-		expect(
-			screen.getByTestId( 'create-folder-modal' )
-		).toBeInTheDocument();
-		await user.click( screen.getByText( 'Close Modal' ) );
-		expect(
-			screen.queryByTestId( 'create-folder-modal' )
-		).not.toBeInTheDocument();
-	} );
-
 	it( 'debounces search input then dispatches setSearchQuery + searchFolders', async () => {
 		setupSelect( makeStoreState() );
 		render( <FolderTree /> );

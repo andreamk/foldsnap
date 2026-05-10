@@ -1,21 +1,12 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { useDispatch } from '@wordpress/data';
+import { useDispatch, useSelect } from '@wordpress/data';
 import CreateFolderModal from '../CreateFolderModal';
 
 jest.mock( '@wordpress/data', () => ( {
 	useDispatch: jest.fn(),
+	useSelect: jest.fn(),
 } ) );
-
-jest.mock( '../FolderPicker', () => {
-	const MockFolderPicker = ( { value, onChange } ) => (
-		<div data-testid="folder-picker">
-			<span data-testid="picker-value">{ value }</span>
-			<button onClick={ () => onChange( 5 ) }>Pick 5</button>
-		</div>
-	);
-	return MockFolderPicker;
-} );
 
 jest.mock( '@wordpress/components', () => ( {
 	Modal: ( { title, children, onRequestClose } ) => (
@@ -46,6 +37,19 @@ jest.mock( '@wordpress/components', () => ( {
 	),
 } ) );
 
+const FOLDER_BY_ID = {
+	0: { id: 0, name: 'Root' },
+	7: { id: 7, name: 'Photos' },
+};
+
+const mockSelect = ( folders = FOLDER_BY_ID ) => {
+	useSelect.mockImplementation( ( fn ) =>
+		fn( () => ( {
+			getFolderById: ( id ) => folders[ id ],
+		} ) )
+	);
+};
+
 describe( 'CreateFolderModal', () => {
 	let mockCreateFolder;
 	let mockOnClose;
@@ -55,25 +59,31 @@ describe( 'CreateFolderModal', () => {
 		mockCreateFolder = jest.fn().mockResolvedValue( undefined );
 		mockOnClose = jest.fn();
 		useDispatch.mockReturnValue( { createFolder: mockCreateFolder } );
+		mockSelect();
 		user = userEvent.setup();
 	} );
 
-	it( 'renders the modal title', () => {
-		render( <CreateFolderModal parentId={ 0 } onClose={ mockOnClose } /> );
+	it( 'shows the parent name in the title', () => {
+		render( <CreateFolderModal parentId={ 7 } onClose={ mockOnClose } /> );
 		expect( screen.getByTestId( 'modal-title' ) ).toHaveTextContent(
-			'New Folder'
+			'New folder in “Photos”'
 		);
 	} );
 
-	it( 'renders name input and lazy-loaded picker', () => {
-		render( <CreateFolderModal parentId={ 0 } onClose={ mockOnClose } /> );
-		expect( screen.getByTestId( 'name-input' ) ).toBeInTheDocument();
-		expect( screen.getByTestId( 'folder-picker' ) ).toBeInTheDocument();
+	it( 'falls back to a generic title when the parent is unknown', () => {
+		mockSelect( {} );
+		render( <CreateFolderModal parentId={ 99 } onClose={ mockOnClose } /> );
+		expect( screen.getByTestId( 'modal-title' ) ).toHaveTextContent(
+			'New folder'
+		);
 	} );
 
-	it( 'pre-selects the given parentId in the picker', () => {
-		render( <CreateFolderModal parentId={ 7 } onClose={ mockOnClose } /> );
-		expect( screen.getByTestId( 'picker-value' ) ).toHaveTextContent( '7' );
+	it( 'renders the name input only (no parent picker)', () => {
+		render( <CreateFolderModal parentId={ 0 } onClose={ mockOnClose } /> );
+		expect( screen.getByTestId( 'name-input' ) ).toBeInTheDocument();
+		expect(
+			screen.queryByTestId( 'folder-picker' )
+		).not.toBeInTheDocument();
 	} );
 
 	it( 'disables Create when name is empty', () => {
@@ -87,30 +97,14 @@ describe( 'CreateFolderModal', () => {
 		expect( screen.getByText( 'Create' ) ).not.toBeDisabled();
 	} );
 
-	it( 'updates the parent on picker change', async () => {
-		render( <CreateFolderModal parentId={ 0 } onClose={ mockOnClose } /> );
-		await user.type( screen.getByTestId( 'name-input' ), 'Photos' );
-		await user.click( screen.getByText( 'Pick 5' ) );
+	it( 'creates with the fixed parentId on submit', async () => {
+		render( <CreateFolderModal parentId={ 7 } onClose={ mockOnClose } /> );
+		await user.type( screen.getByTestId( 'name-input' ), 'Vacation' );
 		await user.click( screen.getByText( 'Create' ) );
 		await waitFor( () => {
 			expect( mockCreateFolder ).toHaveBeenCalledWith( {
-				name: 'Photos',
-				parentId: 5,
-			} );
-		} );
-	} );
-
-	it( 'creates and closes on submit', async () => {
-		render( <CreateFolderModal parentId={ 0 } onClose={ mockOnClose } /> );
-		await user.type(
-			screen.getByTestId( 'name-input' ),
-			'New Folder Name'
-		);
-		await user.click( screen.getByText( 'Create' ) );
-		await waitFor( () => {
-			expect( mockCreateFolder ).toHaveBeenCalledWith( {
-				name: 'New Folder Name',
-				parentId: 0,
+				name: 'Vacation',
+				parentId: 7,
 			} );
 			expect( mockOnClose ).toHaveBeenCalled();
 		} );

@@ -3,6 +3,7 @@ import { useDispatch, useSelect } from '@wordpress/data';
 import {
 	DndContext,
 	PointerSensor,
+	pointerWithin,
 	useSensor,
 	useSensors,
 } from '@dnd-kit/core';
@@ -41,9 +42,6 @@ const FolderSidebar = () => {
 	);
 
 	const handleDragEnd = ( event ) => {
-		if ( allMediaActive ) {
-			return;
-		}
 		const { active, over } = event;
 		if ( ! over || active.id === over.id ) {
 			return;
@@ -83,7 +81,11 @@ const FolderSidebar = () => {
 	};
 
 	return (
-		<DndContext sensors={ sensors } onDragEnd={ handleDragEnd }>
+		<DndContext
+			sensors={ sensors }
+			collisionDetection={ pointerWithin }
+			onDragEnd={ handleDragEnd }
+		>
 			<div
 				className={ [
 					'foldsnap-sidebar',
