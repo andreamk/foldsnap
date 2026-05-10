@@ -12,11 +12,13 @@ namespace FoldSnap\Core;
 
 use FoldSnap\Controllers\MediaLibraryController;
 use FoldSnap\Controllers\RestApiController;
+use FoldSnap\Controllers\UserPreferencesRestController;
 use FoldSnap\Core\Controllers\ControllersManager;
 use FoldSnap\Services\AttachmentLifecycleService;
 use FoldSnap\Services\CountersRecalculator;
 use FoldSnap\Services\FolderCounterService;
 use FoldSnap\Services\TaxonomyService;
+use FoldSnap\Services\UserPreferencesService;
 
 final class Bootstrap
 {
@@ -41,6 +43,9 @@ final class Bootstrap
         RestApiController::getInstance();
         MediaLibraryController::getInstance();
 
+        // Per-user UI preferences (sidebar state, settings).
+        new UserPreferencesRestController(new UserPreferencesService());
+
         // Folder counter incremental updates: hook attachment lifecycle.
         $counters  = new FolderCounterService();
         $lifecycle = new AttachmentLifecycleService($counters);
@@ -49,8 +54,10 @@ final class Bootstrap
         // Cron handler for chunked recalculate.
         add_action(CountersRecalculator::CRON_ACTION, [self::class, 'runRecalculateChunk']);
 
-        // First-boot migration: schedule the initial recalculate if it has
-        // never been run. Subsequent chunks self-reschedule until done.
+        // First-boot bootstrap of folder counters: schedule the initial
+        // recalculate if it has never run on this site (needed even on a
+        // fresh install whose Media Library is already populated).
+        // Subsequent chunks self-reschedule until done.
         $initialized = get_option(CountersRecalculator::OPT_INITIALIZED, '');
         if ('1' !== $initialized) {
             if (! wp_next_scheduled(CountersRecalculator::CRON_ACTION)) {

@@ -3,10 +3,10 @@
 /**
  * Bottom-up chunked recalculate of folder counters
  *
- * Safety net + initial migration for the incremental counter system. Builds
- * a persistent LIFO stack of folder IDs in BFS top-down order: popping it
- * yields a leaves-first post-order walk, so by the time we update a folder
- * its children's totals are already fresh.
+ * Safety net + first-boot initialisation for the incremental counter
+ * system. Builds a persistent LIFO stack of folder IDs in BFS top-down
+ * order: popping it yields a leaves-first post-order walk, so by the time
+ * we update a folder its children's totals are already fresh.
  *
  * State for in-progress recalculations is stored in a single option
  * (`foldsnap_opt_recalc_stack`). When the stack drains, the global Root
@@ -27,7 +27,7 @@ class CountersRecalculator
     /** @var string Option key holding the pending LIFO stack of folder IDs */
     public const OPT_STACK = 'foldsnap_opt_recalc_stack';
 
-    /** @var string Option key set once the migration has completed */
+    /** @var string Option key set once the first-boot recalculate has completed */
     public const OPT_INITIALIZED = 'foldsnap_opt_counters_initialized';
 
     /** @var string Cron action name used by the scheduler wrapper */
@@ -53,7 +53,7 @@ class CountersRecalculator
      * up to $limit folder IDs (leaves first), recomputes total_size and
      * total_count for each as `direct + Σ total(children)`, persists the
      * shorter stack. When empty, recomputes the Root global counters and
-     * marks the migration complete.
+     * marks the first-boot initialisation complete.
      *
      * @param int $limit Max folders to process this call (clamped 1..1000).
      *
@@ -139,7 +139,7 @@ class CountersRecalculator
     }
 
     /**
-     * Whether the migration has already completed at least once
+     * Whether the first-boot initialisation has already completed at least once
      *
      * @return bool
      */

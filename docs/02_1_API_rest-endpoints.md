@@ -225,6 +225,41 @@ Returns paginated attachments for a folder.
 
 Response sets `X-WP-Total` and `X-WP-TotalPages`. The query is built via `TaxonomyService::buildFolderTaxQuery()` (`NOT EXISTS` for Root, `term_id` match with `include_children = false` otherwise).
 
+## Preferences
+
+Per-user UI preferences are stored in a single `user_meta` entry (`foldsnap_preferences`) with a closed schema declared in `UserPreferencesService`. Both endpoints require `upload_files`; the user scope is implicit (`get_current_user_id()` server-side) — no user ID in the URL.
+
+### `GET /preferences`
+
+Returns the full preferences map for the current user. Missing keys are filled with declared defaults, so the response always contains every declared key.
+
+```json
+{
+  "preferences": {
+    "expandedFolders": [3, 7, 12],
+    "allMedia": false
+  }
+}
+```
+
+### `PUT /preferences/{key}`
+
+Writes one preference. The key segment must match a declared schema key (currently `expandedFolders` or `allMedia`); the value is validated against the key's declared type.
+
+Body:
+
+```json
+{ "value": [3, 7, 12] }
+```
+
+Response (200):
+
+```json
+{ "key": "expandedFolders", "value": [3, 7, 12] }
+```
+
+The returned `value` is the type-coerced version actually persisted (e.g. for `int_array` non-positive / non-numeric / duplicate elements are filtered).
+
 ## Admin
 
 ### `POST /folders/recalculate`
@@ -244,8 +279,10 @@ All endpoints return `WP_Error` on failure:
 
 | Code                | Status | Meaning                              |
 |---------------------|--------|--------------------------------------|
-| `missing_name`      | 400    | Folder name not provided             |
-| `missing_folder_id` | 400    | `folder_id` parameter missing        |
-| `missing_media_ids` | 400    | `media_ids` empty or not an array    |
-| `invalid_argument`  | 400    | Validation failed (e.g. folder not found, mutation against Root) |
-| `server_error`      | 500    | Unexpected server error              |
+| `missing_name`                      | 400    | Folder name not provided             |
+| `missing_folder_id`                 | 400    | `folder_id` parameter missing        |
+| `missing_media_ids`                 | 400    | `media_ids` empty or not an array    |
+| `invalid_argument`                  | 400    | Validation failed (e.g. folder not found, mutation against Root) |
+| `foldsnap_unknown_preference`       | 400    | `PUT /preferences/{key}` with a key not declared in the schema |
+| `foldsnap_invalid_preference_value` | 400    | `PUT /preferences/{key}` with a value not coercible to the declared type |
+| `server_error`                      | 500    | Unexpected server error              |

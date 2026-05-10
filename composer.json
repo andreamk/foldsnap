@@ -36,10 +36,12 @@
 		"deploy": "php ./tools/deploy.php",
 		"npm-build": "npm run build",
 		"npm-lint": "npm run lint",
+		"npm-lint-fix": "npm run lint:fix",
 		"npm-test": "npm test",
 		"fullcheck": [
-			"@npm-build",
+			"@npm-lint-fix",
 			"@npm-lint",
+			"@npm-build",
 			"@npm-test",
 			"@phpcbf .",
 			"@phpcs .",
