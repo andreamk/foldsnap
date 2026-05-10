@@ -1,0 +1,22 @@
+/* FoldSnap Settings page styles */
+
+.foldsnap-settings {
+	max-width: 800px;
+	margin-top: 20px;
+}
+
+.foldsnap-settings__section {
+	background: #fff;
+	border: 1px solid #dcdcde;
+	padding: 16px 20px;
+	margin-top: 16px;
+}
+
+.foldsnap-settings__section h2 {
+	margin-top: 0;
+}
+
+.foldsnap-settings__status {
+	margin-left: 12px;
+	color: #50575e;
+}

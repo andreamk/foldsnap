@@ -15,6 +15,7 @@ import {
 	deleteFolder,
 	assignMedia,
 	setSelectedFolder,
+	bootFromUrl,
 } from '../actions';
 
 /**
@@ -290,6 +291,53 @@ describe( 'createFolder', () => {
 		expect( types ).toContain( ACTION_TYPES.APPLY_AFFECTED_PARENTS );
 		expect( types ).toContain( ACTION_TYPES.FETCH_CHILDREN_START );
 	} );
+
+	it( 'expands the parent folder when parentId is non-root', () => {
+		const yields = drive( createFolder( { name: 'Sub', parentId: 7 } ), [
+			{
+				folder: { id: 8, parent_id: 7 },
+				paths: [],
+				affected_parents: [],
+				root_media_count: 0,
+				root_total_size: 0,
+			},
+			{
+				folders: [ { id: 8, parent_id: 7 } ],
+				page: 1,
+				total_pages: 1,
+				root_media_count: 0,
+				root_total_size: 0,
+			},
+		] );
+		const expand = yields.find(
+			( y ) => y.type === ACTION_TYPES.EXPAND_FOLDER
+		);
+		expect( expand ).toEqual( {
+			type: ACTION_TYPES.EXPAND_FOLDER,
+			folderId: 7,
+		} );
+	} );
+
+	it( 'does not expand when parentId is root (0)', () => {
+		const yields = drive( createFolder( { name: 'Top', parentId: 0 } ), [
+			{
+				folder: { id: 9, parent_id: 0 },
+				paths: [],
+				affected_parents: [],
+				root_media_count: 0,
+				root_total_size: 0,
+			},
+			{
+				folders: [ { id: 9, parent_id: 0 } ],
+				page: 1,
+				total_pages: 1,
+				root_media_count: 0,
+				root_total_size: 0,
+			},
+		] );
+		const types = yields.map( ( y ) => y.type );
+		expect( types ).not.toContain( ACTION_TYPES.EXPAND_FOLDER );
+	} );
 } );
 
 describe( 'updateFolder', () => {
@@ -328,6 +376,51 @@ describe( 'updateFolder', () => {
 		expect( types ).not.toContain( ACTION_TYPES.REMOVE_FOLDER );
 		expect( types ).not.toContain( ACTION_TYPES.FETCH_CHILDREN_START );
 		expect( types ).toContain( ACTION_TYPES.UPSERT_FOLDER );
+	} );
+
+	it( 'reparent dispatches EXPAND_FOLDER for new parent and reselects the moved folder', () => {
+		const yields = drive( updateFolder( 7, { parentId: 5 } ), [
+			{ id: 7, parent_id: 0 }, // getFolderById (previous)
+			{ folder: { id: 7, parent_id: 5 } }, // PUT response
+			{
+				folders: [],
+				page: 1,
+				total_pages: 1,
+				root_media_count: 0,
+				root_total_size: 0,
+			},
+			{
+				folders: [],
+				page: 1,
+				total_pages: 1,
+				root_media_count: 0,
+				root_total_size: 0,
+			},
+		] );
+		const expand = yields.find(
+			( y ) => y.type === ACTION_TYPES.EXPAND_FOLDER
+		);
+		expect( expand ).toEqual( {
+			type: ACTION_TYPES.EXPAND_FOLDER,
+			folderId: 5,
+		} );
+		const select = yields.find(
+			( y ) => y.type === ACTION_TYPES.SET_SELECTED_FOLDER
+		);
+		expect( select ).toEqual( {
+			type: ACTION_TYPES.SET_SELECTED_FOLDER,
+			folderId: 7,
+		} );
+	} );
+
+	it( 'no reparent: does not dispatch EXPAND_FOLDER or SET_SELECTED_FOLDER', () => {
+		const yields = drive( updateFolder( 7, { name: 'X' } ), [
+			{ id: 7, parent_id: 0 },
+			{ folder: { id: 7, parent_id: 0 } },
+		] );
+		const types = yields.map( ( y ) => y.type );
+		expect( types ).not.toContain( ACTION_TYPES.EXPAND_FOLDER );
+		expect( types ).not.toContain( ACTION_TYPES.SET_SELECTED_FOLDER );
 	} );
 } );
 
@@ -396,5 +489,93 @@ describe( 'setSelectedFolder', () => {
 			folderId: 5,
 		} );
 		expect( setSelectedFolder( null ).folderId ).toBeNull();
+	} );
+} );
+
+describe( 'bootFromUrl', () => {
+	const setLocationSearch = ( search ) => {
+		// jsdom defaults window.location to empty; replace is safest.
+		Object.defineProperty( window, 'location', {
+			configurable: true,
+			value: { search },
+		} );
+	};
+
+	it( 'fetches children for persisted-expanded folders that are not yet loaded', () => {
+		setLocationSearch( '?foldsnap_folder_id=42' );
+		const yields = drive( bootFromUrl(), [
+			// expandPathTo: GET /folders/42/path
+			{
+				path: [
+					{ id: 0, parent_id: 0, is_root: true },
+					{ id: 5, parent_id: 0 },
+					{ id: 42, parent_id: 5 },
+				],
+			},
+			// expandPathTo: SELECT getExpandedIds
+			[],
+			// expandPathTo: API_FETCH children batch
+			{
+				folders: [],
+				root_media_count: 0,
+				root_total_size: 0,
+			},
+			// re-hydrate: SELECT getExpandedIds
+			[ 11, 12 ],
+			// SELECT isFolderLoaded(11)
+			false,
+			// SELECT isFolderLoaded(12)
+			false,
+			// fetchChildrenBatch: API_FETCH
+			{
+				folders: [],
+				root_media_count: 0,
+				root_total_size: 0,
+			},
+		] );
+		const starts = yields.filter(
+			( y ) =>
+				y.type === ACTION_TYPES.FETCH_CHILDREN_START &&
+				( y.parentId === 11 || y.parentId === 12 )
+		);
+		expect( starts ).toHaveLength( 2 );
+	} );
+
+	it( 'skips re-hydration when every persisted-expanded folder is already loaded', () => {
+		setLocationSearch( '?foldsnap_folder_id=42' );
+		const yields = drive( bootFromUrl(), [
+			{
+				path: [
+					{ id: 0, parent_id: 0, is_root: true },
+					{ id: 42, parent_id: 0 },
+				],
+			},
+			[], // expandPathTo getExpandedIds
+			{
+				folders: [],
+				root_media_count: 0,
+				root_total_size: 0,
+			},
+			[ 11 ], // re-hydrate getExpandedIds
+			true, // isFolderLoaded(11)
+		] );
+		const starts = yields.filter(
+			( y ) =>
+				y.type === ACTION_TYPES.FETCH_CHILDREN_START &&
+				y.parentId === 11
+		);
+		expect( starts ).toHaveLength( 0 );
+	} );
+
+	it( 'is a no-op for re-hydration when no folders are persisted-expanded', () => {
+		setLocationSearch( '' );
+		const yields = drive( bootFromUrl(), [
+			// expandPathTo no-ops because folderId === 0; no API_FETCH/SELECT consumed.
+			[], // re-hydrate getExpandedIds → empty
+		] );
+		const starts = yields.filter(
+			( y ) => y.type === ACTION_TYPES.FETCH_CHILDREN_START
+		);
+		expect( starts ).toHaveLength( 0 );
 	} );
 } );

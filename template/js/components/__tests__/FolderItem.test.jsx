@@ -13,6 +13,7 @@ jest.mock( '@dnd-kit/sortable', () => ( {
 		attributes: {},
 		listeners: {},
 		setNodeRef: jest.fn(),
+		setActivatorNodeRef: jest.fn(),
 		transform: null,
 		transition: null,
 		isDragging: false,
@@ -31,8 +32,10 @@ jest.mock( '@dnd-kit/utilities', () => ( {
 } ) );
 
 jest.mock( '@wordpress/components', () => ( {
-	Button: ( { children, onClick } ) => (
-		<button onClick={ onClick }>{ children }</button>
+	Button: ( { children, onClick, disabled } ) => (
+		<button onClick={ onClick } disabled={ disabled }>
+			{ children }
+		</button>
 	),
 	DropdownMenu: ( { label, controls } ) => (
 		<div data-testid="dropdown-menu" aria-label={ label }>
@@ -48,6 +51,14 @@ jest.mock( '@wordpress/components', () => ( {
 			{ children }
 			<button onClick={ onRequestClose }>Close</button>
 		</div>
+	),
+	TextControl: ( { label, value, onChange, onKeyDown } ) => (
+		<input
+			aria-label={ label }
+			value={ value }
+			onChange={ ( e ) => onChange( e.target.value ) }
+			onKeyDown={ onKeyDown }
+		/>
 	),
 	Spinner: () => <div data-testid="spinner" />,
 	Icon: ( { icon } ) => <span data-testid={ `icon-${ icon }` } />,
@@ -86,16 +97,19 @@ describe( 'FolderItem', () => {
 	let mockDeleteFolder;
 	let mockExpandFolder;
 	let mockCollapseFolder;
+	let mockUpdateFolder;
 	let user;
 
 	beforeEach( () => {
 		mockDeleteFolder = jest.fn();
 		mockExpandFolder = jest.fn();
 		mockCollapseFolder = jest.fn();
+		mockUpdateFolder = jest.fn();
 		useDispatch.mockReturnValue( {
 			deleteFolder: mockDeleteFolder,
 			expandFolder: mockExpandFolder,
 			collapseFolder: mockCollapseFolder,
+			updateFolder: mockUpdateFolder,
 		} );
 		user = userEvent.setup();
 	} );
@@ -351,6 +365,99 @@ describe( 'FolderItem', () => {
 		expect( mockDeleteFolder ).not.toHaveBeenCalled();
 	} );
 
+	describe( 'rename modal', () => {
+		const renderItem = () =>
+			render(
+				<FolderItem
+					folderId={ 1 }
+					selectedFolderId={ null }
+					onSelect={ jest.fn() }
+					onAddSubfolder={ jest.fn() }
+				/>
+			);
+
+		it( 'opens modal pre-filled with the current folder name', async () => {
+			setupSelect( {
+				folder: makeFolder( { id: 1, name: 'Photos' } ),
+			} );
+			renderItem();
+			await user.click( screen.getByText( 'Rename' ) );
+			const input = screen.getByLabelText( 'Folder name' );
+			expect( input ).toHaveValue( 'Photos' );
+		} );
+
+		it( 'submits trimmed value via updateFolder', async () => {
+			setupSelect( {
+				folder: makeFolder( { id: 1, name: 'Photos' } ),
+			} );
+			renderItem();
+			await user.click( screen.getByText( 'Rename' ) );
+			const input = screen.getByLabelText( 'Folder name' );
+			await user.clear( input );
+			await user.type( input, '  Travel  ' );
+			// The last "Rename" button in the DOM is the modal's submit button.
+			const buttons = screen.getAllByText( 'Rename' );
+			await user.click( buttons[ buttons.length - 1 ] );
+			expect( mockUpdateFolder ).toHaveBeenCalledWith( 1, {
+				name: 'Travel',
+			} );
+		} );
+
+		it( 'cancel closes modal without dispatching', async () => {
+			setupSelect( {
+				folder: makeFolder( { id: 1, name: 'Photos' } ),
+			} );
+			renderItem();
+			await user.click( screen.getByText( 'Rename' ) );
+			await user.click( screen.getByText( 'Cancel' ) );
+			expect(
+				screen.queryByLabelText( 'Folder name' )
+			).not.toBeInTheDocument();
+			expect( mockUpdateFolder ).not.toHaveBeenCalled();
+		} );
+
+		it( 'does not call updateFolder when the value is blank', async () => {
+			setupSelect( {
+				folder: makeFolder( { id: 1, name: 'Photos' } ),
+			} );
+			renderItem();
+			await user.click( screen.getByText( 'Rename' ) );
+			const input = screen.getByLabelText( 'Folder name' );
+			await user.clear( input );
+			await user.type( input, '   ' );
+			// Submit button is disabled, so click the unfocused-but-present last button.
+			const buttons = screen.getAllByText( 'Rename' );
+			const submit = buttons[ buttons.length - 1 ];
+			expect( submit ).toBeDisabled();
+			expect( mockUpdateFolder ).not.toHaveBeenCalled();
+		} );
+
+		it( 'does not call updateFolder when the value is unchanged', async () => {
+			setupSelect( {
+				folder: makeFolder( { id: 1, name: 'Photos' } ),
+			} );
+			renderItem();
+			await user.click( screen.getByText( 'Rename' ) );
+			const buttons = screen.getAllByText( 'Rename' );
+			const submit = buttons[ buttons.length - 1 ];
+			expect( submit ).toBeDisabled();
+		} );
+
+		it( 'submits when Enter is pressed in the input', async () => {
+			setupSelect( {
+				folder: makeFolder( { id: 1, name: 'Photos' } ),
+			} );
+			renderItem();
+			await user.click( screen.getByText( 'Rename' ) );
+			const input = screen.getByLabelText( 'Folder name' );
+			await user.clear( input );
+			await user.type( input, 'Travel{Enter}' );
+			expect( mockUpdateFolder ).toHaveBeenCalledWith( 1, {
+				name: 'Travel',
+			} );
+		} );
+	} );
+
 	describe( 'when rendering the virtual Root folder', () => {
 		const rootFolder = {
 			id: 0,
@@ -390,6 +497,19 @@ describe( 'FolderItem', () => {
 			);
 			expect( screen.queryByText( 'Delete' ) ).not.toBeInTheDocument();
 			expect( screen.getByText( 'Add subfolder' ) ).toBeInTheDocument();
+		} );
+
+		it( 'omits the Rename option from the dropdown', () => {
+			setupSelect( { folder: rootFolder } );
+			render(
+				<FolderItem
+					folderId={ 0 }
+					selectedFolderId={ null }
+					onSelect={ jest.fn() }
+					onAddSubfolder={ jest.fn() }
+				/>
+			);
+			expect( screen.queryByText( 'Rename' ) ).not.toBeInTheDocument();
 		} );
 
 		it( 'does not render the drag handle', () => {

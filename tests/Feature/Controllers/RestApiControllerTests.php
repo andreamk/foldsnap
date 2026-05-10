@@ -466,9 +466,12 @@ class RestApiControllerTests extends WP_UnitTestCase
      */
     public function test_update_folder_reparent_paths_include_old_chain(): void
     {
-        $oldParent = $this->repository->create('Old Parent');
-        $newParent = $this->repository->create('New Parent');
-        $child     = $this->repository->create('Child', $oldParent->getId());
+        // Use depth-2 ancestry on the OLD side so a chain that drops a level
+        // (oldParent missing while grandparent stays) would fail this test.
+        $oldGrandparent = $this->repository->create('Old Grandparent');
+        $oldParent      = $this->repository->create('Old Parent', $oldGrandparent->getId());
+        $newParent      = $this->repository->create('New Parent');
+        $child          = $this->repository->create('Child', $oldParent->getId());
 
         $request = new WP_REST_Request('PUT', '/foldsnap/v1/folders/' . $child->getId());
         $request->set_param('parent_id', (string) $newParent->getId());
@@ -478,20 +481,27 @@ class RestApiControllerTests extends WP_UnitTestCase
 
         $this->assertSame(200, $response->get_status());
 
-        // Flatten all folder IDs that appear in any returned path chain.
-        $idsInPaths = [];
+        // Reparent must surface BOTH chains as separate entries: destination
+        // (Root → newParent → child) and origin (Root → oldGrandparent → oldParent).
+        $this->assertCount(2, $data['paths']);
+
+        $chainsByLeafId = [];
         foreach ($data['paths'] as $chain) {
-            foreach ($chain as $folder) {
-                $idsInPaths[] = $folder['id'];
-            }
+            $leaf                          = end($chain);
+            $chainsByLeafId[ $leaf['id'] ] = $chain;
         }
 
-        $this->assertContains(
-            $oldParent->getId(),
-            $idsInPaths,
-            'Old parent must appear in `paths` so client can refresh its counts on reparent.'
-        );
-        $this->assertContains($newParent->getId(), $idsInPaths);
+        $destChain = $chainsByLeafId[ $child->getId() ] ?? null;
+        $this->assertNotNull($destChain, 'Destination chain must end at the moved child.');
+        $destIds = array_map(static fn (array $f): int => $f['id'], $destChain);
+        $this->assertContains($newParent->getId(), $destIds);
+
+        $originChain = $chainsByLeafId[ $oldParent->getId() ] ?? null;
+        $this->assertNotNull($originChain, 'Origin chain must end at the old parent (not the moved child).');
+        $originIds = array_map(static fn (array $f): int => $f['id'], $originChain);
+        $this->assertContains($oldGrandparent->getId(), $originIds);
+        $this->assertContains($oldParent->getId(), $originIds);
+        $this->assertNotContains($child->getId(), $originIds, 'Origin chain must not still contain the moved child.');
     }
 
     // -------------------------------------------------------------------------

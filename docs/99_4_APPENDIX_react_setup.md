@@ -17,7 +17,10 @@ This guide covers the React frontend setup: source structure, build pipeline, li
 - `npm run build` — production build
 - `npm start` — development build with watch mode
 
-**Webpack mapping:** `template/js/index.js` → `assets/js/foldsnap-admin.js` (configured in `webpack.config.js`).
+**Webpack mapping** (configured in `webpack.config.js`):
+
+- `template/js/index.js` → `assets/js/foldsnap-admin.js` (sidebar bundle for the Media Library screen).
+- `template/js/settings.js` → `assets/js/foldsnap-settings.js` (Settings page; currently drives the Recount maintenance tool).
 
 ## Asset Loading
 

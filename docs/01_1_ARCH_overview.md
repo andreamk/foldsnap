@@ -55,6 +55,7 @@ manual recovery.
 - `RestApiController` registers all `foldsnap/v1` routes and serves the read endpoints (children fetch, search, path, media listing, recalculate).
 - `RestApiFolderMutationsController` serves the write endpoints (create / update / delete / assign / remove media). Every write returns the same [mutation envelope](02_1_API_rest-endpoints.md#mutation-envelope).
 - `MediaLibraryController` enqueues assets and filters the native grid/list by folder via the WordPress hooks.
+- `MainPageController` registers the **FoldSnap** sub-menu under Media (capability `manage_options`) and renders the Settings page. Enqueues the `foldsnap-settings` script bundle (whose only feature today is the **Recount folders** maintenance tool, which drives the existing `POST /folders/recalculate` endpoint until completion).
 - `FolderRepository` is the focused CRUD surface for the taxonomy: lookup, create, update, delete. It composes the helpers below for everything else.
 - `FolderNameSanitizer` validates and uniquifies folder names. Stateless so the rules are testable without touching the taxonomy.
 - `FolderTreeNavigator` walks the parent chain (instance: path resolution to `FolderModel[]`; static: ancestor-id list for delta math). Read-only.

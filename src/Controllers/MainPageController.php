@@ -61,17 +61,37 @@ final class MainPageController extends AbstractMenuPageController
      */
     public function pageScripts(): void
     {
+        $assetFile = FOLDSNAP_PATH . '/assets/js/foldsnap-settings.asset.php';
+        if (!file_exists($assetFile)) {
+            return;
+        }
+
+        /** @var array{dependencies: string[], version: string} $asset */
+        $asset = require $assetFile;
+
         wp_enqueue_script(
             self::SCRIPT_HANDLE,
             FOLDSNAP_PLUGIN_URL . '/assets/js/foldsnap-settings.js',
-            [
-                'wp-api-fetch',
-                'wp-i18n',
-            ],
-            FOLDSNAP_VERSION,
+            $asset['dependencies'],
+            $asset['version'],
             true
         );
 
         wp_set_script_translations(self::SCRIPT_HANDLE, 'foldsnap', FOLDSNAP_PATH . '/languages');
+    }
+
+    /**
+     * Enqueue stylesheet for the settings page.
+     *
+     * @return void
+     */
+    public function pageStyles(): void
+    {
+        wp_enqueue_style(
+            self::SCRIPT_HANDLE,
+            FOLDSNAP_PLUGIN_URL . '/assets/css/foldsnap-settings.css',
+            [],
+            FOLDSNAP_VERSION
+        );
     }
 }

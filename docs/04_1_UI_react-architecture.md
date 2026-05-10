@@ -9,16 +9,16 @@
 ```
 FolderSidebar              (DndContext + All Media toggle)
 └── FolderTree             (search box, root item, folder list, "New Folder" button)
-    ├── FolderItem         (single folder node, recursive for children)
+    ├── FolderItem         (single folder node, recursive for children;
+    │   │                   owns its rename modal locally — no separate component)
     │   └── FolderItem     (nested children)
     ├── SearchResultsList  (rendered instead of the tree while a query is active)
-    └── CreateFolderModal  (lazy-loaded; uses FolderPicker for parent selection)
-        └── FolderPicker   (mini-tree + search, also reusable elsewhere)
+    └── CreateFolderModal  (lazy-loaded; receives a fixed parentId from the caller)
 ```
 
 The visible media grid is the **native WordPress Backbone grid** (or list-table in list mode), not a React component. React only owns the sidebar; the grid is reflected to the current folder selection by `services/media-mode-bridge.js`.
 
-`FolderPicker` is a self-contained mini-tree that reads the same `foldsnap/folders` store: it lists root folders, allows expanding any branch, and exposes its own debounced search. It is rendered inside `CreateFolderModal` to pick a parent and is reusable for any future "pick a folder" flow.
+`CreateFolderModal` takes a fixed `parentId` from its caller (the "Add subfolder" entry in `FolderItem`'s dropdown, or the root "New Folder" button in `FolderTree`) and shows that parent's name in its title. There is no in-modal parent picker.
 
 `SearchResultsList` replaces the tree (not the whole sidebar) whenever `getSearchQuery()` is non-empty, so the search input in `FolderTree` stays mounted. Clicking a result selects the folder, calls `expandPathTo`, and clears the search so the tree comes back focused on the chosen folder.
 
@@ -66,6 +66,13 @@ Mutation actions hit the REST endpoint, then run `applyMutationEnvelope(response
 
 `createFolder` and `updateFolder` also refresh the affected parent slot(s) via `fetchChildren` to pick up server-side ordering. `updateFolder` detects reparenting from the envelope and refreshes both the old and new parent slots.
 
+After the refresh, both actions also adjust the visible tree state:
+
+- `createFolder` dispatches `EXPAND_FOLDER` for the parent (when non-root) so the freshly created subfolder is immediately visible without an extra click.
+- `updateFolder` on a reparent dispatches `EXPAND_FOLDER` for the new parent **and** re-selects the moved folder (`setSelectedFolder(id)`), so the user keeps focus on the row they just moved.
+
+The rename action is owned by `FolderItem` itself: a `Rename` entry in its dropdown opens a local `Modal` containing a `TextControl` pre-filled with `folder.name`. Submit calls `updateFolder(id, { name: trimmed })`; the submit button is disabled when the trimmed value is blank or unchanged. The virtual Root folder hides the entry entirely.
+
 `assignMedia` only patches the React store; the visible Backbone grid is refreshed independently by the dragdrop bridge via `window.foldsnap.refreshGrid()`.
 
 `deleteFolder` dispatches `REMOVE_FOLDER` (drops it from `foldersById` and its parent slot, clears it from `expandedIds`), then merges the envelope's `root` and `affected_parents`.
@@ -87,12 +94,13 @@ Two independent slices survive page reloads via `localStorage` (see [`template/j
 
 On store init, both keys are read and dispatched as a single `HYDRATE` action that merges them into the initial state. `localStorage` failures (unavailable, quota exceeded) degrade silently — the store stays usable, just non-persistent for that session.
 
+`bootFromUrl` (called once from `index.js`) finishes the hydration: after selecting the URL folder and expanding its ancestor path, it walks every persisted-expanded id and fires `fetchChildrenBatch` for those whose children are not yet loaded. Without this, the chevron icon would render in its expanded state but the children list would stay empty until the user collapsed and re-expanded the row.
+
 ## Hooks
 
 The `template/js/hooks/` directory holds reusable hooks consumed by multiple components.
 
-- **`useDebouncedCallback(callback, delay)`** — returns a stable wrapper that resets a shared timer on every call and only fires `callback(...args)` once `delay` ms have passed without further calls. Pending timer is cleared on unmount. Used by `FolderTree` and indirectly by `useLocalFolderSearch` (`SEARCH_DEBOUNCE_MS = 300`).
-- **`useLocalFolderSearch({ perPage })`** — self-contained folder search isolated from the global store search slice. Returns `{ inputValue, activeQuery, results, isLoading, setInput }`. Discards out-of-order responses via a ref. Used by `FolderPicker`; reusable for any future "pick a folder" flow that must not overwrite the sidebar's active query.
+- **`useDebouncedCallback(callback, delay)`** — returns a stable wrapper that resets a shared timer on every call and only fires `callback(...args)` once `delay` ms have passed without further calls. Pending timer is cleared on unmount. Used by `FolderTree` to debounce the sidebar search input (`SEARCH_DEBOUNCE_MS = 300`).
 
 ## Drag and drop
 
@@ -100,7 +108,11 @@ Two independent systems, by necessity:
 
 ### Folder reordering — `@dnd-kit`
 
-`FolderSidebar` wraps the tree in a `DndContext`. Each `FolderItem` uses `useSortable` for sibling reorder and `useDroppable` for reparenting. On drag end, `FolderSidebar` calls `updateFolder` with the new `parent_id` or `position`.
+`FolderSidebar` wraps the tree in a `DndContext` with `collisionDetection={ pointerWithin }`: this resolves the ambiguous case of a folder with no children, where the sortable rect and the droppable rect coincide. With `pointerWithin`, the cursor's exact position picks the explicit droppable id (`folder-drop-{id}`) over the sortable's numeric id, so the drop is routed to the reparent branch.
+
+Each `FolderItem` registers `useDroppable` **before** `useSortable` for the same reason: when both rects coincide, the droppable wins. The drag handle uses `setActivatorNodeRef` from `useSortable` and is rendered as a separate `<button>` next to the row, so clicking the row body still selects the folder while only the handle initiates the drag.
+
+On drag end, `FolderSidebar` calls `updateFolder` with the new `parent_id` (reparent) or `position` (sibling reorder).
 
 ### Media-to-folder assignment — jQuery UI
 
