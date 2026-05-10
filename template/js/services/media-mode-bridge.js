@@ -12,7 +12,7 @@ import { updateModeToggleLinks } from './view-switch-links';
 // native WordPress media library. Each effect lives in its own module;
 // this file decides which one to run on each store change.
 export default function initMediaModeBridge() {
-	const isListMode = window.foldsnap_data?.mediaMode === 'list';
+	const isListMode = window.foldsnap_data.mediaMode === 'list';
 
 	installRefreshGridGlobal();
 

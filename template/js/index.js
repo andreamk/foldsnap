@@ -5,6 +5,12 @@ import initMediaModeBridge from './services/media-mode-bridge';
 import { STORE_NAME } from './store/constants';
 import './store';
 
+if ( ! window.foldsnap_data ) {
+	throw new Error(
+		'foldsnap_data is missing — wp_localize_script did not run for foldsnap-admin'
+	);
+}
+
 /**
  * Create the sidebar container, insert it before #wpbody-content inside
  * #wpbody, then mount the React app on it.

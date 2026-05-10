@@ -18,9 +18,7 @@ const PREF_DEBOUNCE_MS = 800;
  *
  * @return {Object} Map of key → value, complete with all declared keys.
  */
-export const getInitialPreferences = () =>
-	( typeof window !== 'undefined' && window.foldsnap_data?.preferences ) ||
-	{};
+export const getInitialPreferences = () => window.foldsnap_data.preferences;
 
 const pendingTimers = new Map();
 const pendingValues = new Map();

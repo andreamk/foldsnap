@@ -1,19 +1,13 @@
 import {
 	ACTION_TYPES,
 	ROOT_PARENT_ID,
-	DEFAULT_PER_PAGE,
-	BATCH_MAX_PER_PAGE,
 	BATCH_PARENTS_PER_REQUEST,
-	SEARCH_PER_PAGE,
 } from './constants';
 
 const apiFetch = ( request ) => ( { type: 'API_FETCH', request } );
 
 /**
  * Seed the store with persisted UI state.
- *
- * Dispatched once at registration time by the persistence subscriber. Both
- * fields are optional — pass only what you have.
  *
  * @param {Object}   payload                  Hydration payload.
  * @param {number[]} [payload.expandedIds]    Persisted expanded folder IDs.
@@ -37,20 +31,18 @@ const buildChildrenPath = ( parentIds, page, perPage ) => {
 };
 
 /**
- * Fetch (or refetch) the first page of children for a single parent.
- *
- * Dedupes: if the parent is already being fetched, the call is dropped.
- * Idempotent: callers can fire-and-forget on every chevron click.
+ * Fetch the first page of children for one parent. Idempotent: dropped if
+ * the parent is already being fetched.
  *
  * @param {number} parentId        Parent folder ID (0 = root).
  * @param {Object} options         Options.
- * @param {number} options.page    Page number (default 1).
+ * @param {number} options.page    Page number.
  * @param {number} options.perPage Page size.
  * @return {Iterable} Action generator.
  */
 export function* fetchChildren(
 	parentId,
-	{ page = 1, perPage = DEFAULT_PER_PAGE } = {}
+	{ page = 1, perPage = window.foldsnap_data.foldersPerPage } = {}
 ) {
 	yield { type: ACTION_TYPES.FETCH_CHILDREN_START, parentId };
 	try {
@@ -80,9 +72,6 @@ export function* fetchChildren(
 /**
  * Fetch the next page of children for an already-loaded parent.
  *
- * Reads current page from `parentsPagination` via select(); no-ops when the
- * caller is past the last page.
- *
  * @param {number} parentId        Parent folder ID.
  * @param {Object} options         Options.
  * @param {number} options.perPage Page size.
@@ -90,7 +79,7 @@ export function* fetchChildren(
  */
 export function* loadMoreChildren(
 	parentId,
-	{ perPage = DEFAULT_PER_PAGE } = {}
+	{ perPage = window.foldsnap_data.foldersPerPage } = {}
 ) {
 	const pagination = yield {
 		type: 'SELECT',
@@ -127,9 +116,8 @@ export function* loadMoreChildren(
 }
 
 /**
- * Fetch the first page of children for many parents in a single REST call.
- *
- * Used by `expandPathTo` to inflate the breadcrumb in one round-trip.
+ * Fetch the first page of children for many parents in a single REST call,
+ * chunked by BATCH_PARENTS_PER_REQUEST.
  *
  * @param {number[]} parentIds       Parent IDs to fetch.
  * @param {Object}   options         Options.
@@ -138,7 +126,7 @@ export function* loadMoreChildren(
  */
 export function* fetchChildrenBatch(
 	parentIds,
-	{ perPage = BATCH_MAX_PER_PAGE } = {}
+	{ perPage = window.foldsnap_data.foldersMaxPerPage } = {}
 ) {
 	if ( parentIds.length === 0 ) {
 		return;
@@ -226,22 +214,14 @@ export function* expandFolder( folderId ) {
 	}
 }
 
-/**
- * Mark a folder as collapsed (children remain in cache).
- *
- * @param {number} folderId Folder ID.
- * @return {Object} Action object.
- */
 export const collapseFolder = ( folderId ) => ( {
 	type: ACTION_TYPES.COLLAPSE_FOLDER,
 	folderId,
 } );
 
 /**
- * Inflate the breadcrumb to a target folder.
- *
- * GETs the path, expands every ancestor, and fetches all their children in
- * a single batched call.
+ * Inflate the breadcrumb to a target folder by GETing the path, expanding
+ * every ancestor, and fetching all their children in one batched call.
  *
  * @param {number} folderId Folder to surface.
  * @return {Iterable} Action generator.
@@ -259,9 +239,6 @@ export function* expandPathTo( folderId ) {
 		if ( path.length === 0 ) {
 			return;
 		}
-		// Ancestors of the target = path minus the target itself. The
-		// backend always prepends Root to every non-empty path, so the
-		// resulting list already starts with ROOT_PARENT_ID.
 		const ancestorIds = path.slice( 0, -1 ).map( ( f ) => f.id );
 
 		// Merge into existing expandedIds so unrelated branches the user
@@ -292,29 +269,17 @@ export function* expandPathTo( folderId ) {
 	}
 }
 
-/**
- * Set the search query string. Components debounce before dispatching.
- *
- * @param {string} query Search string.
- * @return {Object} Action object.
- */
 export const setSearchQuery = ( query ) => ( {
 	type: ACTION_TYPES.SET_SEARCH_QUERY,
 	query,
 } );
 
-/**
- * Clear search results (called when query becomes empty).
- *
- * @return {Object} Action object.
- */
 export const clearSearch = () => ( { type: ACTION_TYPES.CLEAR_SEARCH } );
 
 /**
- * Build the REST path for a folder-search request.
- *
- * Exported so consumers that need an isolated search (e.g. the picker)
- * can hit the same endpoint without going through the shared search slice.
+ * Build the REST path for a folder-search request. Exported so consumers
+ * that need an isolated search (e.g. the picker) can hit the same endpoint
+ * without going through the shared search slice.
  *
  * @param {string} query   Trimmed search query.
  * @param {number} page    1-based page number.
@@ -337,7 +302,10 @@ export const buildSearchPath = ( query, page, perPage ) => {
  * @param {number} options.perPage Page size.
  * @return {Iterable} Action generator.
  */
-export function* searchFolders( query, { perPage = SEARCH_PER_PAGE } = {} ) {
+export function* searchFolders(
+	query,
+	{ perPage = window.foldsnap_data.searchPerPage } = {}
+) {
 	const trimmed = query.trim();
 	if ( trimmed === '' ) {
 		yield { type: ACTION_TYPES.CLEAR_SEARCH };
@@ -368,7 +336,9 @@ export function* searchFolders( query, { perPage = SEARCH_PER_PAGE } = {} ) {
  * @param {number} options.perPage Page size.
  * @return {Iterable} Action generator.
  */
-export function* loadMoreSearchResults( { perPage = SEARCH_PER_PAGE } = {} ) {
+export function* loadMoreSearchResults( {
+	perPage = window.foldsnap_data.searchPerPage,
+} = {} ) {
 	const query = yield {
 		type: 'SELECT',
 		selector: 'getSearchQuery',
@@ -420,8 +390,6 @@ const applyMutationEnvelope = function* ( envelope ) {
 		yield { type: ACTION_TYPES.UPSERT_FOLDER, folder: envelope.root };
 	}
 	if ( Array.isArray( envelope.paths ) ) {
-		// Each path is an independent ancestor chain (destination + any
-		// origin folders touched). The reducer merges totals per-chain.
 		for ( const chain of envelope.paths ) {
 			if ( Array.isArray( chain ) && chain.length > 0 ) {
 				yield { type: ACTION_TYPES.APPLY_PATH_TOTALS, path: chain };
@@ -439,14 +407,11 @@ const applyMutationEnvelope = function* ( envelope ) {
 /**
  * Create a folder under the given parent.
  *
- * On success, refreshes the parent's children slot so the new folder shows
- * up immediately; affected_parents/paths keep ancestor totals coherent.
- *
  * @param {Object} params          Folder parameters.
  * @param {string} params.name     Folder name.
  * @param {number} params.parentId Parent ID (0 = root).
- * @param {string} params.color    Hex color (optional).
- * @param {number} params.position Position (optional).
+ * @param {string} params.color    Hex color.
+ * @param {number} params.position Position.
  * @return {Iterable} Action generator.
  */
 export function* createFolder( {
@@ -463,26 +428,22 @@ export function* createFolder( {
 	yield* applyMutationEnvelope( response );
 	// Refresh the parent slot to reflect the new sibling order from the server.
 	yield* fetchChildren( parentId );
-	// Expand the parent so the newly created subfolder is immediately visible.
 	if ( parentId ) {
 		yield { type: ACTION_TYPES.EXPAND_FOLDER, folderId: parentId };
 	}
 }
 
 /**
- * Update an existing folder.
- *
- * Only the fields actually provided are sent to the server, so omitted
- * fields keep their current value. Reparenting is detected from the
- * response envelope; both old and new parent slots are refreshed so the
- * tree stays consistent.
+ * Update an existing folder. Omitted fields are left unchanged. Reparenting
+ * is detected from the response envelope; both old and new parent slots are
+ * refreshed so the tree stays consistent.
  *
  * @param {number} id                Folder ID.
- * @param {Object} params            Fields to update (omit to leave unchanged).
- * @param {string} [params.name]     New name.
- * @param {number} [params.parentId] New parent ID.
- * @param {string} [params.color]    New color.
- * @param {number} [params.position] New position.
+ * @param {Object} params            Fields to update.
+ * @param {string} [params.name]
+ * @param {number} [params.parentId]
+ * @param {string} [params.color]
+ * @param {number} [params.position]
  * @return {Iterable} Action generator.
  */
 export function* updateFolder( id, { name, parentId, color, position } = {} ) {
@@ -529,9 +490,7 @@ export function* updateFolder( id, { name, parentId, color, position } = {} ) {
 		};
 		yield* applyMutationEnvelope( response );
 		yield* fetchChildrenBatch( [ oldParentId, newParentId ] );
-		// Expand the new parent so the moved folder is immediately visible.
 		yield { type: ACTION_TYPES.EXPAND_FOLDER, folderId: newParentId };
-		// Keep the moved folder selected so the user doesn't lose context.
 		yield setSelectedFolder( id );
 	} else {
 		yield* applyMutationEnvelope( response );
@@ -566,10 +525,9 @@ export function* deleteFolder( id ) {
 }
 
 /**
- * Assign media items to a folder.
- *
- * The visible WordPress media grid is refreshed independently by the
- * dragdrop bridge via `window.foldsnap.refreshGrid()`.
+ * Assign media items to a folder. The visible WordPress media grid is
+ * refreshed independently by the dragdrop bridge via
+ * `window.foldsnap.refreshGrid()`.
  *
  * @param {number}   folderId Folder ID.
  * @param {number[]} mediaIds Attachment IDs.
@@ -584,38 +542,19 @@ export function* assignMedia( folderId, mediaIds ) {
 	yield* applyMutationEnvelope( response );
 }
 
-/**
- * Set the currently selected folder (null = root).
- *
- * @param {number|null} folderId Folder ID.
- * @return {Object} Action object.
- */
 export const setSelectedFolder = ( folderId ) => ( {
 	type: ACTION_TYPES.SET_SELECTED_FOLDER,
 	folderId,
 } );
 
-/**
- * Toggle the "All Media" mode that bypasses the folder sidebar.
- *
- * When active, the sidebar is rendered inert and the native WordPress media
- * grid stops being filtered by `foldsnap_folder_id`.
- *
- * @param {boolean} active Whether the toggle is on.
- * @return {Object} Action object.
- */
 export const setAllMedia = ( active ) => ( {
 	type: ACTION_TYPES.SET_ALL_MEDIA,
 	active: Boolean( active ),
 } );
 
 /**
- * Bootstrap the selected folder from the URL.
- *
- * Reads `foldsnap_folder_id` from `window.location.search`, defaulting to
- * the root (id 0) when the parameter is absent so the grid is always
- * filtered by some folder. The "All Media" toggle is the explicit opt-in
- * for an unfiltered view.
+ * Bootstrap the selected folder from the URL. Reads `foldsnap_folder_id`
+ * from `window.location.search`, defaulting to root (0).
  *
  * @return {Iterable} Action generator.
  */
@@ -627,10 +566,9 @@ export function* bootFromUrl() {
 	yield setSelectedFolder( folderId );
 	yield* expandPathTo( folderId );
 
-	// Re-hydrate children for folders the user had previously expanded
-	// (persisted in localStorage). Without this, the chevron icon shows
-	// "expanded" but the children list stays empty until the user
-	// collapses + re-expands.
+	// Re-hydrate children for folders the user had previously expanded.
+	// Without this, the chevron shows "expanded" but children stay empty
+	// until the user collapses + re-expands.
 	const persistedExpanded = yield {
 		type: 'SELECT',
 		selector: 'getExpandedIds',

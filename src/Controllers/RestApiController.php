@@ -40,6 +40,21 @@ final class RestApiController
 
     private const REST_NAMESPACE = 'foldsnap/v1';
 
+    /** @var int Default page size for the children-fetch mode of /folders */
+    public const FOLDERS_PER_PAGE = 100;
+
+    /** @var int Default page size for the search mode of /folders */
+    public const SEARCH_PER_PAGE = 50;
+
+    /** @var int Default page size for /media */
+    public const MEDIA_PER_PAGE = 40;
+
+    /** @var int Hard upper bound for the children-fetch mode */
+    public const FOLDERS_MAX_PER_PAGE = 200;
+
+    /** @var int Hard upper bound for search and /media */
+    public const ITEMS_MAX_PER_PAGE = 100;
+
     /** @var self|null */
     private static ?self $instance = null;
 
@@ -118,7 +133,7 @@ final class RestApiController
                         ],
                         'per_page'   => [
                             'type'              => 'integer',
-                            'default'           => 100,
+                            'default'           => self::FOLDERS_PER_PAGE,
                             'sanitize_callback' => 'absint',
                         ],
                     ],
@@ -348,7 +363,7 @@ final class RestApiController
                         ],
                         'per_page'  => [
                             'type'              => 'integer',
-                            'default'           => 40,
+                            'default'           => self::MEDIA_PER_PAGE,
                             'sanitize_callback' => 'absint',
                         ],
                     ],
@@ -469,7 +484,7 @@ final class RestApiController
         /** @var int */
         $page = max(1, $request['page']);
         /** @var int */
-        $perPage = max(1, min(100, $request['per_page']));
+        $perPage = max(1, min(self::ITEMS_MAX_PER_PAGE, $request['per_page']));
 
         $queryArgs = [
             'post_type'      => TaxonomyService::POST_TYPE,
@@ -534,7 +549,7 @@ final class RestApiController
         /** @var int */
         $page = max(1, $request['page']);
         /** @var int */
-        $perPage = max(1, min(200, $request['per_page']));
+        $perPage = max(1, min(self::FOLDERS_MAX_PER_PAGE, $request['per_page']));
 
         if (empty($parentIds)) {
             $parentIds = [0];
@@ -594,7 +609,7 @@ final class RestApiController
         /** @var int */
         $page = max(1, $request['page']);
         /** @var int */
-        $perPage = max(1, min(100, $request['per_page']));
+        $perPage = max(1, min(self::ITEMS_MAX_PER_PAGE, $request['per_page']));
 
         $result  = $this->repository->search($search, $page, $perPage);
         $folders = $this->decorateFolders($result['folders']);

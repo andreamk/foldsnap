@@ -16,9 +16,6 @@ import {
 } from '../preferences';
 import FolderTree from './FolderTree';
 
-const SIDEBAR_MIN_WIDTH = 200;
-const SIDEBAR_MAX_WIDTH = 600;
-
 /**
  * Root sidebar component mounted inside the native WordPress Media Library.
  *
@@ -104,8 +101,8 @@ const FolderSidebar = () => {
 					.filter( Boolean )
 					.join( ' ' ) }
 				defaultSize={ { width: initialWidth, height: 'auto' } }
-				minWidth={ SIDEBAR_MIN_WIDTH }
-				maxWidth={ SIDEBAR_MAX_WIDTH }
+				minWidth={ window.foldsnap_data.sidebarWidthMin }
+				maxWidth={ window.foldsnap_data.sidebarWidthMax }
 				enable={ {
 					top: false,
 					right: true,

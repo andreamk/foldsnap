@@ -11,7 +11,6 @@ const reloadModule = () => {
 };
 
 beforeEach( () => {
-	delete window.foldsnap_data;
 	jest.useFakeTimers();
 	reloadModule();
 } );
@@ -36,17 +35,6 @@ describe( 'getInitialPreferences', () => {
 			allMedia: true,
 			sidebarWidth: 320,
 		} );
-	} );
-
-	it( 'returns an empty object when foldsnap_data is missing', () => {
-		expect( preferences.getInitialPreferences() ).toEqual( {} );
-	} );
-
-	it( 'returns an empty object when foldsnap_data has no preferences key', () => {
-		window.foldsnap_data = { restUrl: '/whatever' };
-		reloadModule();
-
-		expect( preferences.getInitialPreferences() ).toEqual( {} );
 	} );
 } );
 
