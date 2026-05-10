@@ -86,7 +86,7 @@ class UserPreferencesRestControllerTests extends WP_UnitTestCase
 
         $this->assertSame(200, $response->get_status());
         $this->assertArrayHasKey('preferences', $data);
-        $this->assertSame([], $data['preferences']['expandedFolders']);
+        $this->assertSame([0], $data['preferences']['expandedFolders']);
         $this->assertFalse($data['preferences']['allMedia']);
     }
 
@@ -206,7 +206,7 @@ class UserPreferencesRestControllerTests extends WP_UnitTestCase
         $response = $this->dispatchRequest(new WP_REST_Request('GET', '/foldsnap/v1/preferences'));
         $data     = $response->get_data();
 
-        $this->assertSame([], $data['preferences']['expandedFolders']);
+        $this->assertSame([0], $data['preferences']['expandedFolders']);
     }
 
     /**

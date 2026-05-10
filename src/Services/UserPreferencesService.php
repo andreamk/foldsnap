@@ -20,16 +20,24 @@ class UserPreferencesService
     /**
      * Closed schema: every preference must be declared here.
      *
-     * @var array<string, array{type: string, default: mixed}>
+     * @var array<string, array{type: string, default: mixed, min?: int, max?: int}>
      */
     private const SCHEMA = [
         'expandedFolders' => [
             'type'    => 'int_array',
-            'default' => [],
+            // Root (id 0) is expanded by default so the user sees the
+            // top-level folders without needing to click first.
+            'default' => [0],
         ],
         'allMedia'        => [
             'type'    => 'bool',
             'default' => false,
+        ],
+        'sidebarWidth'    => [
+            'type'    => 'int',
+            'default' => 280,
+            'min'     => 200,
+            'max'     => 600,
         ],
     ];
 
@@ -129,7 +137,7 @@ class UserPreferencesService
         [
             $ok,
             $coerced,
-        ] = $this->coerce(self::SCHEMA[$key]['type'], $value);
+        ] = $this->coerce(self::SCHEMA[$key], $value);
         if (! $ok) {
             return false;
         }
@@ -162,16 +170,16 @@ class UserPreferencesService
     }
 
     /**
-     * Coerce a raw value to the declared type.
+     * Coerce a raw value against a schema spec.
      *
-     * @param string $type  Schema type token
-     * @param mixed  $value Raw value
+     * @param array{type: string, default: mixed, min?: int, max?: int} $spec  Schema entry for the key
+     * @param mixed                                                     $value Raw value
      *
      * @return array{0: bool, 1: mixed} [success, coerced value]
      */
-    private function coerce(string $type, $value): array
+    private function coerce(array $spec, $value): array
     {
-        switch ($type) {
+        switch ($spec['type']) {
             case 'bool':
                 if (null === $value) {
                     return [
@@ -191,6 +199,25 @@ class UserPreferencesService
                     $coerced,
                 ];
 
+            case 'int':
+                if (! is_numeric($value)) {
+                    return [
+                        false,
+                        null,
+                    ];
+                }
+                $int = (int) $value;
+                if (isset($spec['min']) && $int < $spec['min']) {
+                    $int = $spec['min'];
+                }
+                if (isset($spec['max']) && $int > $spec['max']) {
+                    $int = $spec['max'];
+                }
+                return [
+                    true,
+                    $int,
+                ];
+
             case 'int_array':
                 if (! is_array($value)) {
                     return [
@@ -204,7 +231,8 @@ class UserPreferencesService
                         continue;
                     }
                     $int = (int) $entry;
-                    if ($int <= 0) {
+                    // Negative IDs cannot reference a real folder (Root is 0).
+                    if ($int < 0) {
                         continue;
                     }
                     if (! in_array($int, $ints, true)) {

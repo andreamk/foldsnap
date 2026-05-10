@@ -14,6 +14,7 @@ declare(strict_types=1);
 namespace FoldSnap\Controllers;
 
 use FoldSnap\Services\TaxonomyService;
+use FoldSnap\Services\UserPreferencesService;
 use FoldSnap\Utils\SanitizeInput;
 
 final class MediaLibraryController
@@ -155,8 +156,9 @@ final class MediaLibraryController
             'foldsnap-admin',
             'foldsnap_data',
             [
-                'restUrl'   => rest_url('foldsnap/v1/'),
-                'mediaMode' => self::getMediaMode(),
+                'restUrl'     => rest_url('foldsnap/v1/'),
+                'mediaMode'   => self::getMediaMode(),
+                'preferences' => (new UserPreferencesService())->getAll(get_current_user_id()),
             ]
         );
 

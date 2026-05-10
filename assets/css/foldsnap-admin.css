@@ -12,10 +12,8 @@
 	align-items: flex-start;
 }
 
+/* Width is owned by ResizableBox (defaultSize from preferences). */
 .foldsnap-sidebar {
-	width: 280px;
-	min-width: 200px;
-	max-width: 600px;
 	flex-shrink: 0;
 	border-right: 1px solid #dcdcde;
 	background: #f6f7f7;
@@ -23,7 +21,6 @@
 	box-sizing: border-box;
 	min-height: 400px;
 	overflow: auto;
-	resize: horizontal;
 	align-self: stretch;
 }
 

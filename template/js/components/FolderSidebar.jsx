@@ -1,4 +1,4 @@
-import { ToggleControl } from '@wordpress/components';
+import { ResizableBox, ToggleControl } from '@wordpress/components';
 import { useDispatch, useSelect } from '@wordpress/data';
 import {
 	DndContext,
@@ -9,7 +9,15 @@ import {
 } from '@dnd-kit/core';
 import { __ } from '@wordpress/i18n';
 import { STORE_NAME } from '../store/constants';
+import {
+	PREF_KEYS,
+	getInitialPreferences,
+	savePreference,
+} from '../preferences';
 import FolderTree from './FolderTree';
+
+const SIDEBAR_MIN_WIDTH = 200;
+const SIDEBAR_MAX_WIDTH = 600;
 
 /**
  * Root sidebar component mounted inside the native WordPress Media Library.
@@ -80,19 +88,37 @@ const FolderSidebar = () => {
 		} );
 	};
 
+	const initialWidth = getInitialPreferences()[ PREF_KEYS.SIDEBAR_WIDTH ];
+
 	return (
 		<DndContext
 			sensors={ sensors }
 			collisionDetection={ pointerWithin }
 			onDragEnd={ handleDragEnd }
 		>
-			<div
+			<ResizableBox
 				className={ [
 					'foldsnap-sidebar',
 					allMediaActive ? 'foldsnap-sidebar--all-media' : '',
 				]
 					.filter( Boolean )
 					.join( ' ' ) }
+				defaultSize={ { width: initialWidth, height: 'auto' } }
+				minWidth={ SIDEBAR_MIN_WIDTH }
+				maxWidth={ SIDEBAR_MAX_WIDTH }
+				enable={ {
+					top: false,
+					right: true,
+					bottom: false,
+					left: false,
+					topRight: false,
+					bottomRight: false,
+					bottomLeft: false,
+					topLeft: false,
+				} }
+				onResizeStop={ ( _event, _direction, ref ) => {
+					savePreference( PREF_KEYS.SIDEBAR_WIDTH, ref.offsetWidth );
+				} }
 			>
 				<div className="foldsnap-sidebar__all-media-toggle">
 					<ToggleControl
@@ -113,7 +139,7 @@ const FolderSidebar = () => {
 				>
 					<FolderTree />
 				</div>
-			</div>
+			</ResizableBox>
 		</DndContext>
 	);
 };

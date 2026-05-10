@@ -1,78 +1,66 @@
 # UI Preferences
 
-Per-user preferences for the admin UI (currently: which folders are expanded in the sidebar, and whether the "All Media" override is on). Stored server-side so they follow the user across browsers and devices, with a localStorage cache for instant boot.
-
-## Why a dedicated subsystem
-
-Before this layer existed each preference was wired ad-hoc to `localStorage`, which made cross-device sync impossible and forced every new preference to reinvent the same read/write pattern. Centralising the schema in a single PHP class and exposing a tiny REST surface keeps per-key code in consumers down to one line of read and one line of write.
-
-Standard WordPress packages were considered (`@wordpress/preferences`, `@wordpress/preferences-persistence`) and rejected: their footprint and indirection are disproportionate for the handful of keys this plugin actually needs.
+Per-user preferences for the admin UI. Stored server-side so they follow the user across browsers and devices, with no client-side cache: PHP localises the current values into the page at enqueue time, so the JS bundle has them synchronously at boot with zero round trips.
 
 ## Storage
 
-| Layer        | Where                                                | Source of truth |
-|--------------|------------------------------------------------------|-----------------|
-| Server       | `user_meta` row keyed by `foldsnap_opt_preferences` (the entire map is stored as a single serialised array) | Yes |
-| Client cache | `localStorage` key `foldsnap.preferencesCache` (JSON-encoded map) | No — refreshed from server |
-
-The whole preferences map sits in one `user_meta` entry so a hydrate is one read and a write is atomic. Per-key writes merge on top of the stored map to protect unrelated keys.
+A single `user_meta` row keyed by `foldsnap_opt_preferences` carries the whole map (WordPress serialises it). One read per boot, atomic writes, per-key updates merge on top of the stored map so unrelated keys are preserved.
 
 ## Declared keys
 
-Schema lives inside `UserPreferencesService::SCHEMA` (`src/Services/UserPreferencesService.php`). The current set:
+Schema lives in `UserPreferencesService::SCHEMA` (`src/Services/UserPreferencesService.php`) — the single source of truth.
 
 | Key               | Type        | Default | Used by                          |
 |-------------------|-------------|---------|----------------------------------|
-| `expandedFolders` | `int_array` | `[]`    | Sidebar tree expansion state     |
+| `expandedFolders` | `int_array` | `[0]`   | Sidebar tree expansion state. Default `[0]` means Root is expanded for new users; once the user customises the list (including collapsing Root), their choice is stored verbatim. |
 | `allMedia`        | `bool`      | `false` | Sidebar "All Media" override toggle |
+| `sidebarWidth`    | `int` (200..600) | `280` | Sidebar width in pixels (clamped server-side) |
 
-Supported type tokens: `bool`, `int_array`. (`int` and `string` are reserved for future keys; their coerce branches will be added when first needed.)
+Supported type tokens: `bool`, `int`, `int_array`. (`string` is reserved for future keys; its coerce branch will be added when first needed.)
 
 ### Coercion rules
 
 - `bool` — `filter_var(..., FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE)`. Accepts `true`/`false`, `1`/`0`, `'true'`/`'false'`, `'yes'`/`'no'`, `'on'`/`'off'`. Rejects `null` and non-coercible strings.
-- `int_array` — root must be an array; each element is cast to int and dropped if it is non-numeric, zero, or negative; duplicates are removed. The same filter rules are mirrored in the JS layer so a round-trip is symmetric.
+- `int` — accepts numeric values and numeric strings. If the schema entry declares `min` / `max`, the value is clamped into that range (no rejection). Rejects only non-numeric input.
+- `int_array` — root must be an array; each element is cast to int and dropped if it is non-numeric or negative (zero is accepted because it is Root's ID); duplicates are removed.
 
-A value that fails its type's coercion is rejected (the REST endpoint returns 400, the service's `set()` returns `false`). This is deliberate: preferences come from code that serialises typed values, so a mismatch is a bug, not a soft user mistake to silently fix.
+A value that fails its type's coercion is rejected (the REST endpoint returns 400, the service's `set()` returns `false`).
 
 ## REST endpoints
 
 See [02_1_API_rest-endpoints.md](02_1_API_rest-endpoints.md#preferences) for the full contract. Quick reference:
 
-- `GET  /foldsnap/v1/preferences` — full map (defaults filled in for unset keys).
+- `GET  /foldsnap/v1/preferences` — full map (defaults filled in for unset keys). Available but unused at boot, since the same data ships in `window.foldsnap_data.preferences`.
 - `PUT  /foldsnap/v1/preferences/{key}` — body `{ "value": <any> }` → 200 with the coerced value, or 400 (`foldsnap_unknown_preference` / `foldsnap_invalid_preference_value`).
 
 Both endpoints require `upload_files` and target the current user implicitly.
 
+## Initial values from PHP
+
+`MediaLibraryController` localises the user's complete preferences map into `window.foldsnap_data.preferences` via `wp_localize_script`. The JS bundle reads this synchronously at boot — no fetch, no cache, no race conditions.
+
 ## Client module
 
-`template/js/preferences.js` — a single file, no sub-folders. Public API:
+`template/js/preferences.js` exposes:
 
-| Export                     | Purpose |
-|----------------------------|---------|
-| `PREF_KEYS`                | Frozen object with the canonical key strings |
-| `readCachedPreferences()`  | Synchronous read of the cache, filled with defaults. Used by the store at boot for an instant first render. |
-| `loadPreferences()`        | Async fetch from the REST endpoint. Refreshes the cache. On error, returns the cache (or defaults). |
-| `savePreference(key, val)` | Write-through cache (immediate) + per-key debounced PUT (800 ms). Server failures are swallowed silently — the cache already holds the new value, so UI state is not lost. |
-| `flushPendingSaves()`      | Forces every pending PUT to fire immediately. Test helper. |
+| Export                       | Purpose |
+|------------------------------|---------|
+| `PREF_KEYS`                  | Frozen object with the canonical key strings (must match the PHP schema) |
+| `getInitialPreferences()`    | Synchronous read of `window.foldsnap_data.preferences` |
+| `savePreference(key, val)`   | Per-key debounced PUT (800 ms) to the REST endpoint |
+| `flushPendingSaves()`        | Forces every pending PUT to fire immediately. Test helper. |
 
-The store (`template/js/store/index.js`) wires the bridge in three steps:
-
-1. Hydrate synchronously from `readCachedPreferences()` so the very first render shows the user's expanded folders.
-2. Kick off `loadPreferences()` in the background; if the server map differs from the cache, dispatch a second hydrate.
-3. Subscribe to store changes and route them through `savePreference`.
+The store (`template/js/store/index.js`) hydrates from `getInitialPreferences()` once at boot, then subscribes and routes changes through `savePreference`.
 
 ## Adding a new preference
 
-Three edits:
-
 1. **PHP schema** — add an entry to `UserPreferencesService::SCHEMA` with `type` and `default`.
-2. **JS key constant** — add the key to `PREF_KEYS` in `template/js/preferences.js` and to `DEFAULTS`.
-3. **Consumer wiring** — in the relevant store/component, read with `readCachedPreferences()[PREF_KEYS.X]` (boot) and write with `savePreference(PREF_KEYS.X, value)`.
+2. **JS key constant** — add the key to `PREF_KEYS` in `template/js/preferences.js`.
+3. **Consumer wiring** — read with `getInitialPreferences()[PREF_KEYS.X]` and write with `savePreference(PREF_KEYS.X, value)`.
 
 If the new key needs a type that the service doesn't yet support, add the branch in `UserPreferencesService::coerce()`.
 
 ## Limitations
 
-- The PUT debounce is 800 ms. Closing the tab during that window means the cache holds the new value but the server doesn't see it until the next successful boot reconciles via `loadPreferences()`. Acceptable for UI state; not suitable for anything safety-critical.
-- Cross-tab sync happens at boot only (the second tab picks up the new server values when it loads `loadPreferences()`). No real-time `BroadcastChannel` wiring.
+- The PUT debounce is 800 ms. Closing the tab during that window means the value never reaches the server. Acceptable for UI state; the next page load reads the previously persisted values from PHP.
+- Cross-tab sync happens at boot only (a second tab picks up the new values when it loads). No real-time `BroadcastChannel` wiring.

@@ -19,6 +19,17 @@ jest.mock( '@wordpress/components', () => ( {
 			/>
 		</div>
 	),
+	ResizableBox: ( { children, className } ) => (
+		<div className={ className } data-testid="resizable-box">
+			{ children }
+		</div>
+	),
+} ) );
+
+jest.mock( '../../preferences', () => ( {
+	PREF_KEYS: { SIDEBAR_WIDTH: 'sidebarWidth' },
+	getInitialPreferences: jest.fn( () => ( { sidebarWidth: 280 } ) ),
+	savePreference: jest.fn(),
 } ) );
 
 jest.mock( '../FolderTree', () => {
