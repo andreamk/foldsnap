@@ -62,24 +62,6 @@ Ogni task è autonoma. Non c'è dipendenza forte tra le aree (eccetto dove indic
 
 ---
 
-#### Task 1.2 — Refresh griglia post-upload (loader visibile)
-**Problema**: dopo aver caricato un file in modalità griglia, il media non appare finché non si fa reload pagina.
-
-**File**: `template/js/services/grid-reflector.js`, nuovo file possibile `template/js/services/upload-bridge.js`
-
-**Da fare**:
-1. Hookare l'event Backbone della collection `wp.media.frame.content.get().collection` su `add` (quando un attachment viene aggiunto).
-2. Quando l'evento arriva e c'è un filtro folder attivo non-Root: due opzioni:
-   - **Opzione A**: auto-assignare il media alla folder corrente (sblocca anche Task 3.1)
-   - **Opzione B**: mostrare il media nella griglia anche se è in Root (bypass temporaneo del filtro per nuovi upload)
-3. Forzare un `_requery(true)` sulla collection se necessario.
-
-**Verifica**: in modalità griglia, drop di un file sull'area upload → loader visibile, media appare senza reload.
-
-**Nota**: Task 1.2 è di fatto risolto se si fa Task 3.1 (upload in folder corrente). Si può saltare e andare diretto a 3.1.
-
----
-
 #### Task 1.3 — Aumentare visibilità chevron e drag handle nella sidebar
 **Problema**: chevron `▾▸` resi a `font-size: 10px`, drag handle `⠿` a 14px. Microscopici.
 
@@ -169,6 +151,8 @@ Questi task vanno trattati come blocco perché condividono infrastruttura. Fa pa
 
 #### Task 3.1 — Upload nella folder corrente (default upload destination)
 **Problema**: upload va sempre in Root. L'utente vuole che, se è selezionata una folder, l'upload assegni il media a quella folder.
+
+**Include anche il bug "loader/refresh post-upload"** (ex Task 1.2): oggi dopo l'upload il media non appare nella griglia finché non si ricarica la pagina, perché nasce in Root mentre il filtro attivo è una folder ≠ Root. Assegnando l'upload alla folder corrente (Task 3.1), il media appartiene già al filtro attivo e la collection Backbone lo mostra senza requery hack. Il primo tentativo di fix isolato (event `add` sulla collection) è stato rimosso perché loopava sui fetch normali — la soluzione corretta è agganciarsi a `wp.Uploader` events (`FileUploaded`/`uploadSuccess` di Plupload) o, ancora meglio, far sì che il media appartenga al filtro fin da subito (questo task).
 
 **File**: `template/js/index.js` o nuovo `template/js/services/upload-folder-bridge.js`, `src/Services/AttachmentLifecycleService.php`, `src/Services/MediaFolderAssignmentService.php`
 
@@ -313,10 +297,11 @@ Già documentato nel piano originale, lo riprendo qui per completezza. File: `te
 ## Ordine di esecuzione raccomandato
 
 ```
-Tier 1 (bug fix rapidi)
-  ├── 1.1 Drag&drop cartelle  ← debug 1h, fix probabile 1h
-  ├── 1.3 Chevron visibili    ← 30min CSS
-  └── 1.4 Verifica ordine     ← 15min investigazione
+Tier 1 (bug fix rapidi) — ✅ COMPLETATO
+  ├── 1.1 Drag&drop cartelle  ✅
+  ├── 1.3 Chevron visibili    ✅
+  ├── 1.4 Verifica ordine     ✅ (no-op: plugin innocente, FakerPress)
+  └── (1.2 spostato in Tier 3 — risolto da 3.1)
 
 Tier 2 (preferences foundation) ← BLOCCO COESO, fare insieme
   ├── 2.1 Sistema preferenze  ← 1-2 giornate (abilitante)
@@ -324,7 +309,7 @@ Tier 2 (preferences foundation) ← BLOCCO COESO, fare insieme
   └── 2.3 Resize sidebar      ← 0.5 giornata
 
 Tier 3 (upload UX)
-  └── 3.1 Upload in folder    ← 1 giornata (risolve 1.2)
+  └── 3.1 Upload in folder    ← 1 giornata (include refresh post-upload)
 
 Tier 4 (modal integration)
   └── 4.1 Sidebar nel modale  ← 2-3 giornate (sostanzioso)
@@ -347,7 +332,7 @@ Tier 8 (DnD esteso)
 ## Dipendenze critiche
 
 - **Task 2.1 abilita 2.2, 2.3, 6.1**: fare 2.1 prima.
-- **Task 3.1 risolve Task 1.2**: saltare 1.2 e fare 3.1.
+- **Task 3.1 include il fix del refresh post-upload** (ex Task 1.2): non c'è più un task separato, è parte di 3.1.
 - **Task 4.1 si appoggia su 3.1** per upload nel modale.
 - Tutte le altre task sono indipendenti.
 
