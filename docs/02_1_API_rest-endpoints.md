@@ -227,7 +227,7 @@ Response sets `X-WP-Total` and `X-WP-TotalPages`. The query is built via `Taxono
 
 ## Preferences
 
-Per-user UI preferences are stored in a single `user_meta` entry (`foldsnap_preferences`) with a closed schema declared in `UserPreferencesService`. Both endpoints require `upload_files`; the user scope is implicit (`get_current_user_id()` server-side) — no user ID in the URL.
+Per-user UI preferences are stored in a single `user_meta` entry (`foldsnap_opt_preferences`) with a closed schema declared in `UserPreferencesService`. Both endpoints require `upload_files`; the user scope is implicit (`get_current_user_id()` server-side) — no user ID in the URL.
 
 ### `GET /preferences`
 

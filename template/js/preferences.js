@@ -103,7 +103,14 @@ export const loadPreferences = async () => {
 		if ( ! server || typeof server !== 'object' ) {
 			return readCachedPreferences();
 		}
-		const merged = { ...DEFAULTS, ...server };
+		// Whitelist against DEFAULTS so an unknown key from the server (e.g.
+		// a stale field after a schema removal) cannot leak into the store.
+		const merged = { ...DEFAULTS };
+		for ( const key of Object.keys( DEFAULTS ) ) {
+			if ( Object.prototype.hasOwnProperty.call( server, key ) ) {
+				merged[ key ] = server[ key ];
+			}
+		}
 		writeCache( merged );
 		return merged;
 	} catch {

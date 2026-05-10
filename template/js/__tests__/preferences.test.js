@@ -117,7 +117,7 @@ describe( 'loadPreferences', () => {
 		} );
 	} );
 
-	it( 'falls back to cache when the server response shape is unexpected', async () => {
+	it( 'falls back to cache when the server response is missing the preferences key', async () => {
 		window.localStorage.setItem(
 			CACHE_KEY,
 			JSON.stringify( { allMedia: true } )
@@ -128,6 +128,37 @@ describe( 'loadPreferences', () => {
 		const result = await preferences.loadPreferences();
 
 		expect( result.allMedia ).toBe( true );
+	} );
+
+	it( 'filters unknown keys nested inside preferences', async () => {
+		apiFetch.mockResolvedValueOnce( {
+			preferences: {
+				expandedFolders: [ 1 ],
+				allMedia: true,
+				rogueKey: 'should not appear',
+			},
+		} );
+
+		const result = await preferences.loadPreferences();
+
+		expect( result ).toEqual( {
+			expandedFolders: [ 1 ],
+			allMedia: true,
+		} );
+		expect( result ).not.toHaveProperty( 'rogueKey' );
+		const cached = JSON.parse( window.localStorage.getItem( CACHE_KEY ) );
+		expect( cached ).not.toHaveProperty( 'rogueKey' );
+	} );
+
+	it( 'falls back to defaults when server response.preferences is null', async () => {
+		apiFetch.mockResolvedValueOnce( { preferences: null } );
+
+		const result = await preferences.loadPreferences();
+
+		expect( result ).toEqual( {
+			expandedFolders: [],
+			allMedia: false,
+		} );
 	} );
 } );
 

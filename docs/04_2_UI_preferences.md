@@ -12,7 +12,7 @@ Standard WordPress packages were considered (`@wordpress/preferences`, `@wordpre
 
 | Layer        | Where                                                | Source of truth |
 |--------------|------------------------------------------------------|-----------------|
-| Server       | `user_meta` row keyed by `foldsnap_preferences` (the entire map is stored as a single serialised array) | Yes |
+| Server       | `user_meta` row keyed by `foldsnap_opt_preferences` (the entire map is stored as a single serialised array) | Yes |
 | Client cache | `localStorage` key `foldsnap.preferencesCache` (JSON-encoded map) | No — refreshed from server |
 
 The whole preferences map sits in one `user_meta` entry so a hydrate is one read and a write is atomic. Per-key writes merge on top of the stored map to protect unrelated keys.

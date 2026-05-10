@@ -58,6 +58,9 @@ if ( typeof window !== 'undefined' ) {
 		allMediaActive: cached[ PREF_KEYS.ALL_MEDIA ],
 	} );
 
+	let lastExpandedIds = select( STORE_NAME ).getExpandedIds?.() ?? [];
+	let lastAllMediaActive = select( STORE_NAME ).isAllMediaActive?.() ?? false;
+
 	loadPreferences()
 		.then( ( server ) => {
 			const serverExpanded = server[ PREF_KEYS.EXPANDED_FOLDERS ];
@@ -69,6 +72,11 @@ if ( typeof window !== 'undefined' ) {
 				! arraysEqual( serverExpanded, currentExpanded ) ||
 				serverAllMedia !== currentAllMedia
 			) {
+				// Adopt the server values as the new baseline BEFORE the
+				// hydrate dispatch fires the subscriber, so the subscriber
+				// doesn't echo the server's own values back as a PUT.
+				lastExpandedIds = serverExpanded;
+				lastAllMediaActive = serverAllMedia;
 				dispatch( STORE_NAME ).hydrate( {
 					expandedIds: serverExpanded,
 					allMediaActive: serverAllMedia,
@@ -78,9 +86,6 @@ if ( typeof window !== 'undefined' ) {
 		.catch( () => {
 			// Network failure / REST down: keep the cache-hydrated state.
 		} );
-
-	let lastExpandedIds = select( STORE_NAME ).getExpandedIds?.() ?? [];
-	let lastAllMediaActive = select( STORE_NAME ).isAllMediaActive?.() ?? false;
 
 	subscribe( () => {
 		const expandedIds = select( STORE_NAME ).getExpandedIds?.();

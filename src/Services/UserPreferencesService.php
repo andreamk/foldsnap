@@ -15,7 +15,7 @@ use InvalidArgumentException;
 class UserPreferencesService
 {
     /** @var string Single user_meta key holding the whole preferences map */
-    public const META_KEY = 'foldsnap_preferences';
+    private const META_KEY = 'foldsnap_opt_preferences';
 
     /**
      * Closed schema: every preference must be declared here.
