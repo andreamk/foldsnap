@@ -24,11 +24,11 @@ This guide covers the React frontend setup: source structure, build pipeline, li
 
 ## Asset Loading
 
-`@wordpress/scripts` generates `foldsnap-admin.asset.php` containing:
+`@wordpress/scripts` generates one `.asset.php` manifest per webpack entry (currently `foldsnap-admin.asset.php` and `foldsnap-settings.asset.php`). Each manifest contains:
 - WordPress script dependencies (auto-detected from imports)
 - A content hash for cache busting
 
-PHP controllers enqueue the bundle via `wp_enqueue_script()` using this asset file.
+PHP controllers enqueue the matching bundle via `wp_enqueue_script()` using the corresponding asset file.
 
 Standalone scripts that do not depend on the React bundle (e.g. `template/js/foldsnap-dragdrop.js`) are copied — not bundled — to `assets/js/`. This is necessary because they rely on jQuery UI globals registered outside the bundle.
 

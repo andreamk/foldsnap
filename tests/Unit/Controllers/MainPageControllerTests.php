@@ -123,4 +123,18 @@ class MainPageControllerTests extends WP_UnitTestCase
 
         $this->assertStringContainsString('page=foldsnap', $url);
     }
+
+    /**
+     * Test capability is restricted to manage_options
+     *
+     * @return void
+     */
+    public function test_capability_is_manage_options(): void
+    {
+        $reflection = new \ReflectionClass(AbstractMenuPageController::class);
+        $property   = $reflection->getProperty('capatibility');
+        $property->setAccessible(true);
+
+        $this->assertSame('manage_options', $property->getValue($this->controller));
+    }
 }

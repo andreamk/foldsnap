@@ -4,6 +4,10 @@ export const ROOT_PARENT_ID = 0;
 
 export const DEFAULT_PER_PAGE = 100;
 
+export const BATCH_MAX_PER_PAGE = 200;
+
+export const BATCH_PARENTS_PER_REQUEST = 10;
+
 export const SEARCH_PER_PAGE = 50;
 
 export const ACTION_TYPES = {

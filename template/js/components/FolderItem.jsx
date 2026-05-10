@@ -139,12 +139,10 @@ const FolderItem = ( {
 	const isRenameInvalid = ! trimmedRename || trimmedRename === folder.name;
 
 	const handleRenameSubmit = async () => {
-		if ( isRenameInvalid ) {
-			setShowRenameModal( false );
-			return;
-		}
 		setShowRenameModal( false );
-		await updateFolder( folder.id, { name: trimmedRename } );
+		if ( ! isRenameInvalid ) {
+			await updateFolder( folder.id, { name: trimmedRename } );
+		}
 	};
 
 	const indentStyle = { paddingLeft: depth * 16 + 'px' };

@@ -447,6 +447,9 @@ describe( 'FolderItem', () => {
 			const input = screen.getByLabelText( 'Folder name' );
 			await user.type( input, '{Enter}' );
 			expect( mockUpdateFolder ).not.toHaveBeenCalled();
+			expect(
+				screen.queryByLabelText( 'Folder name' )
+			).not.toBeInTheDocument();
 		} );
 
 		it( 'submits when Enter is pressed in the input', async () => {

@@ -149,6 +149,205 @@ describe( 'fetchChildrenBatch', () => {
 			successYields.find( ( y ) => y.parentId === 5 ).folders
 		).toHaveLength( 2 );
 	} );
+
+	it( 'splits >10 parents into multiple chunked requests', () => {
+		const parentIds = Array.from( { length: 23 }, ( _, i ) => i + 1 );
+		const chunkResponse = ( ids ) => ( {
+			folders: ids.map( ( id ) => ( { id: 1000 + id, parent_id: id } ) ),
+			page: 1,
+			total_pages: 1,
+		} );
+		const yields = drive( fetchChildrenBatch( parentIds ), [
+			chunkResponse( parentIds.slice( 0, 10 ) ),
+			chunkResponse( parentIds.slice( 10, 20 ) ),
+			chunkResponse( parentIds.slice( 20, 23 ) ),
+		] );
+
+		const apiCalls = yields.filter( ( y ) => y.type === 'API_FETCH' );
+		expect( apiCalls ).toHaveLength( 3 );
+		expect( apiCalls[ 0 ].request.path ).toContain( 'parent_ids%5B%5D=1&' );
+		expect( apiCalls[ 0 ].request.path ).toContain( 'parent_ids%5B%5D=10&' );
+		expect( apiCalls[ 0 ].request.path ).not.toContain(
+			'parent_ids%5B%5D=11&'
+		);
+		expect( apiCalls[ 1 ].request.path ).toContain( 'parent_ids%5B%5D=11&' );
+		expect( apiCalls[ 1 ].request.path ).toContain( 'parent_ids%5B%5D=20&' );
+		expect( apiCalls[ 2 ].request.path ).toContain( 'parent_ids%5B%5D=21&' );
+		expect( apiCalls[ 2 ].request.path ).toContain( 'parent_ids%5B%5D=23&' );
+
+		const successYields = yields.filter(
+			( y ) => y.type === ACTION_TYPES.FETCH_CHILDREN_SUCCESS
+		);
+		expect( successYields ).toHaveLength( 23 );
+		for ( const id of parentIds ) {
+			const success = successYields.find( ( y ) => y.parentId === id );
+			expect( success.folders ).toEqual( [
+				{ id: 1000 + id, parent_id: id },
+			] );
+		}
+	} );
+
+	it( 'requests the maximum per_page (200) by default', () => {
+		const yields = drive( fetchChildrenBatch( [ 1 ] ), [
+			{ folders: [], page: 1, total_pages: 1 },
+		] );
+		const apiCall = yields.find( ( y ) => y.type === 'API_FETCH' );
+		expect( apiCall.request.path ).toContain( 'per_page=200' );
+	} );
+
+	it( 'follows total_pages within a chunk until exhausted', () => {
+		const yields = drive( fetchChildrenBatch( [ 4 ] ), [
+			{
+				folders: [
+					{ id: 100, parent_id: 4 },
+					{ id: 101, parent_id: 4 },
+				],
+				page: 1,
+				total_pages: 3,
+			},
+			{
+				folders: [ { id: 102, parent_id: 4 } ],
+				page: 2,
+				total_pages: 3,
+			},
+			{
+				folders: [ { id: 103, parent_id: 4 } ],
+				page: 3,
+				total_pages: 3,
+			},
+		] );
+		const apiCalls = yields.filter( ( y ) => y.type === 'API_FETCH' );
+		expect( apiCalls ).toHaveLength( 3 );
+		expect( apiCalls[ 0 ].request.path ).toContain( 'page=1&' );
+		expect( apiCalls[ 1 ].request.path ).toContain( 'page=2&' );
+		expect( apiCalls[ 2 ].request.path ).toContain( 'page=3&' );
+
+		const success = yields.find(
+			( y ) => y.type === ACTION_TYPES.FETCH_CHILDREN_SUCCESS
+		);
+		expect( success.folders.map( ( f ) => f.id ) ).toEqual( [
+			100, 101, 102, 103,
+		] );
+	} );
+
+	it( 'combines chunking and pagination for wide deep batches', () => {
+		const parentIds = Array.from( { length: 12 }, ( _, i ) => i + 1 );
+		const yields = drive( fetchChildrenBatch( parentIds ), [
+			// chunk 1 (parents 1..10), page 1 of 2
+			{
+				folders: [ { id: 50, parent_id: 1 } ],
+				page: 1,
+				total_pages: 2,
+			},
+			// chunk 1, page 2 of 2
+			{
+				folders: [ { id: 51, parent_id: 2 } ],
+				page: 2,
+				total_pages: 2,
+			},
+			// chunk 2 (parents 11..12), single page
+			{
+				folders: [
+					{ id: 60, parent_id: 11 },
+					{ id: 61, parent_id: 12 },
+				],
+				page: 1,
+				total_pages: 1,
+			},
+		] );
+		const apiCalls = yields.filter( ( y ) => y.type === 'API_FETCH' );
+		expect( apiCalls ).toHaveLength( 3 );
+		expect( apiCalls[ 0 ].request.path ).toContain( 'parent_ids%5B%5D=1&' );
+		expect( apiCalls[ 0 ].request.path ).toContain( 'page=1&' );
+		expect( apiCalls[ 1 ].request.path ).toContain( 'parent_ids%5B%5D=1&' );
+		expect( apiCalls[ 1 ].request.path ).toContain( 'page=2&' );
+		expect( apiCalls[ 2 ].request.path ).toContain(
+			'parent_ids%5B%5D=11&'
+		);
+		expect( apiCalls[ 2 ].request.path ).toContain( 'page=1&' );
+
+		const success = yields.filter(
+			( y ) => y.type === ACTION_TYPES.FETCH_CHILDREN_SUCCESS
+		);
+		expect( success.find( ( y ) => y.parentId === 1 ).folders ).toEqual( [
+			{ id: 50, parent_id: 1 },
+		] );
+		expect( success.find( ( y ) => y.parentId === 2 ).folders ).toEqual( [
+			{ id: 51, parent_id: 2 },
+		] );
+		expect( success.find( ( y ) => y.parentId === 11 ).folders ).toEqual( [
+			{ id: 60, parent_id: 11 },
+		] );
+		expect( success.find( ( y ) => y.parentId === 12 ).folders ).toEqual( [
+			{ id: 61, parent_id: 12 },
+		] );
+	} );
+
+	it( 'still errors all parents when a later chunk throws', () => {
+		const parentIds = Array.from( { length: 15 }, ( _, i ) => i + 1 );
+		const gen = fetchChildrenBatch( parentIds );
+		// Drain the 15 START yields.
+		for ( let i = 0; i < parentIds.length; i += 1 ) {
+			expect( gen.next().value.type ).toBe(
+				ACTION_TYPES.FETCH_CHILDREN_START
+			);
+		}
+		// Chunk 1 succeeds.
+		expect( gen.next().value.type ).toBe( 'API_FETCH' );
+		expect(
+			gen.next( {
+				folders: [],
+				page: 1,
+				total_pages: 1,
+			} ).value.type
+		).toBe( 'API_FETCH' );
+		// Chunk 2 throws.
+		const errorYields = [];
+		let step = gen.throw( new Error( 'kaboom' ) );
+		while ( ! step.done ) {
+			errorYields.push( step.value );
+			step = gen.next();
+		}
+		expect( errorYields ).toHaveLength( parentIds.length );
+		expect( errorYields.every( ( y ) => y.error === 'kaboom' ) ).toBe(
+			true
+		);
+		expect(
+			errorYields.map( ( y ) => y.parentId ).sort( ( a, b ) => a - b )
+		).toEqual( parentIds );
+	} );
+
+	it( 'yields one ERROR per parent when API_FETCH throws', () => {
+		const gen = fetchChildrenBatch( [ 3, 7 ] );
+		expect( gen.next().value ).toEqual( {
+			type: ACTION_TYPES.FETCH_CHILDREN_START,
+			parentId: 3,
+		} );
+		expect( gen.next().value ).toEqual( {
+			type: ACTION_TYPES.FETCH_CHILDREN_START,
+			parentId: 7,
+		} );
+		// Next yield is the API_FETCH; throw into it.
+		expect( gen.next().value.type ).toBe( 'API_FETCH' );
+		const errorYields = [];
+		let step = gen.throw( new Error( 'boom' ) );
+		while ( ! step.done ) {
+			errorYields.push( step.value );
+			step = gen.next();
+		}
+		expect( errorYields ).toEqual( [
+			{
+				type: ACTION_TYPES.FETCH_CHILDREN_ERROR,
+				parentId: 3,
+				error: 'boom',
+			},
+			{
+				type: ACTION_TYPES.FETCH_CHILDREN_ERROR,
+				parentId: 7,
+				error: 'boom',
+			},
+		] );
+	} );
 } );
 
 describe( 'expandFolder / collapseFolder', () => {

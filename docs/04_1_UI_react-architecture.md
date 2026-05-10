@@ -8,7 +8,7 @@
 
 ```
 FolderSidebar              (DndContext + All Media toggle)
-└── FolderTree             (search box, root item, folder list, "New Folder" button)
+└── FolderTree             (search box, root item, folder list)
     ├── FolderItem         (single folder node, recursive for children;
     │   │                   owns its rename modal locally — no separate component)
     │   └── FolderItem     (nested children)
@@ -18,7 +18,7 @@ FolderSidebar              (DndContext + All Media toggle)
 
 The visible media grid is the **native WordPress Backbone grid** (or list-table in list mode), not a React component. React only owns the sidebar; the grid is reflected to the current folder selection by `services/media-mode-bridge.js`.
 
-`CreateFolderModal` takes a fixed `parentId` from its caller (the "Add subfolder" entry in `FolderItem`'s dropdown, or the root "New Folder" button in `FolderTree`) and shows that parent's name in its title. There is no in-modal parent picker.
+`CreateFolderModal` takes a fixed `parentId` from its caller (the "Add subfolder" entry in `FolderItem`'s dropdown — including the Root item, which is the only entry point for creating a top-level folder) and shows that parent's name in its title. There is no in-modal parent picker.
 
 `SearchResultsList` replaces the tree (not the whole sidebar) whenever `getSearchQuery()` is non-empty, so the search input in `FolderTree` stays mounted. Clicking a result selects the folder, calls `expandPathTo`, and clears the search so the tree comes back focused on the chosen folder.
 
@@ -140,6 +140,8 @@ URL → store bootstrap is performed by the `bootFromUrl` action (dispatched onc
 ## Build pipeline
 
 - **Toolchain** — `@wordpress/scripts` (webpack + Babel + ESLint + Jest).
-- **Entry** — `template/js/index.js` → `assets/js/foldsnap-admin.js`.
+- **Entries** —
+  - `template/js/index.js` → `assets/js/foldsnap-admin.js` (sidebar bundle for the Media Library screen).
+  - `template/js/settings.js` → `assets/js/foldsnap-settings.js` (Settings page; drives the Recount maintenance tool).
 - **Standalone** — `template/js/foldsnap-dragdrop.js` is copied (not bundled) to `assets/js/` because it depends on jQuery UI globals, not the React bundle.
-- **Asset manifest** — `foldsnap-admin.asset.php` lists WordPress script dependencies (auto-detected from imports) and a content hash for cache busting.
+- **Asset manifests** — each entry emits its own `.asset.php` (`foldsnap-admin.asset.php`, `foldsnap-settings.asset.php`) listing WordPress script dependencies (auto-detected from imports) and a content hash for cache busting.

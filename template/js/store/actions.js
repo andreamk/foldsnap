@@ -2,6 +2,8 @@ import {
 	ACTION_TYPES,
 	ROOT_PARENT_ID,
 	DEFAULT_PER_PAGE,
+	BATCH_MAX_PER_PAGE,
+	BATCH_PARENTS_PER_REQUEST,
 	SEARCH_PER_PAGE,
 } from './constants';
 
@@ -136,7 +138,7 @@ export function* loadMoreChildren(
  */
 export function* fetchChildrenBatch(
 	parentIds,
-	{ perPage = DEFAULT_PER_PAGE } = {}
+	{ perPage = BATCH_MAX_PER_PAGE } = {}
 ) {
 	if ( parentIds.length === 0 ) {
 		return;
@@ -145,32 +147,50 @@ export function* fetchChildrenBatch(
 		yield { type: ACTION_TYPES.FETCH_CHILDREN_START, parentId: id };
 	}
 	try {
-		const response = yield apiFetch( {
-			path: buildChildrenPath( parentIds, 1, perPage ),
-			method: 'GET',
-		} );
-		// API returns folders flat; group by parent_id client-side.
-		const grouped = {};
+		const accumulated = {};
 		for ( const id of parentIds ) {
-			grouped[ id ] = [];
+			accumulated[ id ] = [];
 		}
-		for ( const folder of response.folders ) {
-			const pid = folder.parent_id ?? ROOT_PARENT_ID;
-			if ( grouped[ pid ] ) {
-				grouped[ pid ].push( folder );
-			}
+		let rootFolder = null;
+
+		for (
+			let i = 0;
+			i < parentIds.length;
+			i += BATCH_PARENTS_PER_REQUEST
+		) {
+			const chunk = parentIds.slice( i, i + BATCH_PARENTS_PER_REQUEST );
+			let page = 1;
+			let totalPages = 1;
+			do {
+				const response = yield apiFetch( {
+					path: buildChildrenPath( chunk, page, perPage ),
+					method: 'GET',
+				} );
+				for ( const folder of response.folders ) {
+					const pid = folder.parent_id ?? ROOT_PARENT_ID;
+					if ( accumulated[ pid ] ) {
+						accumulated[ pid ].push( folder );
+					}
+				}
+				if ( response.root ) {
+					rootFolder = response.root;
+				}
+				totalPages = response.total_pages || 1;
+				page += 1;
+			} while ( page <= totalPages );
 		}
+
 		for ( const id of parentIds ) {
 			yield {
 				type: ACTION_TYPES.FETCH_CHILDREN_SUCCESS,
 				parentId: id,
-				folders: grouped[ id ],
+				folders: accumulated[ id ],
 				page: 1,
 				totalPages: 1,
 			};
 		}
-		if ( response.root ) {
-			yield { type: ACTION_TYPES.UPSERT_FOLDER, folder: response.root };
+		if ( rootFolder ) {
+			yield { type: ACTION_TYPES.UPSERT_FOLDER, folder: rootFolder };
 		}
 	} catch ( error ) {
 		for ( const id of parentIds ) {

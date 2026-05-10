@@ -818,8 +818,7 @@ class RestApiControllerTests extends WP_UnitTestCase
         // by the completion path. The key invariant the reset path
         // guarantees: the stale [42, 99] entries are gone.
         $stack = get_option(CountersRecalculator::OPT_STACK, null);
-        $this->assertNotContains(42, (array) $stack);
-        $this->assertNotContains(99, (array) $stack);
+        $this->assertSame([], (array) $stack);
     }
 
     /**
