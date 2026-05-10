@@ -110,13 +110,17 @@ final class RestApiFolderMutationsController
 
             $folder = $this->repository->update($id, $name, $parentId, $color, $position);
 
-            $affectedParents = [$folder->getParentId()];
+            $affectedParents    = [$folder->getParentId()];
+            $extraPathFolderIds = [];
             if (null !== $oldParentId && $oldParentId !== $folder->getParentId()) {
                 $affectedParents[] = $oldParentId;
+                // Reparent: include the old parent's ancestor chain in `paths`
+                // so the client refreshes counts/sizes upstream of the source.
+                $extraPathFolderIds[] = $oldParentId;
             }
 
             return new WP_REST_Response(
-                $this->buildMutationResponse($folder, $affectedParents),
+                $this->buildMutationResponse($folder, $affectedParents, $extraPathFolderIds),
                 200
             );
         });

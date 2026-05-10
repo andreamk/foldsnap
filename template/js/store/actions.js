@@ -2,6 +2,8 @@ import {
 	ACTION_TYPES,
 	ROOT_PARENT_ID,
 	DEFAULT_PER_PAGE,
+	BATCH_MAX_PER_PAGE,
+	BATCH_PARENTS_PER_REQUEST,
 	SEARCH_PER_PAGE,
 } from './constants';
 
@@ -136,7 +138,7 @@ export function* loadMoreChildren(
  */
 export function* fetchChildrenBatch(
 	parentIds,
-	{ perPage = DEFAULT_PER_PAGE } = {}
+	{ perPage = BATCH_MAX_PER_PAGE } = {}
 ) {
 	if ( parentIds.length === 0 ) {
 		return;
@@ -145,32 +147,50 @@ export function* fetchChildrenBatch(
 		yield { type: ACTION_TYPES.FETCH_CHILDREN_START, parentId: id };
 	}
 	try {
-		const response = yield apiFetch( {
-			path: buildChildrenPath( parentIds, 1, perPage ),
-			method: 'GET',
-		} );
-		// API returns folders flat; group by parent_id client-side.
-		const grouped = {};
+		const accumulated = {};
 		for ( const id of parentIds ) {
-			grouped[ id ] = [];
+			accumulated[ id ] = [];
 		}
-		for ( const folder of response.folders ) {
-			const pid = folder.parent_id ?? ROOT_PARENT_ID;
-			if ( grouped[ pid ] ) {
-				grouped[ pid ].push( folder );
-			}
+		let rootFolder = null;
+
+		for (
+			let i = 0;
+			i < parentIds.length;
+			i += BATCH_PARENTS_PER_REQUEST
+		) {
+			const chunk = parentIds.slice( i, i + BATCH_PARENTS_PER_REQUEST );
+			let page = 1;
+			let totalPages = 1;
+			do {
+				const response = yield apiFetch( {
+					path: buildChildrenPath( chunk, page, perPage ),
+					method: 'GET',
+				} );
+				for ( const folder of response.folders ) {
+					const pid = folder.parent_id ?? ROOT_PARENT_ID;
+					if ( accumulated[ pid ] ) {
+						accumulated[ pid ].push( folder );
+					}
+				}
+				if ( response.root ) {
+					rootFolder = response.root;
+				}
+				totalPages = response.total_pages || 1;
+				page += 1;
+			} while ( page <= totalPages );
 		}
+
 		for ( const id of parentIds ) {
 			yield {
 				type: ACTION_TYPES.FETCH_CHILDREN_SUCCESS,
 				parentId: id,
-				folders: grouped[ id ],
+				folders: accumulated[ id ],
 				page: 1,
 				totalPages: 1,
 			};
 		}
-		if ( response.root ) {
-			yield { type: ACTION_TYPES.UPSERT_FOLDER, folder: response.root };
+		if ( rootFolder ) {
+			yield { type: ACTION_TYPES.UPSERT_FOLDER, folder: rootFolder };
 		}
 	} catch ( error ) {
 		for ( const id of parentIds ) {
@@ -443,6 +463,10 @@ export function* createFolder( {
 	yield* applyMutationEnvelope( response );
 	// Refresh the parent slot to reflect the new sibling order from the server.
 	yield* fetchChildren( parentId );
+	// Expand the parent so the newly created subfolder is immediately visible.
+	if ( parentId ) {
+		yield { type: ACTION_TYPES.EXPAND_FOLDER, folderId: parentId };
+	}
 }
 
 /**
@@ -504,8 +528,11 @@ export function* updateFolder( id, { name, parentId, color, position } = {} ) {
 			parentId: oldParentId,
 		};
 		yield* applyMutationEnvelope( response );
-		yield* fetchChildren( oldParentId );
-		yield* fetchChildren( newParentId );
+		yield* fetchChildrenBatch( [ oldParentId, newParentId ] );
+		// Expand the new parent so the moved folder is immediately visible.
+		yield { type: ACTION_TYPES.EXPAND_FOLDER, folderId: newParentId };
+		// Keep the moved folder selected so the user doesn't lose context.
+		yield setSelectedFolder( id );
 	} else {
 		yield* applyMutationEnvelope( response );
 	}
@@ -599,4 +626,28 @@ export function* bootFromUrl() {
 	const folderId = urlFolderId !== null ? parseInt( urlFolderId, 10 ) : 0;
 	yield setSelectedFolder( folderId );
 	yield* expandPathTo( folderId );
+
+	// Re-hydrate children for folders the user had previously expanded
+	// (persisted in localStorage). Without this, the chevron icon shows
+	// "expanded" but the children list stays empty until the user
+	// collapses + re-expands.
+	const persistedExpanded = yield {
+		type: 'SELECT',
+		selector: 'getExpandedIds',
+		args: [],
+	};
+	const stillNeedFetch = [];
+	for ( const id of persistedExpanded ?? [] ) {
+		const isLoaded = yield {
+			type: 'SELECT',
+			selector: 'isFolderLoaded',
+			args: [ id ],
+		};
+		if ( ! isLoaded ) {
+			stillNeedFetch.push( id );
+		}
+	}
+	if ( stillNeedFetch.length > 0 ) {
+		yield* fetchChildrenBatch( stillNeedFetch );
+	}
 }

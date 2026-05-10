@@ -1,5 +1,5 @@
 import { useState, useEffect } from '@wordpress/element';
-import { TextControl, Button, Spinner, Notice } from '@wordpress/components';
+import { TextControl, Spinner, Notice } from '@wordpress/components';
 import { useSelect, useDispatch } from '@wordpress/data';
 import { __ } from '@wordpress/i18n';
 import { STORE_NAME, ROOT_PARENT_ID } from '../store/constants';
@@ -73,7 +73,7 @@ const FolderTree = () => {
 		commitSearch( value );
 	};
 
-	const handleOpenModal = ( parentId = ROOT_PARENT_ID ) => {
+	const handleOpenModal = ( parentId ) => {
 		setModalParentId( parentId );
 		setIsModalOpen( true );
 	};
@@ -127,16 +127,6 @@ const FolderTree = () => {
 					) }
 				</>
 			) }
-
-			<div className="foldsnap-folder-tree__actions">
-				<Button
-					variant="secondary"
-					onClick={ () => handleOpenModal( 0 ) }
-					className="foldsnap-folder-tree__new-btn"
-				>
-					{ __( '+ New Folder', 'foldsnap' ) }
-				</Button>
-			</div>
 
 			{ isModalOpen && (
 				<CreateFolderModal

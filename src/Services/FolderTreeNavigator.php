@@ -96,22 +96,31 @@ class FolderTreeNavigator
             return [];
         }
 
-        /** @var FolderModel[] $reverse */
-        $reverse = [];
+        /** @var int[] $ancestors */
+        $ancestors = get_ancestors($folderId, TaxonomyService::TAXONOMY_NAME, 'taxonomy');
 
-        $currentId = $folderId;
-        $maxDepth  = self::MAX_DEPTH;
+        // Chain runs leaf-first ([target, parent, ..., topLevel]); cap to guard pathological data.
+        $chainIds = array_slice(
+            array_merge([$folderId], $ancestors),
+            0,
+            self::MAX_DEPTH
+        );
 
-        while ($currentId > 0 && $maxDepth-- > 0) {
-            $folder = $this->repository->getById($currentId);
-            if (null === $folder) {
-                return [];
-            }
-
-            $reverse[] = $folder;
-            $currentId = $folder->getParentId();
+        $models   = $this->repository->getByIds($chainIds);
+        $modelMap = [];
+        foreach ($models as $model) {
+            $modelMap[$model->getId()] = $model;
         }
 
-        return array_merge([$root], array_reverse($reverse));
+        // Any missing id signals a stale chain — surface as "not found" like the previous walker.
+        $ordered = [];
+        foreach (array_reverse($chainIds) as $id) {
+            if (! isset($modelMap[$id])) {
+                return [];
+            }
+            $ordered[] = $modelMap[$id];
+        }
+
+        return array_merge([$root], $ordered);
     }
 }

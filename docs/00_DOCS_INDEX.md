@@ -6,6 +6,7 @@ Technical documentation for FoldSnap — a WordPress plugin that adds folder man
 
 ### 01. Architecture
 - **[01_1_ARCH_overview.md](01_1_ARCH_overview.md)** — System architecture, layers, and request flows
+- **[01_2_ARCH_mvc_templates.md](01_2_ARCH_mvc_templates.md)** — Controller framework (`ControllersManager`, abstract base controllers, `PageAction`) and `TplMng` template engine
 
 ### 02. API
 - **[02_1_API_rest-endpoints.md](02_1_API_rest-endpoints.md)** — REST API endpoint reference (foldsnap/v1)

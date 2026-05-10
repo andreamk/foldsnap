@@ -139,19 +139,6 @@ describe( 'FolderTree', () => {
 		expect( screen.getByText( 'Network failure' ) ).toBeInTheDocument();
 	} );
 
-	it( 'opens and closes the create folder modal', async () => {
-		setupSelect( makeStoreState() );
-		render( <FolderTree /> );
-		await user.click( screen.getByText( '+ New Folder' ) );
-		expect(
-			screen.getByTestId( 'create-folder-modal' )
-		).toBeInTheDocument();
-		await user.click( screen.getByText( 'Close Modal' ) );
-		expect(
-			screen.queryByTestId( 'create-folder-modal' )
-		).not.toBeInTheDocument();
-	} );
-
 	it( 'debounces search input then dispatches setSearchQuery + searchFolders', async () => {
 		setupSelect( makeStoreState() );
 		render( <FolderTree /> );
@@ -182,6 +169,32 @@ describe( 'FolderTree', () => {
 		expect( screen.getByTestId( 'search-results' ) ).toBeInTheDocument();
 		expect(
 			screen.queryByTestId( 'folder-item-0' )
+		).not.toBeInTheDocument();
+	} );
+
+	it( 'opens CreateFolderModal with the parent id when Add Sub is triggered', async () => {
+		setupSelect( makeStoreState() );
+		render( <FolderTree /> );
+		expect(
+			screen.queryByTestId( 'create-folder-modal' )
+		).not.toBeInTheDocument();
+		await user.click( screen.getByText( 'Add Sub 0' ) );
+		expect(
+			screen.getByTestId( 'create-folder-modal' )
+		).toBeInTheDocument();
+		expect( screen.getByText( 'parent=0' ) ).toBeInTheDocument();
+	} );
+
+	it( 'closes CreateFolderModal when its onClose fires', async () => {
+		setupSelect( makeStoreState() );
+		render( <FolderTree /> );
+		await user.click( screen.getByText( 'Add Sub 0' ) );
+		expect(
+			screen.getByTestId( 'create-folder-modal' )
+		).toBeInTheDocument();
+		await user.click( screen.getByText( 'Close Modal' ) );
+		expect(
+			screen.queryByTestId( 'create-folder-modal' )
 		).not.toBeInTheDocument();
 	} );
 } );

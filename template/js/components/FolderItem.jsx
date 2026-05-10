@@ -5,7 +5,9 @@ import {
 	Modal,
 	Spinner,
 	Icon,
+	TextControl,
 } from '@wordpress/components';
+import { chevronDown, chevronRight, dragHandle, home } from '@wordpress/icons';
 import { useDispatch, useSelect } from '@wordpress/data';
 import { useSortable } from '@dnd-kit/sortable';
 import { useDroppable } from '@dnd-kit/core';
@@ -40,6 +42,8 @@ const FolderItem = ( {
 	onAddSubfolder,
 } ) => {
 	const [ showDeleteConfirm, setShowDeleteConfirm ] = useState( false );
+	const [ showRenameModal, setShowRenameModal ] = useState( false );
+	const [ renameValue, setRenameValue ] = useState( '' );
 
 	const { folder, isExpanded, isFetching, children } = useSelect(
 		( select ) => {
@@ -54,25 +58,29 @@ const FolderItem = ( {
 		[ folderId ]
 	);
 
-	const { deleteFolder, expandFolder, collapseFolder } =
+	const { deleteFolder, expandFolder, collapseFolder, updateFolder } =
 		useDispatch( STORE_NAME );
+
+	// Droppable target for folder reparenting. Registered BEFORE useSortable
+	// so that when both rects coincide (folder with no children), pointerWithin
+	// picks this droppable (id "folder-drop-X") instead of the sortable's
+	// numeric id, routing the drop into the reparent branch.
+	const { isOver, setNodeRef: setDroppableRef } = useDroppable( {
+		id: `folder-drop-${ folderId }`,
+		data: { type: 'folder', folderId },
+	} );
 
 	// Sortable drag for reordering folders among siblings.
 	const {
 		attributes,
 		listeners,
 		setNodeRef: setSortableRef,
+		setActivatorNodeRef,
 		transform,
 		transition,
 		isDragging,
 	} = useSortable( {
 		id: folderId,
-		data: { type: 'folder', folderId },
-	} );
-
-	// Droppable target for folder reparenting.
-	const { isOver, setNodeRef: setDroppableRef } = useDroppable( {
-		id: `folder-drop-${ folderId }`,
 		data: { type: 'folder', folderId },
 	} );
 
@@ -108,11 +116,18 @@ const FolderItem = ( {
 			title: __( 'Add subfolder', 'foldsnap' ),
 			onClick: () => onAddSubfolder( folder.id ),
 		},
-		// Root cannot be deleted; omit the entry entirely so the menu hides
-		// the option instead of showing it greyed out.
+		// Root cannot be renamed or deleted; omit those entries entirely so
+		// the menu hides them instead of showing them greyed out.
 		...( isRoot
 			? []
 			: [
+					{
+						title: __( 'Rename', 'foldsnap' ),
+						onClick: () => {
+							setRenameValue( folder.name );
+							setShowRenameModal( true );
+						},
+					},
 					{
 						title: __( 'Delete', 'foldsnap' ),
 						onClick: () => setShowDeleteConfirm( true ),
@@ -120,10 +135,21 @@ const FolderItem = ( {
 			  ] ),
 	];
 
+	const trimmedRename = renameValue.trim();
+	const isRenameInvalid = ! trimmedRename || trimmedRename === folder.name;
+
+	const handleRenameSubmit = async () => {
+		if ( isRenameInvalid ) {
+			return;
+		}
+		setShowRenameModal( false );
+		await updateFolder( folder.id, { name: trimmedRename } );
+	};
+
 	const indentStyle = { paddingLeft: depth * 16 + 'px' };
 
 	return (
-		<div ref={ setSortableRef } style={ sortableStyle } { ...attributes }>
+		<div ref={ setSortableRef } style={ sortableStyle }>
 			<div
 				ref={ setDroppableRef }
 				className={ [
@@ -141,17 +167,17 @@ const FolderItem = ( {
 				onKeyDown={ ( e ) => e.key === 'Enter' && handleSelect() }
 			>
 				{ ! isRoot && (
-					<span
+					<button
+						type="button"
+						ref={ setActivatorNodeRef }
 						className="foldsnap-folder-item__drag-handle"
 						{ ...listeners }
-						role="button"
-						tabIndex={ 0 }
+						{ ...attributes }
 						aria-label={ __( 'Drag to reorder', 'foldsnap' ) }
 						onClick={ ( e ) => e.stopPropagation() }
-						onKeyDown={ ( e ) => e.stopPropagation() }
 					>
-						⠿
-					</span>
+						<Icon icon={ dragHandle } size={ 18 } />
+					</button>
 				) }
 
 				{ hasChildren ? (
@@ -165,7 +191,10 @@ const FolderItem = ( {
 								: __( 'Expand', 'foldsnap' )
 						}
 					>
-						{ isExpanded ? '▾' : '▸' }
+						<Icon
+							icon={ isExpanded ? chevronDown : chevronRight }
+							size={ 20 }
+						/>
 					</button>
 				) : (
 					<span className="foldsnap-folder-item__chevron foldsnap-folder-item__chevron--empty" />
@@ -180,7 +209,7 @@ const FolderItem = ( {
 							'foldsnap'
 						) }
 					>
-						<Icon icon="admin-home" size={ 16 } />
+						<Icon icon={ home } size={ 16 } />
 					</span>
 				) }
 
@@ -237,6 +266,42 @@ const FolderItem = ( {
 						/>
 					) ) }
 				</div>
+			) }
+
+			{ showRenameModal && (
+				<Modal
+					title={ __( 'Rename folder', 'foldsnap' ) }
+					onRequestClose={ () => setShowRenameModal( false ) }
+					size="small"
+				>
+					<TextControl
+						__nextHasNoMarginBottom
+						__next40pxDefaultSize
+						label={ __( 'Folder name', 'foldsnap' ) }
+						value={ renameValue }
+						onChange={ setRenameValue }
+						onKeyDown={ ( e ) => {
+							if ( e.key === 'Enter' && ! isRenameInvalid ) {
+								handleRenameSubmit();
+							}
+						} }
+					/>
+					<div className="foldsnap-confirm-actions">
+						<Button
+							variant="tertiary"
+							onClick={ () => setShowRenameModal( false ) }
+						>
+							{ __( 'Cancel', 'foldsnap' ) }
+						</Button>
+						<Button
+							variant="primary"
+							onClick={ handleRenameSubmit }
+							disabled={ isRenameInvalid }
+						>
+							{ __( 'Rename', 'foldsnap' ) }
+						</Button>
+					</div>
+				</Modal>
 			) }
 
 			{ showDeleteConfirm && (

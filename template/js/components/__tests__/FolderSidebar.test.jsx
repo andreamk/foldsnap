@@ -98,20 +98,13 @@ describe( 'FolderSidebar', () => {
 		).toBeInTheDocument();
 	} );
 
-	it( 'no-ops on drag end when All Media is active', () => {
+	it( 'renders the tree as inert when All Media is active', () => {
 		setupSelect( { allMediaActive: true } );
-		render( <FolderSidebar /> );
-		mockOnDragEnd( {
-			active: {
-				id: 10,
-				data: { current: { type: 'folder', folderId: 10 } },
-			},
-			over: {
-				id: 'folder-drop-20',
-				data: { current: { type: 'folder', folderId: 20 } },
-			},
-		} );
-		expect( mockUpdateFolder ).not.toHaveBeenCalled();
+		const { container } = render( <FolderSidebar /> );
+		const tree = container.querySelector( '.foldsnap-sidebar__tree' );
+		// `inert=""` is the HTML attribute form for inert ON.
+		expect( tree ).toHaveAttribute( 'inert', '' );
+		expect( tree ).toHaveAttribute( 'aria-hidden', 'true' );
 	} );
 
 	it( 'no-ops when over is null', () => {
