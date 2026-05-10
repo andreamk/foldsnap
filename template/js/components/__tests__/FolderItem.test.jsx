@@ -435,7 +435,7 @@ describe( 'FolderItem', () => {
 			expect( mockUpdateFolder ).not.toHaveBeenCalled();
 		} );
 
-		it( 'does not call updateFolder when the value is unchanged', async () => {
+		it( 'does not call updateFolder or close the modal when the value is unchanged', async () => {
 			setupSelect( {
 				folder: makeFolder( { id: 1, name: 'Photos' } ),
 			} );
@@ -447,9 +447,11 @@ describe( 'FolderItem', () => {
 			const input = screen.getByLabelText( 'Folder name' );
 			await user.type( input, '{Enter}' );
 			expect( mockUpdateFolder ).not.toHaveBeenCalled();
+			// Modal must stay open so the user can correct the value;
+			// previously Enter on an invalid name silently dismissed it.
 			expect(
-				screen.queryByLabelText( 'Folder name' )
-			).not.toBeInTheDocument();
+				screen.getByLabelText( 'Folder name' )
+			).toBeInTheDocument();
 		} );
 
 		it( 'submits when Enter is pressed in the input', async () => {
@@ -493,7 +495,7 @@ describe( 'FolderItem', () => {
 				/>
 			);
 			expect(
-				screen.getByTestId( 'icon-admin-home' )
+				screen.getByLabelText( 'Root folder' )
 			).toBeInTheDocument();
 		} );
 

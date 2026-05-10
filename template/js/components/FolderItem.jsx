@@ -7,7 +7,7 @@ import {
 	Icon,
 	TextControl,
 } from '@wordpress/components';
-import { chevronDown, chevronRight, dragHandle } from '@wordpress/icons';
+import { chevronDown, chevronRight, dragHandle, home } from '@wordpress/icons';
 import { useDispatch, useSelect } from '@wordpress/data';
 import { useSortable } from '@dnd-kit/sortable';
 import { useDroppable } from '@dnd-kit/core';
@@ -139,10 +139,11 @@ const FolderItem = ( {
 	const isRenameInvalid = ! trimmedRename || trimmedRename === folder.name;
 
 	const handleRenameSubmit = async () => {
-		setShowRenameModal( false );
-		if ( ! isRenameInvalid ) {
-			await updateFolder( folder.id, { name: trimmedRename } );
+		if ( isRenameInvalid ) {
+			return;
 		}
+		setShowRenameModal( false );
+		await updateFolder( folder.id, { name: trimmedRename } );
 	};
 
 	const indentStyle = { paddingLeft: depth * 16 + 'px' };
@@ -208,7 +209,7 @@ const FolderItem = ( {
 							'foldsnap'
 						) }
 					>
-						<Icon icon="admin-home" size={ 16 } />
+						<Icon icon={ home } size={ 16 } />
 					</span>
 				) }
 
@@ -280,7 +281,7 @@ const FolderItem = ( {
 						value={ renameValue }
 						onChange={ setRenameValue }
 						onKeyDown={ ( e ) => {
-							if ( e.key === 'Enter' ) {
+							if ( e.key === 'Enter' && ! isRenameInvalid ) {
 								handleRenameSubmit();
 							}
 						} }

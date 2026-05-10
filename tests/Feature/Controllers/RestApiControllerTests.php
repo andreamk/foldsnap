@@ -819,6 +819,10 @@ class RestApiControllerTests extends WP_UnitTestCase
         // guarantees: the stale [42, 99] entries are gone.
         $stack = get_option(CountersRecalculator::OPT_STACK, null);
         $this->assertSame([], (array) $stack);
+
+        // Stale ids must be discarded, not processed; an empty tree means
+        // zero work — anything > 0 would mean the stale [42, 99] leaked through.
+        $this->assertSame(0, $data['processed']);
     }
 
     /**

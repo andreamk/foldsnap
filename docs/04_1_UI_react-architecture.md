@@ -53,7 +53,7 @@ Async actions use generators with a custom `API_FETCH` control that delegates to
 
 - `fetchChildren(parentId, { page, perPage })` — first or refreshed page for one parent. De-duped against `fetchingParents`.
 - `loadMoreChildren(parentId, { perPage })` — next page using the stored cursor; no-op past the last page.
-- `fetchChildrenBatch(parentIds, { perPage })` — first page for many parents in one round-trip; used by `expandPathTo`.
+- `fetchChildrenBatch(parentIds, { perPage })` — fetches first-and-subsequent pages for many parents, chunked at `BATCH_PARENTS_PER_REQUEST` (10) parents per request and paginated up to `BATCH_MAX_PER_PAGE` (200) per page; used by `expandPathTo`.
 - `expandFolder(folderId)` — marks expanded and triggers `fetchChildren` if not already loaded.
 - `expandPathTo(folderId)` — GETs `/folders/{id}/path`, dispatches `APPLY_PATH_TOTALS`, then `fetchChildrenBatch` for every ancestor so the tree is inflated with one fetch per level.
 - `searchFolders(query, { perPage })` / `loadMoreSearchResults` / `clearSearch`.
@@ -64,7 +64,7 @@ Mutation actions hit the REST endpoint, then run `applyMutationEnvelope(response
 - `APPLY_PATH_TOTALS` — for each chain in `paths`, merge `total_*` updates into `foldersById` and the parent slots.
 - `APPLY_AFFECTED_PARENTS` — flip `has_children` on the parents in the list.
 
-`createFolder` and `updateFolder` also refresh the affected parent slot(s) via `fetchChildren` to pick up server-side ordering. `updateFolder` detects reparenting from the envelope and refreshes both the old and new parent slots.
+`createFolder` and `updateFolder` also refresh the affected parent slot(s) to pick up server-side ordering. `updateFolder` detects reparenting from the envelope and refreshes both the old and new parent slots in a single `fetchChildrenBatch([oldParentId, newParentId])` call; non-reparent edits refresh just the owning parent via `fetchChildren`.
 
 After the refresh, both actions also adjust the visible tree state:
 

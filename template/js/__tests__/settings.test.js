@@ -86,6 +86,26 @@ describe( 'runRecount', () => {
 		expect( status.textContent ).toContain( 'boom' );
 	} );
 
+	it( 'falls back to String(err) when the rejection is a plain string', async () => {
+		apiFetch.mockRejectedValueOnce( 'network down' );
+
+		const { btn, status } = makeBtnAndStatus();
+		await runRecount( btn, status );
+
+		expect( btn.disabled ).toBe( false );
+		expect( status.textContent ).toContain( 'network down' );
+	} );
+
+	it( 'falls back to String(err) when the rejection is null', async () => {
+		apiFetch.mockRejectedValueOnce( null );
+
+		const { btn, status } = makeBtnAndStatus();
+		await runRecount( btn, status );
+
+		expect( btn.disabled ).toBe( false );
+		expect( status.textContent ).toContain( 'null' );
+	} );
+
 	it( 'treats missing processed/remaining fields as zero', async () => {
 		apiFetch.mockResolvedValueOnce( { done: true } );
 

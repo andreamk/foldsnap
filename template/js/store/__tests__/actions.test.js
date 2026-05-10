@@ -772,6 +772,42 @@ describe( 'bootFromUrl', () => {
 		} );
 	} );
 
+	it( 'fetches only the unloaded subset when persisted-expanded folders are mixed', () => {
+		setLocationSearch( '?foldsnap_folder_id=42' );
+		const yields = drive( bootFromUrl(), [
+			// expandPathTo: GET /folders/42/path
+			{
+				path: [
+					{ id: 0, parent_id: 0, is_root: true },
+					{ id: 42, parent_id: 0 },
+				],
+			},
+			[], // expandPathTo getExpandedIds
+			{
+				folders: [],
+				root_media_count: 0,
+				root_total_size: 0,
+			},
+			// re-hydrate: persisted [11, 12]; 11 loaded, 12 not
+			[ 11, 12 ],
+			true, // isFolderLoaded(11)
+			false, // isFolderLoaded(12)
+			// fetchChildrenBatch: API_FETCH for [12] only
+			{
+				folders: [],
+				root_media_count: 0,
+				root_total_size: 0,
+			},
+		] );
+		const rehydrateStarts = yields.filter(
+			( y ) =>
+				y.type === ACTION_TYPES.FETCH_CHILDREN_START &&
+				( y.parentId === 11 || y.parentId === 12 )
+		);
+		expect( rehydrateStarts ).toHaveLength( 1 );
+		expect( rehydrateStarts[ 0 ].parentId ).toBe( 12 );
+	} );
+
 	it( 'is a no-op for re-hydration when no folders are persisted-expanded', () => {
 		setLocationSearch( '' );
 		const yields = drive( bootFromUrl(), [
