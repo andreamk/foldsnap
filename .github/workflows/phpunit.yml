@@ -82,7 +82,7 @@ jobs:
             - name: Install WordPress test environment
               run: |
                   cp ./tools/phpunit-install-config-github.json ./tools/phpunit-install-config.json;
-                  composer phpunit-install;
+                  composer phpunit-install -- --keep-cache;
 
             - name: Run PHPUnit tests
               run: composer phpunit

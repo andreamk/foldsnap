@@ -37,7 +37,7 @@ The store does not hold a fully expanded tree. Children are loaded lazily, one p
 | `loadedParents`      | `number[]`                             | Parents whose first page has been fetched          |
 | `fetchingParents`    | `number[]`                             | Parents currently in flight (for de-duping)        |
 | `parentsPagination`  | `{ [parentId]: { page, totalPages } }` | Per-parent pagination cursor for "load more"       |
-| `expandedIds`        | `number[]`                             | Persisted across reloads via `localStorage`        |
+| `expandedIds`        | `number[]`                             | Persisted via the preferences subsystem (server-synced, `localStorage`-cached) — see [UI Preferences](04_2_UI_preferences.md) |
 | `selectedFolderId`   | `number\|null`                         |                                                    |
 | `allMediaActive`     | `boolean`                              | Bypass mode: sidebar inert, grid unfiltered        |
 | `searchQuery`        | `string`                               |                                                    |
@@ -83,16 +83,19 @@ Direct slice access (`getFolderById`, `getChildrenOf`, `getExpandedIds`, `isFold
 
 ### Resolvers
 
-`getChildrenOf(0)` is wired to a resolver that triggers `fetchChildren(0)` on first read, so the root's children load automatically without a manual call.
+`getRootFolders` is a `@wordpress/data` resolver: on first read it triggers `fetchChildren(ROOT_PARENT_ID)`, then re-fetches children for every persisted-expanded id so previously open branches refill themselves. Resolvers are matched to selectors by **function name** in `@wordpress/data`, so the resolver's identifier must equal the selector's identifier (`getRootFolders`). The expanded-branch refill happens in two places: this resolver on direct load, and `bootFromUrl` on deep-link boot.
 
 ### Persistence
 
-Two independent slices survive page reloads via `localStorage` (see [`template/js/store/persistence.js`](../template/js/store/persistence.js)):
+`expandedIds` and `allMediaActive` are persisted through the **preferences subsystem** ([`template/js/preferences.js`](../template/js/preferences.js)), which keeps a server-side source of truth in user_meta and a `localStorage` cache for instant boot. Full design and REST contract: [UI Preferences](04_2_UI_preferences.md).
 
-- `expandedIds` — written under `foldsnap_expanded_ids` whenever the set changes.
-- `allMediaActive` — written under a separate key (only when `true`; cleared when toggled off).
+The store ([`template/js/store/index.js`](../template/js/store/index.js)) wires the bridge in three steps:
 
-On store init, both keys are read and dispatched as a single `HYDRATE` action that merges them into the initial state. `localStorage` failures (unavailable, quota exceeded) degrade silently — the store stays usable, just non-persistent for that session.
+1. **Sync hydrate** at module load: `readCachedPreferences()` reads the cache and a single `HYDRATE` action seeds `expandedIds` + `allMediaActive` so the very first render reflects the user's last state.
+2. **Async reconcile**: `loadPreferences()` fetches the server map; if it differs from the cache, a second `HYDRATE` is dispatched. The subscriber's "last seen" baseline is updated *before* this dispatch so the server-supplied values are not echoed back as a redundant PUT.
+3. **Subscriber**: every store change is compared against the baseline and routed through `savePreference()` (write-through cache + per-key debounced PUT).
+
+`localStorage` and REST failures degrade silently — the store stays usable; the cache absorbs the new value and either the next boot or the next online PUT reconciles.
 
 `bootFromUrl` (called once from `index.js`) finishes the hydration: after selecting the URL folder and expanding its ancestor path, it walks every persisted-expanded id and fires `fetchChildrenBatch` for those whose children are not yet loaded. Without this, the chevron icon would render in its expanded state but the children list would stay empty until the user collapsed and re-expanded the row.
 

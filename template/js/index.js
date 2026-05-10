@@ -3,7 +3,8 @@ import { dispatch } from '@wordpress/data';
 import FolderSidebar from './components/FolderSidebar';
 import initMediaModeBridge from './services/media-mode-bridge';
 import { STORE_NAME } from './store/constants';
-import './store'; // Ensure store is registered
+import './preferences';
+import './store';
 
 /**
  * Create the sidebar container, insert it before #wpbody-content inside

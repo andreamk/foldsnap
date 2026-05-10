@@ -45,6 +45,12 @@ function rrmdir(string $path): bool
 
 echo "\n";
 
+// --keep-cache: skip cleanup of /tmp/wordpress and /tmp/wordpress-tests-lib
+// so a restored CI cache survives the install step. Without this flag the
+// script always wipes those dirs and re-downloads via SVN, which fails on
+// runners that did not install subversion (e.g. on a cache hit).
+$keepCache = in_array('--keep-cache', array_slice($argv, 1), true);
+
 $configFile = __DIR__ . '/phpunit-install-config.json';
 if (!file_exists($configFile)) {
     echo "Install config file {$configFile} does not exist.\n\n";
@@ -101,12 +107,16 @@ $removeItems = [
     $config['testPath'] . '/wordpress-tests-lib',
 ];
 
-foreach ($removeItems as $item) {
-    if (!file_exists($item)) {
-        continue;
+if ($keepCache) {
+    echo "--keep-cache passed, skipping cleanup of WordPress core and test suite\n";
+} else {
+    foreach ($removeItems as $item) {
+        if (!file_exists($item)) {
+            continue;
+        }
+        echo "REMOVE {$item}\n";
+        rrmdir($item);
     }
-    echo "REMOVE {$item}\n";
-    rrmdir($item);
 }
 
 echo "Install test suite on path {$config['testPath']}\n";

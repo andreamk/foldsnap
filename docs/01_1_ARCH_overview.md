@@ -64,6 +64,8 @@ manual recovery.
 - `CountersRecalculator` rebuilds drifted counters via a bottom-up chunked walk. Used on first boot (WP-Cron) and as a manual recovery tool (REST `POST /folders/recalculate`).
 - `Database` holds the raw `$wpdb` queries that have no high-level WordPress equivalent (children counts, descendant BFS, bulk meta UPDATE, file-size lookups, etc.).
 - `AttachmentLifecycleService` hooks the WordPress upload and delete lifecycle, queuing counter updates to flush at `shutdown` so bulk uploads collapse to a single round-trip.
+- `UserPreferencesRestController` registers the `foldsnap/v1/preferences` GET/PUT routes (sidebar expansion, "All Media" toggle); both gated by `upload_files`.
+- `UserPreferencesService` stores per-user UI preferences as a single typed `user_meta` map with a closed schema and per-type coercion. See [UI Preferences](04_2_UI_preferences.md).
 
 **Storage.** See [Folder system](03_1_MEDIA_folder-system.md) for the term-meta schema, the virtual Root convention (`id = 0`, `parent_id = -1`), and the incremental counter contract.
 

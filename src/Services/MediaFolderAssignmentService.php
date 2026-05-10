@@ -310,9 +310,10 @@ class MediaFolderAssignmentService
      * (object, term) pair via `'all_with_object_id'`, so we get the full map
      * without an N+1 loop.
      *
-     * Each media gets at most one folder; if multiple terms come back for the
-     * same media (legacy data) the first one wins, matching the previous
-     * single-fetch behaviour.
+     * Each media gets at most one folder; if multiple terms come back for
+     * the same media (defensive guard against external code or direct SQL
+     * that violated the single-folder-per-media invariant) the first one
+     * wins, matching the previous single-fetch behaviour.
      *
      * @param int[] $mediaIds Attachment IDs (already validated as positive).
      *
@@ -351,7 +352,8 @@ class MediaFolderAssignmentService
             if ($mediaId <= 0 || ! isset($byMedia[$mediaId])) {
                 continue;
             }
-            // First term wins; ignore any duplicates from legacy data.
+            // First term wins; defensive against duplicates from external
+            // code that violated the single-folder-per-media invariant.
             if (0 === $byMedia[$mediaId]) {
                 $byMedia[$mediaId] = (int) $term->term_id;
             }

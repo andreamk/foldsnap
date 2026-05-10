@@ -1,20 +1,25 @@
 import { fetchChildren, expandPathTo } from './actions';
 import { ROOT_PARENT_ID } from './constants';
-import { loadExpandedIds } from './persistence';
 
 /**
  * Auto-fetch the root folder list the first time `getRootFolders` is read.
  *
- * After hydrating root, walks the persisted expansion set so previously
- * open branches refill themselves without a user action.
+ * After hydrating root, walks the already-hydrated expansion set so
+ * previously open branches refill themselves without a user action.
  *
  * @return {Iterable} Action generator.
  */
 export function* getRootFolders() {
 	yield* fetchChildren( ROOT_PARENT_ID );
-	const persisted = loadExpandedIds();
-	for ( const id of persisted ) {
-		yield* fetchChildren( id );
+	const persisted = yield {
+		type: 'SELECT',
+		selector: 'getExpandedIds',
+		args: [],
+	};
+	if ( Array.isArray( persisted ) ) {
+		for ( const id of persisted ) {
+			yield* fetchChildren( id );
+		}
 	}
 }
 
