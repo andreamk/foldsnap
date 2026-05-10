@@ -9,10 +9,8 @@ const reloadModule = () => {
 	jest.resetModules();
 	// Re-require AFTER resetModules so both the production module and the
 	// test see the same fresh mock instance.
-	// eslint-disable-next-line global-require
 	apiFetch = require( '@wordpress/api-fetch' );
 	apiFetch.mockReset();
-	// eslint-disable-next-line global-require
 	preferences = require( '../preferences' );
 };
 
@@ -215,7 +213,7 @@ describe( 'savePreference', () => {
 		expect( apiFetch ).not.toHaveBeenCalled();
 	} );
 
-	it( 'swallows server-side rejections silently', async () => {
+	it( 'swallows server-side rejections silently and keeps the cached value', async () => {
 		apiFetch.mockRejectedValueOnce( new Error( 'server down' ) );
 
 		preferences.savePreference( 'allMedia', true );
@@ -224,6 +222,9 @@ describe( 'savePreference', () => {
 		await expect(
 			preferences.flushPendingSaves()
 		).resolves.toBeUndefined();
+
+		const cached = JSON.parse( window.localStorage.getItem( CACHE_KEY ) );
+		expect( cached.allMedia ).toBe( true );
 	} );
 } );
 

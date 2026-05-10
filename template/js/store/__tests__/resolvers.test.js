@@ -83,8 +83,15 @@ describe( 'getFolderById', () => {
 			{ id: 42, parent_id: 0 },
 		] );
 
-		const apiFetches = yields.filter( ( y ) => y?.type === 'API_FETCH' );
-		expect( apiFetches ).toHaveLength( 0 );
+		// Strict: exactly one yield, and it is the existence-probe SELECT.
+		// Catches regressions that add a stray side-effect yield after the
+		// early-return check.
+		expect( yields ).toHaveLength( 1 );
+		expect( yields[ 0 ] ).toEqual( {
+			type: 'SELECT',
+			selector: 'getFolderById',
+			args: [ 42 ],
+		} );
 	} );
 
 	it( 'fetches root children when id 0 is missing', () => {

@@ -83,7 +83,7 @@ Direct slice access (`getFolderById`, `getChildrenOf`, `getExpandedIds`, `isFold
 
 ### Resolvers
 
-`getChildrenOf(0)` is wired to a resolver that triggers `fetchChildren(0)` on first read, so the root's children load automatically without a manual call.
+`getRootFolders` is a `@wordpress/data` resolver: on first read it triggers `fetchChildren(ROOT_PARENT_ID)`, then re-fetches children for every persisted-expanded id so previously open branches refill themselves. Resolvers are matched to selectors by **function name** in `@wordpress/data`, so the resolver's identifier must equal the selector's identifier (`getRootFolders`). The expanded-branch refill happens in two places: this resolver on direct load, and `bootFromUrl` on deep-link boot.
 
 ### Persistence
 

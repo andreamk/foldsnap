@@ -246,6 +246,8 @@ Returns the full preferences map for the current user. Missing keys are filled w
 
 Writes one preference. The key segment must match a declared schema key (currently `expandedFolders` or `allMedia`); the value is validated against the key's declared type.
 
+The route is registered with `WP_REST_Server::EDITABLE`, which is WordPress' standard "writable" alias and matches `POST`, `PUT`, and `PATCH`. `PUT` is the canonical verb for this endpoint; the other two are accepted as a side effect of the alias.
+
 Body:
 
 ```json
