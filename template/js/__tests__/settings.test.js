@@ -26,8 +26,16 @@ describe( 'runRecount', () => {
 
 	it( 'sends reset:true on the first call and reset:false on subsequent calls', async () => {
 		apiFetch
-			.mockResolvedValueOnce( { processed: 10, remaining: 5, done: false } )
-			.mockResolvedValueOnce( { processed: 5, remaining: 0, done: true } );
+			.mockResolvedValueOnce( {
+				processed: 10,
+				remaining: 5,
+				done: false,
+			} )
+			.mockResolvedValueOnce( {
+				processed: 5,
+				remaining: 0,
+				done: true,
+			} );
 
 		const { btn, status } = makeBtnAndStatus();
 		await runRecount( btn, status );
@@ -45,9 +53,21 @@ describe( 'runRecount', () => {
 
 	it( 'accumulates processed counts across chunks and reports total on completion', async () => {
 		apiFetch
-			.mockResolvedValueOnce( { processed: 7, remaining: 4, done: false } )
-			.mockResolvedValueOnce( { processed: 3, remaining: 1, done: false } )
-			.mockResolvedValueOnce( { processed: 1, remaining: 0, done: true } );
+			.mockResolvedValueOnce( {
+				processed: 7,
+				remaining: 4,
+				done: false,
+			} )
+			.mockResolvedValueOnce( {
+				processed: 3,
+				remaining: 1,
+				done: false,
+			} )
+			.mockResolvedValueOnce( {
+				processed: 1,
+				remaining: 0,
+				done: true,
+			} );
 
 		const { btn, status } = makeBtnAndStatus();
 		await runRecount( btn, status );

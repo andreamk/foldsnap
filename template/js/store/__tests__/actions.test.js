@@ -166,14 +166,24 @@ describe( 'fetchChildrenBatch', () => {
 		const apiCalls = yields.filter( ( y ) => y.type === 'API_FETCH' );
 		expect( apiCalls ).toHaveLength( 3 );
 		expect( apiCalls[ 0 ].request.path ).toContain( 'parent_ids%5B%5D=1&' );
-		expect( apiCalls[ 0 ].request.path ).toContain( 'parent_ids%5B%5D=10&' );
+		expect( apiCalls[ 0 ].request.path ).toContain(
+			'parent_ids%5B%5D=10&'
+		);
 		expect( apiCalls[ 0 ].request.path ).not.toContain(
 			'parent_ids%5B%5D=11&'
 		);
-		expect( apiCalls[ 1 ].request.path ).toContain( 'parent_ids%5B%5D=11&' );
-		expect( apiCalls[ 1 ].request.path ).toContain( 'parent_ids%5B%5D=20&' );
-		expect( apiCalls[ 2 ].request.path ).toContain( 'parent_ids%5B%5D=21&' );
-		expect( apiCalls[ 2 ].request.path ).toContain( 'parent_ids%5B%5D=23&' );
+		expect( apiCalls[ 1 ].request.path ).toContain(
+			'parent_ids%5B%5D=11&'
+		);
+		expect( apiCalls[ 1 ].request.path ).toContain(
+			'parent_ids%5B%5D=20&'
+		);
+		expect( apiCalls[ 2 ].request.path ).toContain(
+			'parent_ids%5B%5D=21&'
+		);
+		expect( apiCalls[ 2 ].request.path ).toContain(
+			'parent_ids%5B%5D=23&'
+		);
 
 		const successYields = yields.filter(
 			( y ) => y.type === ACTION_TYPES.FETCH_CHILDREN_SUCCESS

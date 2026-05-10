@@ -179,7 +179,9 @@ describe( 'FolderTree', () => {
 			screen.queryByTestId( 'create-folder-modal' )
 		).not.toBeInTheDocument();
 		await user.click( screen.getByText( 'Add Sub 0' ) );
-		expect( screen.getByTestId( 'create-folder-modal' ) ).toBeInTheDocument();
+		expect(
+			screen.getByTestId( 'create-folder-modal' )
+		).toBeInTheDocument();
 		expect( screen.getByText( 'parent=0' ) ).toBeInTheDocument();
 	} );
 
@@ -187,7 +189,9 @@ describe( 'FolderTree', () => {
 		setupSelect( makeStoreState() );
 		render( <FolderTree /> );
 		await user.click( screen.getByText( 'Add Sub 0' ) );
-		expect( screen.getByTestId( 'create-folder-modal' ) ).toBeInTheDocument();
+		expect(
+			screen.getByTestId( 'create-folder-modal' )
+		).toBeInTheDocument();
 		await user.click( screen.getByText( 'Close Modal' ) );
 		expect(
 			screen.queryByTestId( 'create-folder-modal' )
