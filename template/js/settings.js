@@ -13,7 +13,7 @@ const setStatus = ( el, message ) => {
 	}
 };
 
-const runRecount = async ( btn, status ) => {
+export const runRecount = async ( btn, status ) => {
 	btn.disabled = true;
 	setStatus( status, __( 'Resetting and rebuilding stack…', 'foldsnap' ) );
 

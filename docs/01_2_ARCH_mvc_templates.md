@@ -73,7 +73,7 @@ The full request cycle for an admin page is driven by `AbstractSinglePageControl
 
 ### Concrete controller: `MainPageController`
 
-`src/Controllers/MainPageController.php` registers a single submenu under `upload.php` (Media → FoldSnap), titled "FoldSnap", requiring `manage_options`. It hooks `foldsnap_render_page_content_foldsnap` to render `page/settings`, and overrides `pageScripts()` to enqueue the settings bundle (`assets/js/foldsnap-settings.js`).
+`src/Controllers/MainPageController.php` registers a single submenu under `upload.php` (Media → FoldSnap), titled "FoldSnap", requiring `manage_options`. It hooks `foldsnap_render_page_content_foldsnap` to render `page/settings`, and overrides `pageScripts()` to enqueue the settings bundle (`assets/js/foldsnap-settings.js`) and `pageStyles()` to enqueue the matching stylesheet (`assets/css/foldsnap-settings.css`).
 
 This is currently the **only** menu controller. The framework supports more — additional controllers register themselves through the `foldsnap_menu_pages` filter — but FoldSnap's UI lives inside the WordPress media library and reaches the React app from there, not through a dedicated plugin page.
 

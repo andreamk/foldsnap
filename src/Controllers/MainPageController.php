@@ -21,7 +21,7 @@ use FoldSnap\Core\Views\TplMng;
 
 final class MainPageController extends AbstractMenuPageController
 {
-    private const SCRIPT_HANDLE = 'foldsnap-settings';
+    private const ASSET_HANDLE = 'foldsnap-settings';
 
     /**
      * Class constructor
@@ -70,14 +70,14 @@ final class MainPageController extends AbstractMenuPageController
         $asset = require $assetFile;
 
         wp_enqueue_script(
-            self::SCRIPT_HANDLE,
+            self::ASSET_HANDLE,
             FOLDSNAP_PLUGIN_URL . '/assets/js/foldsnap-settings.js',
             $asset['dependencies'],
             $asset['version'],
             true
         );
 
-        wp_set_script_translations(self::SCRIPT_HANDLE, 'foldsnap', FOLDSNAP_PATH . '/languages');
+        wp_set_script_translations(self::ASSET_HANDLE, 'foldsnap', FOLDSNAP_PATH . '/languages');
     }
 
     /**
@@ -88,7 +88,7 @@ final class MainPageController extends AbstractMenuPageController
     public function pageStyles(): void
     {
         wp_enqueue_style(
-            self::SCRIPT_HANDLE,
+            self::ASSET_HANDLE,
             FOLDSNAP_PLUGIN_URL . '/assets/css/foldsnap-settings.css',
             [],
             FOLDSNAP_VERSION

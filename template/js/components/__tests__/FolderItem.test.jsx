@@ -401,6 +401,9 @@ describe( 'FolderItem', () => {
 			expect( mockUpdateFolder ).toHaveBeenCalledWith( 1, {
 				name: 'Travel',
 			} );
+			expect(
+				screen.queryByLabelText( 'Folder name' )
+			).not.toBeInTheDocument();
 		} );
 
 		it( 'cancel closes modal without dispatching', async () => {
@@ -441,6 +444,9 @@ describe( 'FolderItem', () => {
 			const buttons = screen.getAllByText( 'Rename' );
 			const submit = buttons[ buttons.length - 1 ];
 			expect( submit ).toBeDisabled();
+			const input = screen.getByLabelText( 'Folder name' );
+			await user.type( input, '{Enter}' );
+			expect( mockUpdateFolder ).not.toHaveBeenCalled();
 		} );
 
 		it( 'submits when Enter is pressed in the input', async () => {
@@ -455,6 +461,9 @@ describe( 'FolderItem', () => {
 			expect( mockUpdateFolder ).toHaveBeenCalledWith( 1, {
 				name: 'Travel',
 			} );
+			expect(
+				screen.queryByLabelText( 'Folder name' )
+			).not.toBeInTheDocument();
 		} );
 	} );
 

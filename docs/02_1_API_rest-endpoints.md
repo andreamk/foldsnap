@@ -52,7 +52,7 @@ Read endpoints require the `upload_files` capability. The `recalculate` admin en
 ```
 
 - `folder` — the created/updated/touched folder.
-- `paths` — list of ancestor chains whose `total_*` may have changed. The first chain is for `folder`; additional chains are appended when other folders are also affected (e.g. `assignMedia` returns one chain per origin folder). Each chain runs from the leaf up to top-level. The client merges per-chain totals into its cache.
+- `paths` — list of ancestor chains whose `total_*` may have changed. The first chain is for `folder`; additional chains are appended when other folders are also affected (e.g. `assignMedia` returns one chain per origin folder, and `updateFolder` on a reparent returns a second chain for the previous parent). Each chain runs root-first, from Root down to the target folder. The client merges per-chain totals into its cache.
 - `affected_parents` — parents whose `has_children` flag may have flipped (after delete or reparent). Root (`id = 0`) is omitted because its chevron is implicit.
 - `root` — the refreshed Root folder so the client can update the global counters in the same trip.
 

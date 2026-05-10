@@ -132,7 +132,9 @@ describe( 'CreateFolderModal', () => {
 	it( 'does not submit when name is whitespace only', async () => {
 		render( <CreateFolderModal parentId={ 0 } onClose={ mockOnClose } /> );
 		await user.type( screen.getByTestId( 'name-input' ), '   ' );
+		expect( screen.getByText( 'Create' ) ).toBeDisabled();
 		await user.click( screen.getByText( 'Create' ) );
 		expect( mockCreateFolder ).not.toHaveBeenCalled();
+		expect( mockOnClose ).not.toHaveBeenCalled();
 	} );
 } );

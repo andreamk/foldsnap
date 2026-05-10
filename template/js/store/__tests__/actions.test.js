@@ -352,19 +352,14 @@ describe( 'updateFolder', () => {
 				root_media_count: 0,
 				root_total_size: 0,
 			},
-			{
-				folders: [],
-				page: 1,
-				total_pages: 1,
-				root_media_count: 0,
-				root_total_size: 0,
-			},
 		] );
 		const types = yields.map( ( y ) => y.type );
 		expect( types ).toContain( ACTION_TYPES.REMOVE_FOLDER );
-		expect(
-			types.filter( ( t ) => t === ACTION_TYPES.FETCH_CHILDREN_START )
-		).toHaveLength( 2 );
+		const fetchedIds = yields
+			.filter( ( y ) => y.type === ACTION_TYPES.FETCH_CHILDREN_START )
+			.map( ( y ) => y.parentId )
+			.sort();
+		expect( fetchedIds ).toEqual( [ 0, 5 ] );
 	} );
 
 	it( 'no reparent: applies envelope and skips refetch', () => {
@@ -382,13 +377,6 @@ describe( 'updateFolder', () => {
 		const yields = drive( updateFolder( 7, { parentId: 5 } ), [
 			{ id: 7, parent_id: 0 }, // getFolderById (previous)
 			{ folder: { id: 7, parent_id: 5 } }, // PUT response
-			{
-				folders: [],
-				page: 1,
-				total_pages: 1,
-				root_media_count: 0,
-				root_total_size: 0,
-			},
 			{
 				folders: [],
 				page: 1,
@@ -539,6 +527,10 @@ describe( 'bootFromUrl', () => {
 				( y.parentId === 11 || y.parentId === 12 )
 		);
 		expect( starts ).toHaveLength( 2 );
+		expect( yields ).toContainEqual( {
+			type: ACTION_TYPES.SET_SELECTED_FOLDER,
+			folderId: 42,
+		} );
 	} );
 
 	it( 'skips re-hydration when every persisted-expanded folder is already loaded', () => {
@@ -565,6 +557,10 @@ describe( 'bootFromUrl', () => {
 				y.parentId === 11
 		);
 		expect( starts ).toHaveLength( 0 );
+		expect( yields ).toContainEqual( {
+			type: ACTION_TYPES.SET_SELECTED_FOLDER,
+			folderId: 42,
+		} );
 	} );
 
 	it( 'is a no-op for re-hydration when no folders are persisted-expanded', () => {
@@ -577,5 +573,9 @@ describe( 'bootFromUrl', () => {
 			( y ) => y.type === ACTION_TYPES.FETCH_CHILDREN_START
 		);
 		expect( starts ).toHaveLength( 0 );
+		expect( yields ).toContainEqual( {
+			type: ACTION_TYPES.SET_SELECTED_FOLDER,
+			folderId: 0,
+		} );
 	} );
 } );

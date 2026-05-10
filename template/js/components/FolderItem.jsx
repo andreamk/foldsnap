@@ -135,14 +135,16 @@ const FolderItem = ( {
 			  ] ),
 	];
 
+	const trimmedRename = renameValue.trim();
+	const isRenameInvalid = ! trimmedRename || trimmedRename === folder.name;
+
 	const handleRenameSubmit = async () => {
-		const trimmed = renameValue.trim();
-		if ( ! trimmed || trimmed === folder.name ) {
+		if ( isRenameInvalid ) {
 			setShowRenameModal( false );
 			return;
 		}
 		setShowRenameModal( false );
-		await updateFolder( folder.id, { name: trimmed } );
+		await updateFolder( folder.id, { name: trimmedRename } );
 	};
 
 	const indentStyle = { paddingLeft: depth * 16 + 'px' };
@@ -295,10 +297,7 @@ const FolderItem = ( {
 						<Button
 							variant="primary"
 							onClick={ handleRenameSubmit }
-							disabled={
-								! renameValue.trim() ||
-								renameValue.trim() === folder.name
-							}
+							disabled={ isRenameInvalid }
 						>
 							{ __( 'Rename', 'foldsnap' ) }
 						</Button>

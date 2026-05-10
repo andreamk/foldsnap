@@ -508,8 +508,7 @@ export function* updateFolder( id, { name, parentId, color, position } = {} ) {
 			parentId: oldParentId,
 		};
 		yield* applyMutationEnvelope( response );
-		yield* fetchChildren( oldParentId );
-		yield* fetchChildren( newParentId );
+		yield* fetchChildrenBatch( [ oldParentId, newParentId ] );
 		// Expand the new parent so the moved folder is immediately visible.
 		yield { type: ACTION_TYPES.EXPAND_FOLDER, folderId: newParentId };
 		// Keep the moved folder selected so the user doesn't lose context.
