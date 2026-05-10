@@ -152,20 +152,22 @@ final class MediaLibraryController
 
         wp_set_script_translations('foldsnap-admin', 'foldsnap', FOLDSNAP_PATH . '/languages');
 
-        wp_localize_script(
+        $foldsnapData = [
+            'restUrl'           => rest_url('foldsnap/v1/'),
+            'mediaMode'         => self::getMediaMode(),
+            'preferences'       => (new UserPreferencesService())->getAll(get_current_user_id()),
+            'sidebarWidthMin'   => 200,
+            'sidebarWidthMax'   => 600,
+            'foldersPerPage'    => RestApiController::FOLDERS_PER_PAGE,
+            'foldersMaxPerPage' => RestApiController::FOLDERS_MAX_PER_PAGE,
+            'searchPerPage'     => RestApiController::SEARCH_PER_PAGE,
+            'mediaPerPage'      => RestApiController::MEDIA_PER_PAGE,
+        ];
+
+        wp_add_inline_script(
             'foldsnap-admin',
-            'foldsnap_data',
-            [
-                'restUrl'           => rest_url('foldsnap/v1/'),
-                'mediaMode'         => self::getMediaMode(),
-                'preferences'       => (new UserPreferencesService())->getAll(get_current_user_id()),
-                'sidebarWidthMin'   => 200,
-                'sidebarWidthMax'   => 600,
-                'foldersPerPage'    => RestApiController::FOLDERS_PER_PAGE,
-                'foldersMaxPerPage' => RestApiController::FOLDERS_MAX_PER_PAGE,
-                'searchPerPage'     => RestApiController::SEARCH_PER_PAGE,
-                'mediaPerPage'      => RestApiController::MEDIA_PER_PAGE,
-            ]
+            'var foldsnap_data = ' . wp_json_encode($foldsnapData) . ';',
+            'before'
         );
 
         wp_enqueue_script(
