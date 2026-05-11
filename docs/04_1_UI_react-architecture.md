@@ -28,24 +28,15 @@ The store is registered with `@wordpress/data` under the name `foldsnap/folders`
 
 ### Lazy children-by-parent shape
 
-The store does not hold a fully expanded tree. Children are loaded lazily, one parent at a time:
+The store does not hold a fully expanded tree. Children are loaded lazily, one parent at a time. The state is grouped in three concerns:
 
-| Slice                | Shape                                  | Purpose                                            |
-|----------------------|----------------------------------------|----------------------------------------------------|
-| `foldersByParent`    | `{ [parentId]: Folder[] }`             | Children list per parent, in display order        |
-| `foldersById`        | `{ [id]: Folder }`                     | Flat lookup for `getFolderById`                    |
-| `loadedParents`      | `number[]`                             | Parents whose first page has been fetched          |
-| `fetchingParents`    | `number[]`                             | Parents currently in flight (for de-duping)        |
-| `parentsPagination`  | `{ [parentId]: { page, totalPages } }` | Per-parent pagination cursor for "load more"       |
-| `expandedIds`        | `number[]`                             | Persisted via the preferences subsystem (server-synced) — see [UI Preferences](04_2_UI_preferences.md) |
-| `selectedFolderId`   | `number\|null`                         | Currently selected folder; persisted via the preferences subsystem so deep-linked or restored sessions reopen on the last selection |
-| `allMediaActive`     | `boolean`                              | Bypass mode: sidebar inert, grid unfiltered        |
-| `searchQuery`        | `string`                               |                                                    |
-| `searchResults`      | `{ folder, breadcrumb }[]`             | One entry per match                                |
-| `searchPage`, `searchTotalPages`, `searchTotal`, `searchIsLoading` | various | Search pagination state |
-| `error`              | `string\|null`                         |                                                    |
+| Concern        | Purpose                                                                                              |
+|----------------|------------------------------------------------------------------------------------------------------|
+| **Folder data** | Children list per parent (in display order), flat id → folder lookup, and per-parent pagination cursor. |
+| **Fetch tracking** | Which parents have been loaded, which are in flight (for de-duping concurrent fetches), and the last error. |
+| **UI state** | Tree-expansion set, selected folder, "All Media" bypass toggle, and the current search query plus its result page. |
 
-The full Root folder object (with its global counters) lives inside `foldersById[0]` like any other folder; there are no separate `rootMediaCount` / `rootTotalSize` slices.
+The full Root folder object (with its global counters) lives inside the flat lookup like any other folder — there are no separate root-level counter slices. The expansion set, selected folder, and All Media toggle are persisted through the preferences subsystem; see [UI Preferences](04_2_UI_preferences.md) and the [Persistence](#persistence) section below.
 
 ### Generator-based actions
 
@@ -53,7 +44,7 @@ Async actions use generators with a custom `API_FETCH` control that delegates to
 
 - `fetchChildren(parentId, { page, perPage })` — first or refreshed page for one parent. De-duped against `fetchingParents`.
 - `loadMoreChildren(parentId, { perPage })` — next page using the stored cursor; no-op past the last page.
-- `fetchChildrenBatch(parentIds, { perPage })` — fetches first-and-subsequent pages for many parents, chunked at `BATCH_PARENTS_PER_REQUEST` (10) parents per request and paginated up to `BATCH_MAX_PER_PAGE` (200) per page; used by `expandPathTo`.
+- `fetchChildrenBatch(parentIds, { perPage })` — fetches first-and-subsequent pages for many parents in one request, chunked at the constants declared in `actions.js` (parents-per-request and items-per-page bounds). Used by `expandPathTo` and by the post-hydration refill.
 - `expandFolder(folderId)` — marks expanded and triggers `fetchChildren` if not already loaded.
 - `expandPathTo(folderId)` — GETs `/folders/{id}/path`, dispatches `APPLY_PATH_TOTALS`, then `fetchChildrenBatch` for every ancestor so the tree is inflated with one fetch per level.
 - `searchFolders(query, { perPage })` / `loadMoreSearchResults` / `clearSearch`.
@@ -79,7 +70,7 @@ The rename action is owned by `FolderItem` itself: a `Rename` entry in its dropd
 
 ### Selectors
 
-Direct slice access (`getFolderById`, `getChildrenOf`, `getExpandedIds`, `isFolderLoaded`, `isFolderFetching`, `getParentPagination`), search selectors, plus `getRootFolder()` which returns `foldersById[0]`.
+Selectors are thin direct-slice accessors — components never compute derived state in `useSelect`. The Root folder is exposed via a dedicated selector that returns its entry from the flat lookup, so callers don't hard-code the Root id at the call site.
 
 ### Resolvers
 
@@ -87,16 +78,14 @@ Direct slice access (`getFolderById`, `getChildrenOf`, `getExpandedIds`, `isFold
 
 ### Persistence
 
-`expandedIds`, `allMediaActive`, and `selectedFolderId` are persisted through the **preferences subsystem** ([`template/js/preferences.js`](../template/js/preferences.js)), which uses `user_meta` as the single source of truth. The full server-side map is shipped into the page at enqueue time via `wp_add_inline_script` (key `window.foldsnap_data.preferences`), so the bundle has the user's last state synchronously at module load — no fetch, no cache, no race. Full design and REST contract: [UI Preferences](04_2_UI_preferences.md).
+The persisted UI slices flow through the **preferences subsystem** — see [UI Preferences](04_2_UI_preferences.md) for the storage model, schema, and REST contract. From the store's point of view the bridge has two steps:
 
-The store ([`template/js/store/index.js`](../template/js/store/index.js)) wires the bridge in two steps:
+1. **Hydrate** at module load: the store seeds its persisted slices from the localised payload on a single dispatch, so the first render already reflects the user's last state.
+2. **Subscribe**: each persisted slice is compared against a baseline (initialised from the hydrated value, so hydration itself never echoes back as a write) and routed through the debounced writer on change.
 
-1. **Hydrate** at module load: `getInitialPreferences()` reads `window.foldsnap_data.preferences` and a single `HYDRATE` action seeds `expandedIds`, `allMediaActive`, and `selectedFolderId` so the very first render reflects the user's last state.
-2. **Subscriber**: every store change is compared against a per-slice "last seen" baseline (initialized from the hydrated state, so the hydrated values themselves are never echoed back) and routed through `savePreference()` (per-key debounced PUT).
+Mismatches are corrected on the next successful write; REST failures degrade silently because the next boot re-reads the authoritative server map.
 
-REST failures degrade silently — the store stays usable; the next successful PUT reconciles.
-
-`sidebarWidth` is the one preference that *does not* flow through the store. `FolderSidebar` reads it directly via `getInitialPreferences()` at mount time (it only needs the initial size for `ResizableBox`) and writes it via `savePreference()` in `onResizeStop`. The asymmetry is deliberate: there is no in-app consumer for the live width value, so storing it in the Redux state would only add ceremony.
+One preference, the sidebar width, **does not** flow through the store. The sidebar component reads its initial value directly from the localised payload at mount time and writes it directly to the persistence layer on resize. The asymmetry is deliberate: no other component reads the live width, so promoting it to store state would only add ceremony for a value that's effectively write-only from React's side.
 
 `bootFromUrl` (called once from `index.js`) finishes the hydration: after selecting the URL folder and expanding its ancestor path, it walks every persisted-expanded id and fires `fetchChildrenBatch` for those whose children are not yet loaded. Without this, the chevron icon would render in its expanded state but the children list would stay empty until the user collapsed and re-expanded the row.
 

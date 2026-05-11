@@ -40,13 +40,7 @@ FoldSnap adds folder management to the WordPress admin Media Library. Folders ar
 └─────────────────────────────────────────────────┘
 ```
 
-**WP-Cron bootstrap.** On every admin request `Bootstrap` checks the
-`foldsnap_opt_counters_initialized` option. If unset, it schedules a
-`foldsnap_recalc_chunk` event 5 seconds out; the cron callback runs one
-chunk via `CountersRecalculator::processChunk()` and self-reschedules
-30 seconds later until the bottom-up walk drains. This is the only
-automatic entry point for the recalculate; the REST endpoint is for
-manual recovery.
+**WP-Cron bootstrap.** On every admin request `Bootstrap` checks a "counters initialized" option. While that flag is unset, the request schedules a chunk of the bottom-up counter recalculate via WP-Cron; the cron callback runs one chunk and self-reschedules until the walk drains, at which point the flag is set and this path becomes a no-op. The REST `recalculate` endpoint is the manual-recovery counterpart of the same machinery.
 
 **Frontend.** React sidebar mounted before `#wpbody-content`. Uses `@wordpress/data` for state management (lazy children-by-parent map, see [React UI](04_1_UI_react-architecture.md)) and `@wordpress/api-fetch` for REST. A bridge module synchronises folder selection with the native Backbone media grid in grid mode, or with `upload.php` URL parameters in list mode.
 
@@ -55,7 +49,7 @@ manual recovery.
 - `RestApiController` registers all `foldsnap/v1` routes and serves the read endpoints (children fetch, search, path, media listing, recalculate).
 - `RestApiFolderMutationsController` serves the write endpoints (create / update / delete / assign / remove media). Every write returns the same [mutation envelope](02_1_API_rest-endpoints.md#mutation-envelope).
 - `MediaLibraryController` enqueues assets and filters the native grid/list by folder via the WordPress hooks.
-- `MainPageController` registers the **FoldSnap** sub-menu under Media (capability `manage_options`) and renders the Settings page. Enqueues the `foldsnap-settings` script bundle (whose only feature today is the **Recount folders** maintenance tool, which drives the existing `POST /folders/recalculate` endpoint until completion).
+- `MainPageController` registers the **FoldSnap** sub-menu under Media (capability `manage_options`) and renders the Settings page. The page is the host for admin-only maintenance tools — notably the **Recount folders** tool that drives the chunked `POST /folders/recalculate` endpoint until completion.
 - `FolderRepository` is the focused CRUD surface for the taxonomy: lookup, create, update, delete. It composes the helpers below for everything else.
 - `FolderNameSanitizer` validates and uniquifies folder names. Stateless so the rules are testable without touching the taxonomy.
 - `FolderTreeNavigator` walks the parent chain (instance: path resolution to `FolderModel[]`; static: ancestor-id list for delta math). Read-only.

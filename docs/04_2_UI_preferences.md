@@ -1,67 +1,65 @@
 # UI Preferences
 
-Per-user preferences for the admin UI. Stored server-side so they follow the user across browsers and devices, with no client-side cache: PHP localises the current values into the page at enqueue time, so the JS bundle has them synchronously at boot with zero round trips.
+Per-user preferences for the admin UI. Stored server-side so they follow the user across browsers and devices. PHP ships the current values into the page at enqueue time, so the JS bundle has them synchronously at boot with zero round trips and no client-side cache.
 
 ## Storage
 
-A single `user_meta` row keyed by `foldsnap_opt_preferences` carries the whole map (WordPress serialises it). One read per boot, atomic writes, per-key updates merge on top of the stored map so unrelated keys are preserved.
+A single `user_meta` row carries the whole preferences map as one serialised array. Reads happen once per boot; writes merge per-key into the stored map so unrelated keys are preserved untouched. This keeps cross-key consistency trivial and avoids one `user_meta` row per preference.
 
-## Declared keys
+## Schema
 
-Schema lives in `UserPreferencesService::SCHEMA` (`src/Services/UserPreferencesService.php`) — the single source of truth.
+The schema is **closed**: every preference is declared in `UserPreferencesService::SCHEMA` with its type and default (plus optional range bounds for numeric types). Unknown keys are rejected at the boundary. The schema file in the service is the single source of truth — we deliberately do **not** mirror the field list in this doc, so adding or renaming a preference is a one-place change.
 
-| Key               | Type        | Default | Used by                          |
-|-------------------|-------------|---------|----------------------------------|
-| `expandedFolders`  | `int_array`       | `[0]`   | Sidebar tree expansion state. Default `[0]` means Root is expanded for new users; once the user customises the list (including collapsing Root), their choice is stored verbatim. |
-| `allMedia`         | `bool`            | `false` | Sidebar "All Media" override toggle |
-| `sidebarWidth`     | `int` (200..600)  | `280`   | Sidebar width in pixels (clamped server-side) |
-| `selectedFolderId` | `int` (min 0)     | `0`     | Last-selected folder so returning sessions reopen on the same folder. Overridden by the `foldsnap_folder_id` URL parameter when present. |
+Each declared key carries:
 
-Supported type tokens: `bool`, `int`, `int_array`. (`string` is reserved for future keys; its coerce branch will be added when first needed.)
+- a **type** (e.g. boolean, bounded integer, array of integers),
+- a **default**, returned for any user who never wrote that key,
+- optional **range bounds** for numeric types.
 
-### Coercion rules
+## Coercion
 
-- `bool` — `filter_var(..., FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE)`. Accepts `true`/`false`, `1`/`0`, `'true'`/`'false'`, `'yes'`/`'no'`, `'on'`/`'off'`. Rejects `null` and non-coercible strings.
-- `int` — accepts numeric values and numeric strings. If the schema entry declares `min` / `max`, the value is clamped into that range (no rejection). Rejects only non-numeric input.
-- `int_array` — root must be an array; each element is cast to int and dropped if it is non-numeric or negative (zero is accepted because it is Root's ID); duplicates are removed.
+Every write goes through the service's coercion step. The contract:
 
-A value that fails its type's coercion is rejected (the REST endpoint returns 400, the service's `set()` returns `false`).
+- Numeric values are cast and, if the schema declares bounds, **clamped silently** into range — out-of-range input is corrected, not rejected, so an outdated client can't poison the store.
+- Collection values drop elements that can't be coerced to the declared element type.
+- Values that can't be coerced at all are **rejected**: the REST endpoint returns 400, the service's setter returns `false`. The stored map is never partially updated.
+
+The supported type set is open-ended — new types are added to the service's coercion switch as new preferences need them.
 
 ## REST endpoints
 
-See [02_1_API_rest-endpoints.md](02_1_API_rest-endpoints.md#preferences) for the full contract. Quick reference:
+Two endpoints under `/foldsnap/v1/preferences`, both requiring `upload_files` and scoped implicitly to the current user (no user ID in the URL):
 
-- `GET  /foldsnap/v1/preferences` — full map (defaults filled in for unset keys). Available but unused at boot, since the same data ships in `window.foldsnap_data.preferences`.
-- `PUT  /foldsnap/v1/preferences/{key}` — body `{ "value": <any> }` → 200 with the coerced value, or 400 (`foldsnap_unknown_preference` / `foldsnap_invalid_preference_value`).
+- **GET** returns the full map with defaults filled in for unset keys, so the client never has to handle a missing field.
+- **PUT** on a single key writes that one preference. The response carries the coerced value actually persisted (so the client sees the effect of any clamping).
 
-Both endpoints require `upload_files` and target the current user implicitly.
+Errors use two distinct codes — one for unknown keys, one for invalid values — so the client can tell a schema-mismatch from a coercion failure. Full contract: [REST endpoints › Preferences](02_1_API_rest-endpoints.md#preferences).
 
-## Initial values from PHP
+The GET endpoint exists for completeness but is **not used at boot**, because the same map is already on the page.
 
-`MediaLibraryController` ships the user's complete preferences map into `window.foldsnap_data.preferences` via `wp_add_inline_script` (`'before'` position, body assembled with `wp_json_encode`). The JS bundle reads this synchronously at boot — no fetch, no cache, no race conditions.
+## Boot path
+
+`MediaLibraryController` reads the full preferences map for the current user and ships it onto the page as a global JS variable, attached to the admin script as an inline `'before'` payload. The bundle reads that variable synchronously at module load — no fetch, no race, no flash of default state.
 
 ## Client module
 
-`template/js/preferences.js` exposes:
+`template/js/preferences.js` is the only place in the JS bundle that knows about the preferences subsystem. It owns:
 
-| Export                       | Purpose |
-|------------------------------|---------|
-| `PREF_KEYS`                  | Frozen object with the canonical key strings (must match the PHP schema) |
-| `getInitialPreferences()`    | Synchronous read of `window.foldsnap_data.preferences` |
-| `savePreference(key, val)`   | Per-key debounced PUT (800 ms) to the REST endpoint |
-| `flushPendingSaves()`        | Forces every pending PUT to fire immediately. Test helper. |
+- a frozen map of **canonical key constants** (must match the PHP schema by string value),
+- a **synchronous read** of the localised payload, used at boot,
+- a **per-key debounced PUT** for writes (multiple updates to the same key within the debounce window collapse into one request),
+- a test helper that flushes pending writes.
 
-The store (`template/js/store/index.js`) hydrates from `getInitialPreferences()` once at boot, then subscribes and routes changes through `savePreference`.
+The Redux store hydrates from the synchronous read at registration time and routes subsequent changes through the debounced writer. One preference (`sidebarWidth`) bypasses the store entirely because no in-app consumer reads the live value — see [React UI Architecture › Persistence](04_1_UI_react-architecture.md#persistence) for the rationale.
 
 ## Adding a new preference
 
-1. **PHP schema** — add an entry to `UserPreferencesService::SCHEMA` with `type` and `default`.
-2. **JS key constant** — add the key to `PREF_KEYS` in `template/js/preferences.js`.
-3. **Consumer wiring** — read with `getInitialPreferences()[PREF_KEYS.X]` and write with `savePreference(PREF_KEYS.X, value)`.
+1. **Declare it in the PHP schema** with its type, default, and (if numeric) bounds. If the type isn't yet supported, add a coercion branch to the service.
+2. **Add the matching key constant** on the JS side so consumers reference it by name, not by string literal.
 
-If the new key needs a type that the service doesn't yet support, add the branch in `UserPreferencesService::coerce()`.
+That's it. No doc edit, no REST registration, no migration: the GET/PUT endpoints already serve every declared key, and existing users without a stored value see the declared default on first read.
 
 ## Limitations
 
-- The PUT debounce is 800 ms. Closing the tab during that window means the value never reaches the server. Acceptable for UI state; the next page load reads the previously persisted values from PHP.
-- Cross-tab sync happens at boot only (a second tab picks up the new values when it loads). No real-time `BroadcastChannel` wiring.
+- **Debounced writes.** Closing the tab before the debounce window elapses drops that pending write. Acceptable for transient UI state (next boot reads the previously persisted value); not suitable for preferences that must be durable on every keystroke.
+- **No cross-tab live sync.** A second tab picks up new values only when it boots. There is no `BroadcastChannel` or similar mechanism — the trade-off is intentional given the use case (UI state, not collaborative data).

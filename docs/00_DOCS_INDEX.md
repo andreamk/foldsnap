@@ -16,7 +16,7 @@ Technical documentation for FoldSnap — a WordPress plugin that adds folder man
 
 ### 04. UI
 - **[04_1_UI_react-architecture.md](04_1_UI_react-architecture.md)** — React components, store, drag-and-drop, build pipeline
-- **[04_2_UI_preferences.md](04_2_UI_preferences.md)** — Per-user UI preferences storage and sync (PHP schema, REST contract, JS cache)
+- **[04_2_UI_preferences.md](04_2_UI_preferences.md)** — Per-user UI preferences: storage model, schema and coercion, REST contract, boot path
 
 ### 99. Appendix
 - **[99_1_APPENDIX_doc_writing_guide.md](99_1_APPENDIX_doc_writing_guide.md)** — Standards for writing verifiable documentation

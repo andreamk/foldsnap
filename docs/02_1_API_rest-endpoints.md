@@ -66,11 +66,11 @@ Two mutually exclusive modes, picked from query parameters:
 
 #### Children fetch (default)
 
-| Parameter      | Type    | Default | Notes                                              |
-|----------------|---------|---------|----------------------------------------------------|
-| `parent_ids[]` | int[]   | `[0]`   | Repeated query param, or comma-separated string    |
-| `page`         | int     | `1`     |                                                    |
-| `per_page`     | int     | `100`   | Clamped to `1..200`                                |
+| Parameter      | Type    | Default                              | Notes                                                 |
+|----------------|---------|--------------------------------------|-------------------------------------------------------|
+| `parent_ids[]` | int[]   | `[0]`                                | Repeated query param, or comma-separated string       |
+| `page`         | int     | `1`                                  |                                                       |
+| `per_page`     | int     | `RestApiController::FOLDERS_PER_PAGE` | Clamped to `1..RestApiController::FOLDERS_MAX_PER_PAGE` |
 
 ```json
 {
@@ -89,11 +89,11 @@ Response also sets `X-WP-Total` and `X-WP-TotalPages` headers.
 
 #### Search
 
-| Parameter   | Type   | Default | Notes                                       |
-|-------------|--------|---------|---------------------------------------------|
-| `search`    | string | —       | When non-empty, switches to search mode     |
-| `page`      | int    | `1`     |                                             |
-| `per_page`  | int    | `50`    | Clamped to `1..100`                         |
+| Parameter   | Type   | Default                              | Notes                                                |
+|-------------|--------|--------------------------------------|------------------------------------------------------|
+| `search`    | string | —                                    | When non-empty, switches to search mode              |
+| `page`      | int    | `1`                                  |                                                      |
+| `per_page`  | int    | `RestApiController::SEARCH_PER_PAGE` | Clamped to `1..RestApiController::ITEMS_MAX_PER_PAGE` |
 
 ```json
 {
@@ -119,7 +119,7 @@ Response also sets `X-WP-Total` and `X-WP-TotalPages` headers.
 
 | Parameter   | Type   | Required | Default | Notes                                |
 |-------------|--------|----------|---------|--------------------------------------|
-| `name`      | string | yes      | —       | Sanitized; max 200 chars             |
+| `name`      | string | yes      | —       | Sanitized and truncated by `FolderNameSanitizer` (rules are server-enforced; over-long input is silently shortened, not rejected) |
 | `parent_id` | int    | no       | `0`     | `0` = top-level                      |
 | `color`     | string | no       | `''`    | Hex code                             |
 | `position`  | int    | no       | `0`     |                                      |
@@ -198,11 +198,11 @@ Returns `200` with `{ "removed": true, ...mutation envelope }`.
 
 Returns paginated attachments for a folder.
 
-| Parameter   | Type | Required | Default | Notes                                |
-|-------------|------|----------|---------|--------------------------------------|
-| `folder_id` | int  | yes      | —       | `0` = unassigned/Root                |
-| `page`      | int  | no       | `1`     |                                      |
-| `per_page`  | int  | no       | `40`    | Clamped to `1..100`                  |
+| Parameter   | Type | Required | Default                              | Notes                                                |
+|-------------|------|----------|--------------------------------------|------------------------------------------------------|
+| `folder_id` | int  | yes      | —                                    | `0` = unassigned/Root                                |
+| `page`      | int  | no       | `1`                                  |                                                      |
+| `per_page`  | int  | no       | `RestApiController::MEDIA_PER_PAGE`  | Clamped to `1..RestApiController::ITEMS_MAX_PER_PAGE` |
 
 ```json
 {
@@ -227,42 +227,40 @@ Response sets `X-WP-Total` and `X-WP-TotalPages`. The query is built via `Taxono
 
 ## Preferences
 
-Per-user UI preferences are stored in a single `user_meta` entry (`foldsnap_opt_preferences`) with a closed schema declared in `UserPreferencesService`. Both endpoints require `upload_files`; the user scope is implicit (`get_current_user_id()` server-side) — no user ID in the URL.
+Per-user UI preferences live behind a closed schema; full design in [UI Preferences](04_2_UI_preferences.md). Both endpoints require `upload_files`; the user scope is implicit (taken from the current user on the server) — no user ID in the URL.
 
 ### `GET /preferences`
 
-Returns the full preferences map for the current user. Missing keys are filled with declared defaults, so the response always contains every declared key.
+Returns the full preferences map for the current user. Missing keys are filled with declared defaults, so the response always contains every declared key. The payload is a flat object under a single `preferences` envelope:
 
 ```json
 {
   "preferences": {
-    "expandedFolders": [3, 7, 12],
-    "allMedia": false,
-    "sidebarWidth": 280,
-    "selectedFolderId": 0
+    "<key>": <value>,
+    ...
   }
 }
 ```
 
 ### `PUT /preferences/{key}`
 
-Writes one preference. The key segment must match a declared schema key — see [UI Preferences › Declared keys](04_2_UI_preferences.md#declared-keys) for the current list — and the value is validated against the key's declared type.
+Writes one preference. The key segment must match a declared schema key — see [UI Preferences › Schema](04_2_UI_preferences.md#schema) — and the value is validated against the key's declared type.
 
-The route is registered with `WP_REST_Server::EDITABLE`, which is WordPress' standard "writable" alias and matches `POST`, `PUT`, and `PATCH`. `PUT` is the canonical verb for this endpoint; the other two are accepted as a side effect of the alias.
+The route is registered with `WP_REST_Server::EDITABLE`, the standard WordPress "writable" alias that matches `POST`, `PUT`, and `PATCH`. `PUT` is the canonical verb; the others are accepted as a side effect of the alias.
 
-Body:
-
-```json
-{ "value": [3, 7, 12] }
-```
-
-Response (200):
+Request body:
 
 ```json
-{ "key": "expandedFolders", "value": [3, 7, 12] }
+{ "value": <any> }
 ```
 
-The returned `value` is the type-coerced version actually persisted (e.g. for `int_array` non-positive / non-numeric / duplicate elements are filtered).
+Response (200) carries the **coerced** value actually persisted, so the client sees the effect of any clamping or element-level filtering:
+
+```json
+{ "key": "<key>", "value": <coerced value> }
+```
+
+Errors return 400 with one of two codes: `foldsnap_unknown_preference` (the key is not in the schema) or `foldsnap_invalid_preference_value` (the value cannot be coerced to the declared type).
 
 ## Admin
 
