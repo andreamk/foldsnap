@@ -17,14 +17,16 @@ describe( 'reducer', () => {
 		expect( state.searchResults ).toEqual( [] );
 	} );
 
-	it( 'HYDRATE seeds expandedIds and allMediaActive', () => {
+	it( 'HYDRATE seeds expandedIds, allMediaActive and selectedFolderId', () => {
 		const state = reducer( baseState(), {
 			type: ACTION_TYPES.HYDRATE,
 			expandedIds: [ 1, 2, 3 ],
 			allMediaActive: true,
+			selectedFolderId: 42,
 		} );
 		expect( state.expandedIds ).toEqual( [ 1, 2, 3 ] );
 		expect( state.allMediaActive ).toBe( true );
+		expect( state.selectedFolderId ).toBe( 42 );
 	} );
 
 	it( 'HYDRATE leaves slices unchanged when payload is undefined', () => {
@@ -33,6 +35,7 @@ describe( 'reducer', () => {
 		} );
 		expect( state.expandedIds ).toEqual( [] );
 		expect( state.allMediaActive ).toBe( false );
+		expect( state.selectedFolderId ).toBeNull();
 	} );
 
 	it( 'returns state unchanged for unknown actions', () => {

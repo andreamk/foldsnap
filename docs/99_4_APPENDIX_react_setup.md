@@ -26,11 +26,11 @@ This guide covers the React frontend setup: source structure, build pipeline, li
 **Webpack mapping** (configured in `webpack.config.js`):
 
 - `template/js/index.js` → `assets/js/foldsnap-admin.js` (sidebar bundle for the Media Library screen).
-- `template/js/settings.js` → `assets/js/foldsnap-settings.js` (Settings page; currently drives the Recount maintenance tool).
+- `template/js/settings.js` → `assets/js/foldsnap-settings.js` (Settings page bundle).
 
 ## Asset Loading
 
-`@wordpress/scripts` generates one `.asset.php` manifest per webpack entry (currently `foldsnap-admin.asset.php` and `foldsnap-settings.asset.php`). Each manifest contains:
+`@wordpress/scripts` generates one `.asset.php` manifest per webpack entry, named after the entry. Each manifest contains:
 - WordPress script dependencies (auto-detected from imports)
 - A content hash for cache busting
 
@@ -40,7 +40,7 @@ Standalone scripts that do not depend on the React bundle (e.g. `template/js/fol
 
 ## Linting
 
-**Preset:** `@wordpress/eslint-plugin/recommended` (134 rules covering code quality, React best practices, accessibility, JSDoc, Prettier formatting).
+**Preset:** `@wordpress/eslint-plugin/recommended` — the WordPress-curated rule set covering code quality, React best practices, accessibility, JSDoc, and Prettier formatting.
 
 **Config file:** `.eslintrc.js`
 

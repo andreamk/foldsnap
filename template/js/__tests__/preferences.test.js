@@ -1,175 +1,52 @@
 jest.mock( '@wordpress/api-fetch', () => jest.fn() );
 
-const CACHE_KEY = 'foldsnap.preferencesCache';
-
 let preferences;
 let apiFetch;
 
 const reloadModule = () => {
 	jest.resetModules();
-	// Re-require AFTER resetModules so both the production module and the
-	// test see the same fresh mock instance.
 	apiFetch = require( '@wordpress/api-fetch' );
 	apiFetch.mockReset();
 	preferences = require( '../preferences' );
 };
 
+let originalFoldsnapData;
+
 beforeEach( () => {
-	window.localStorage.clear();
 	jest.useFakeTimers();
+	originalFoldsnapData = window.foldsnap_data;
 	reloadModule();
 } );
 
 afterEach( () => {
 	jest.useRealTimers();
+	if ( originalFoldsnapData === undefined ) {
+		delete window.foldsnap_data;
+	} else {
+		window.foldsnap_data = originalFoldsnapData;
+	}
 } );
 
-describe( 'readCachedPreferences', () => {
-	it( 'returns DEFAULTS when cache is empty', () => {
-		const result = preferences.readCachedPreferences();
-
-		expect( result ).toEqual( {
-			expandedFolders: [],
-			allMedia: false,
-		} );
-	} );
-
-	it( 'returns cached values when cache exists, filling gaps with defaults', () => {
-		window.localStorage.setItem(
-			CACHE_KEY,
-			JSON.stringify( { expandedFolders: [ 1, 2 ] } )
-		);
-		reloadModule();
-
-		const result = preferences.readCachedPreferences();
-
-		expect( result.expandedFolders ).toEqual( [ 1, 2 ] );
-		expect( result.allMedia ).toBe( false );
-	} );
-
-	it( 'returns DEFAULTS when cache JSON is malformed', () => {
-		window.localStorage.setItem( CACHE_KEY, '{not json' );
-		reloadModule();
-
-		const result = preferences.readCachedPreferences();
-
-		expect( result ).toEqual( {
-			expandedFolders: [],
-			allMedia: false,
-		} );
-	} );
-
-	it( 'returns DEFAULTS when cache contains a non-object payload', () => {
-		window.localStorage.setItem( CACHE_KEY, JSON.stringify( [ 1, 2, 3 ] ) );
-		reloadModule();
-
-		const result = preferences.readCachedPreferences();
-
-		expect( result ).toEqual( {
-			expandedFolders: [],
-			allMedia: false,
-		} );
-	} );
-} );
-
-describe( 'loadPreferences', () => {
-	it( 'fetches the server map, fills with defaults, and writes the cache', async () => {
-		apiFetch.mockResolvedValueOnce( {
-			preferences: { expandedFolders: [ 9, 10 ] },
-		} );
-
-		const result = await preferences.loadPreferences();
-
-		expect( apiFetch ).toHaveBeenCalledWith( {
-			path: '/foldsnap/v1/preferences',
-		} );
-		expect( result.expandedFolders ).toEqual( [ 9, 10 ] );
-		expect( result.allMedia ).toBe( false );
-
-		const cached = JSON.parse( window.localStorage.getItem( CACHE_KEY ) );
-		expect( cached.expandedFolders ).toEqual( [ 9, 10 ] );
-	} );
-
-	it( 'returns the cached values when apiFetch rejects', async () => {
-		window.localStorage.setItem(
-			CACHE_KEY,
-			JSON.stringify( { expandedFolders: [ 7 ], allMedia: true } )
-		);
-		reloadModule();
-		apiFetch.mockRejectedValueOnce( new Error( 'offline' ) );
-
-		const result = await preferences.loadPreferences();
-
-		expect( result.expandedFolders ).toEqual( [ 7 ] );
-		expect( result.allMedia ).toBe( true );
-	} );
-
-	it( 'returns DEFAULTS when both server and cache are empty', async () => {
-		apiFetch.mockRejectedValueOnce( new Error( 'offline' ) );
-
-		const result = await preferences.loadPreferences();
-
-		expect( result ).toEqual( {
-			expandedFolders: [],
-			allMedia: false,
-		} );
-	} );
-
-	it( 'falls back to cache when the server response is missing the preferences key', async () => {
-		window.localStorage.setItem(
-			CACHE_KEY,
-			JSON.stringify( { allMedia: true } )
-		);
-		reloadModule();
-		apiFetch.mockResolvedValueOnce( { somethingElse: true } );
-
-		const result = await preferences.loadPreferences();
-
-		expect( result.allMedia ).toBe( true );
-	} );
-
-	it( 'filters unknown keys nested inside preferences', async () => {
-		apiFetch.mockResolvedValueOnce( {
+describe( 'getInitialPreferences', () => {
+	it( 'returns the localised preferences blob from window.foldsnap_data', () => {
+		window.foldsnap_data = {
 			preferences: {
-				expandedFolders: [ 1 ],
+				expandedFolders: [ 0, 5 ],
 				allMedia: true,
-				rogueKey: 'should not appear',
+				sidebarWidth: 320,
 			},
-		} );
+		};
+		reloadModule();
 
-		const result = await preferences.loadPreferences();
-
-		expect( result ).toEqual( {
-			expandedFolders: [ 1 ],
+		expect( preferences.getInitialPreferences() ).toEqual( {
+			expandedFolders: [ 0, 5 ],
 			allMedia: true,
-		} );
-		expect( result ).not.toHaveProperty( 'rogueKey' );
-		const cached = JSON.parse( window.localStorage.getItem( CACHE_KEY ) );
-		expect( cached ).not.toHaveProperty( 'rogueKey' );
-	} );
-
-	it( 'falls back to defaults when server response.preferences is null', async () => {
-		apiFetch.mockResolvedValueOnce( { preferences: null } );
-
-		const result = await preferences.loadPreferences();
-
-		expect( result ).toEqual( {
-			expandedFolders: [],
-			allMedia: false,
+			sidebarWidth: 320,
 		} );
 	} );
 } );
 
 describe( 'savePreference', () => {
-	it( 'writes through the cache immediately', () => {
-		preferences.savePreference( 'expandedFolders', [ 1, 2 ] );
-
-		const cached = JSON.parse( window.localStorage.getItem( CACHE_KEY ) );
-		expect( cached.expandedFolders ).toEqual( [ 1, 2 ] );
-		// Server PUT not yet fired (still debouncing).
-		expect( apiFetch ).not.toHaveBeenCalled();
-	} );
-
 	it( 'debounces multiple rapid calls on the same key into one PUT', () => {
 		apiFetch.mockResolvedValue( {} );
 
@@ -213,7 +90,7 @@ describe( 'savePreference', () => {
 		expect( apiFetch ).not.toHaveBeenCalled();
 	} );
 
-	it( 'swallows server-side rejections silently and keeps the cached value', async () => {
+	it( 'swallows server-side rejections silently', async () => {
 		apiFetch.mockRejectedValueOnce( new Error( 'server down' ) );
 
 		preferences.savePreference( 'allMedia', true );
@@ -222,9 +99,6 @@ describe( 'savePreference', () => {
 		await expect(
 			preferences.flushPendingSaves()
 		).resolves.toBeUndefined();
-
-		const cached = JSON.parse( window.localStorage.getItem( CACHE_KEY ) );
-		expect( cached.allMedia ).toBe( true );
 	} );
 } );
 
@@ -235,7 +109,6 @@ describe( 'flushPendingSaves', () => {
 		preferences.savePreference( 'expandedFolders', [ 1 ] );
 		preferences.savePreference( 'allMedia', true );
 
-		// Without flush: nothing has fired yet.
 		expect( apiFetch ).not.toHaveBeenCalled();
 
 		await preferences.flushPendingSaves();
@@ -250,5 +123,9 @@ describe( 'PREF_KEYS', () => {
 			'expandedFolders'
 		);
 		expect( preferences.PREF_KEYS.ALL_MEDIA ).toBe( 'allMedia' );
+		expect( preferences.PREF_KEYS.SIDEBAR_WIDTH ).toBe( 'sidebarWidth' );
+		expect( preferences.PREF_KEYS.SELECTED_FOLDER_ID ).toBe(
+			'selectedFolderId'
+		);
 	} );
 } );

@@ -14,6 +14,7 @@ declare(strict_types=1);
 namespace FoldSnap\Controllers;
 
 use FoldSnap\Services\TaxonomyService;
+use FoldSnap\Services\UserPreferencesService;
 use FoldSnap\Utils\SanitizeInput;
 
 final class MediaLibraryController
@@ -151,13 +152,22 @@ final class MediaLibraryController
 
         wp_set_script_translations('foldsnap-admin', 'foldsnap', FOLDSNAP_PATH . '/languages');
 
-        wp_localize_script(
+        $foldsnapData = [
+            'restUrl'           => rest_url('foldsnap/v1/'),
+            'mediaMode'         => self::getMediaMode(),
+            'preferences'       => (new UserPreferencesService())->getAll(get_current_user_id()),
+            'sidebarWidthMin'   => UserPreferencesService::SIDEBAR_WIDTH_MIN,
+            'sidebarWidthMax'   => UserPreferencesService::SIDEBAR_WIDTH_MAX,
+            'foldersPerPage'    => RestApiController::FOLDERS_PER_PAGE,
+            'foldersMaxPerPage' => RestApiController::FOLDERS_MAX_PER_PAGE,
+            'searchPerPage'     => RestApiController::SEARCH_PER_PAGE,
+            'mediaPerPage'      => RestApiController::MEDIA_PER_PAGE,
+        ];
+
+        wp_add_inline_script(
             'foldsnap-admin',
-            'foldsnap_data',
-            [
-                'restUrl'   => rest_url('foldsnap/v1/'),
-                'mediaMode' => self::getMediaMode(),
-            ]
+            'var foldsnap_data = ' . wp_json_encode($foldsnapData) . ';',
+            'before'
         );
 
         wp_enqueue_script(

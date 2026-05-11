@@ -52,6 +52,8 @@ const reducer = ( state = DEFAULT_STATE, action ) => {
 				...state,
 				expandedIds: action.expandedIds ?? state.expandedIds,
 				allMediaActive: action.allMediaActive ?? state.allMediaActive,
+				selectedFolderId:
+					action.selectedFolderId ?? state.selectedFolderId,
 			};
 
 		case ACTION_TYPES.FETCH_CHILDREN_START:

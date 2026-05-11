@@ -3,7 +3,6 @@ import { dispatch } from '@wordpress/data';
 import FolderSidebar from './components/FolderSidebar';
 import initMediaModeBridge from './services/media-mode-bridge';
 import { STORE_NAME } from './store/constants';
-import './preferences';
 import './store';
 
 /**

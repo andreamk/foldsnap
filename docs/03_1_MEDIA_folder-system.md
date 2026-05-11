@@ -10,25 +10,13 @@ Folders live as terms in a custom hierarchical taxonomy. Each folder carries pre
 
 ### Term meta
 
-| Meta key                   | Stored as | Meaning                                                            |
-|----------------------------|-----------|--------------------------------------------------------------------|
-| `foldsnap_folder_color`    | string    | Hex color (e.g. `#ff0000`) or empty                                |
-| `foldsnap_folder_position` | string    | Sort position among siblings (cast to int on read)                 |
-| `foldsnap_folder_size`     | string    | Recursive total bytes for the folder and all its descendants       |
-| `foldsnap_folder_count`    | string    | Recursive total media count for the folder and all its descendants |
+Each folder term carries four meta entries: presentation (color, sibling sort position) and aggregates (recursive byte total, recursive media count). Meta keys are exposed as `public const` on `FolderModel` (`META_COLOR`, `META_POSITION`, `META_SIZE`, `META_COUNT`) — callers reference the constants, never the literal strings, so renames are a one-place change.
 
-The four keys are initialized at folder creation. They are kept in sync by the repository and the lifecycle service — see [Incremental counters](#incremental-counters).
+Meta values are stored as strings (WordPress meta storage convention) and cast on read. They are initialized at folder creation and kept in sync by the repository and the lifecycle service — see [Incremental counters](#incremental-counters).
 
 ### Options
 
-Two site options hold the global Root counters (Root has no backing term):
-
-| Option                    | Meaning                                       |
-|---------------------------|-----------------------------------------------|
-| `foldsnap_opt_root_size`  | Total bytes of every attachment on the site   |
-| `foldsnap_opt_root_count` | Total number of attachments on the site       |
-
-These are recursive totals — when the user views Root, they see the whole site.
+Root has no backing term, so its two recursive totals (bytes and media count) live in `wp_options`. The option names are exposed as `public const` on `FolderCounterService` (`OPT_ROOT_SIZE`, `OPT_ROOT_COUNT`). These are global site-wide totals — when the user views Root, they see the whole site.
 
 ## The virtual Root
 
@@ -42,21 +30,16 @@ There is no term for Root. `FolderModel::ROOT_ID = 0` and `FolderModel::NO_PAREN
 
 ## FolderModel
 
-`FolderModel` is an immutable DTO. All counter and metadata values are properties on the model, populated when the model is built — there is no lazy computation.
+`FolderModel` is an immutable DTO. All counter and metadata values are populated when the model is built — there is no lazy computation. The model carries:
 
-| Property            | Source                                                    |
-|---------------------|-----------------------------------------------------------|
-| `id`                | `wp_terms.term_id`                                        |
-| `name`, `slug`      | `wp_terms`                                                |
-| `parent_id`         | `wp_term_taxonomy.parent` (`-1` for Root)                 |
-| `media_count`       | `wp_term_taxonomy.count` (direct only)                    |
-| `total_media_count` | `foldsnap_folder_count` term meta (recursive)             |
-| `total_size`        | `foldsnap_folder_size` term meta (recursive)              |
-| `color`, `position` | `foldsnap_folder_color`, `foldsnap_folder_position`       |
-| `has_children`      | Bulk `Database::getChildrenCounts()` lookup at build time |
-| `is_root`           | `true` for the synthetic Root model only                  |
+- **Identity from the term** — `id`, `name`, `slug`, `parent_id` (the parent column on `wp_term_taxonomy`, with `-1` reserved for the synthetic Root).
+- **Direct count** — `media_count` from the term's own count column (attachments directly assigned, descendants excluded).
+- **Recursive aggregates** — `total_media_count` and `total_size` from the term-meta keys declared on `FolderModel` (see [Term meta](#term-meta)).
+- **Presentation** — `color` and `position` from term meta.
+- **Tree-shape hint** — `has_children`, resolved at build time from a bulk children-count lookup so individual terms don't fan out into per-row queries.
+- **Root marker** — `is_root`, true only for the synthetic Root.
 
-`FolderModel::fromTerms(WP_Term[])` is the bulk constructor. It primes the term-meta cache and the children-counts in two queries, then walks the input terms — the resulting list is fully populated without per-term round-trips. `FolderModel::fromTerm(WP_Term)` is a convenience wrapper around it.
+The bulk constructor (`fromTerms`) primes the term-meta cache and the children-counts in two queries, then walks the input terms — the resulting list is fully populated without per-term round-trips. A `fromTerm` convenience wraps it for single-term call sites.
 
 ## Incremental counters
 
@@ -100,7 +83,7 @@ Folder mutations leave the global Root counters invariant: media stays inside th
 
 `POST /foldsnap/v1/folders/recalculate` (admin only) runs a chunked, bottom-up rebuild of all `foldsnap_folder_size` and `foldsnap_folder_count` meta in case a third-party plugin (or a previous bug) leaves the values drifted. The recalculator walks leaf-first using `Database::getChildrenTotalsForFolders` so each parent's totals are summed from already-fixed children.
 
-**First-boot auto-schedule.** `Bootstrap::onInit` checks the `foldsnap_opt_counters_initialized` option. While that flag is unset, every page load schedules a single `foldsnap_counters_recalculate` cron event 5 seconds out (if one is not already pending). The cron handler runs one chunk and reschedules itself 30 seconds later until the recalculator reports `done`, at which point `CountersRecalculator` sets the flag to `'1'` and the auto-schedule path becomes a no-op. The manual REST endpoint above (with `reset=true`) clears the flag so the same chunked path runs again on demand.
+**First-boot auto-schedule.** `Bootstrap::onInit` checks the "counters initialized" option exposed by `CountersRecalculator`. While that flag is unset, every page load schedules a single WP-Cron event (de-duped if one is already pending). The cron handler runs one chunk and reschedules itself until the recalculator reports `done`, at which point the flag is set and the auto-schedule path becomes a no-op. The exact short delays for first-schedule and self-reschedule are tunable constants in `Bootstrap` and `CountersRecalculator`. The manual REST endpoint above (with `reset=true`) clears the flag so the same chunked path runs again on demand.
 
 ## Folder assignment
 

@@ -7,46 +7,20 @@ import apiFetch from '@wordpress/api-fetch';
 export const PREF_KEYS = Object.freeze( {
 	EXPANDED_FOLDERS: 'expandedFolders',
 	ALL_MEDIA: 'allMedia',
+	SIDEBAR_WIDTH: 'sidebarWidth',
+	SELECTED_FOLDER_ID: 'selectedFolderId',
 } );
 
 const PREF_REST_PATH = '/foldsnap/v1/preferences';
 const PREF_DEBOUNCE_MS = 800;
-const CACHE_KEY = 'foldsnap.preferencesCache';
 
-const DEFAULTS = Object.freeze( {
-	[ PREF_KEYS.EXPANDED_FOLDERS ]: [],
-	[ PREF_KEYS.ALL_MEDIA ]: false,
-} );
+/**
+ * Read the preferences blob localised by PHP at enqueue time.
+ *
+ * @return {Object} Map of key → value, complete with all declared keys.
+ */
+export const getInitialPreferences = () => window.foldsnap_data.preferences;
 
-const readCache = () => {
-	try {
-		const raw = window.localStorage?.getItem( CACHE_KEY );
-		if ( ! raw ) {
-			return {};
-		}
-		const parsed = JSON.parse( raw );
-		if (
-			! parsed ||
-			typeof parsed !== 'object' ||
-			Array.isArray( parsed )
-		) {
-			return {};
-		}
-		return parsed;
-	} catch {
-		return {};
-	}
-};
-
-const writeCache = ( map ) => {
-	try {
-		window.localStorage?.setItem( CACHE_KEY, JSON.stringify( map ) );
-	} catch {
-		// localStorage unavailable / quota — degrade silently.
-	}
-};
-
-// Per-key debounce: a save on key A never cancels a pending save on key B.
 const pendingTimers = new Map();
 const pendingValues = new Map();
 
@@ -58,8 +32,6 @@ const flushKey = async ( key ) => {
 	pendingValues.delete( key );
 	pendingTimers.delete( key );
 	try {
-		// Promise.resolve wraps the transport so a mock returning undefined
-		// (jest.fn default) still produces a thenable.
 		await Promise.resolve(
 			apiFetch( {
 				path: `${ PREF_REST_PATH }/${ encodeURIComponent( key ) }`,
@@ -68,67 +40,18 @@ const flushKey = async ( key ) => {
 			} )
 		);
 	} catch {
-		// Server-side failure: cache already holds the new value, so the UI
-		// state is not lost.
+		// Server-side failure: next page load will re-fetch the authoritative
+		// values from PHP, so a missed PUT is recovered automatically.
 	}
 };
 
 /**
- * Synchronous read of cached preferences, filled with defaults for any
- * missing key. Never throws.
- *
- * @return {Object} Map of key → value, complete with all declared keys.
- */
-export const readCachedPreferences = () => {
-	const cache = readCache();
-	const result = { ...DEFAULTS };
-	for ( const key of Object.keys( DEFAULTS ) ) {
-		if ( Object.prototype.hasOwnProperty.call( cache, key ) ) {
-			result[ key ] = cache[ key ];
-		}
-	}
-	return result;
-};
-
-/**
- * Fetch preferences from the server, refresh the cache, and return the
- * complete map. Falls back to cache (or defaults) on any error.
- *
- * @return {Promise<Object>} Preferences map.
- */
-export const loadPreferences = async () => {
-	try {
-		const response = await apiFetch( { path: PREF_REST_PATH } );
-		const server = response?.preferences;
-		if ( ! server || typeof server !== 'object' ) {
-			return readCachedPreferences();
-		}
-		// Whitelist against DEFAULTS so an unknown key from the server (e.g.
-		// a stale field after a schema removal) cannot leak into the store.
-		const merged = { ...DEFAULTS };
-		for ( const key of Object.keys( DEFAULTS ) ) {
-			if ( Object.prototype.hasOwnProperty.call( server, key ) ) {
-				merged[ key ] = server[ key ];
-			}
-		}
-		writeCache( merged );
-		return merged;
-	} catch {
-		return readCachedPreferences();
-	}
-};
-
-/**
- * Save a single preference: write-through cache + per-key debounced PUT.
+ * Save a single preference: per-key debounced PUT to the REST endpoint.
  *
  * @param {string} key   Preference key (must be a value of PREF_KEYS).
  * @param {*}      value New value (server validates type).
  */
 export const savePreference = ( key, value ) => {
-	const cache = readCache();
-	cache[ key ] = value;
-	writeCache( cache );
-
 	pendingValues.set( key, value );
 	const existing = pendingTimers.get( key );
 	if ( existing ) {

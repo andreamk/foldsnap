@@ -18,6 +18,11 @@ export function* getRootFolders() {
 	};
 	if ( Array.isArray( persisted ) ) {
 		for ( const id of persisted ) {
+			// Root was just fetched above; the persisted list normally
+			// includes it as the default-expanded folder.
+			if ( id === ROOT_PARENT_ID ) {
+				continue;
+			}
 			yield* fetchChildren( id );
 		}
 	}

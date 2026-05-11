@@ -1,78 +1,65 @@
 # UI Preferences
 
-Per-user preferences for the admin UI (currently: which folders are expanded in the sidebar, and whether the "All Media" override is on). Stored server-side so they follow the user across browsers and devices, with a localStorage cache for instant boot.
-
-## Why a dedicated subsystem
-
-Before this layer existed each preference was wired ad-hoc to `localStorage`, which made cross-device sync impossible and forced every new preference to reinvent the same read/write pattern. Centralising the schema in a single PHP class and exposing a tiny REST surface keeps per-key code in consumers down to one line of read and one line of write.
-
-Standard WordPress packages were considered (`@wordpress/preferences`, `@wordpress/preferences-persistence`) and rejected: their footprint and indirection are disproportionate for the handful of keys this plugin actually needs.
+Per-user preferences for the admin UI. Stored server-side so they follow the user across browsers and devices. PHP ships the current values into the page at enqueue time, so the JS bundle has them synchronously at boot with zero round trips and no client-side cache.
 
 ## Storage
 
-| Layer        | Where                                                | Source of truth |
-|--------------|------------------------------------------------------|-----------------|
-| Server       | `user_meta` row keyed by `foldsnap_opt_preferences` (the entire map is stored as a single serialised array) | Yes |
-| Client cache | `localStorage` key `foldsnap.preferencesCache` (JSON-encoded map) | No — refreshed from server |
+A single `user_meta` row carries the whole preferences map as one serialised array. Reads happen once per boot; writes merge per-key into the stored map so unrelated keys are preserved untouched. This keeps cross-key consistency trivial and avoids one `user_meta` row per preference.
 
-The whole preferences map sits in one `user_meta` entry so a hydrate is one read and a write is atomic. Per-key writes merge on top of the stored map to protect unrelated keys.
+## Schema
 
-## Declared keys
+The schema is **closed**: every preference is declared in `UserPreferencesService::SCHEMA` with its type and default (plus optional range bounds for numeric types). Unknown keys are rejected at the boundary. The schema file in the service is the single source of truth — we deliberately do **not** mirror the field list in this doc, so adding or renaming a preference is a one-place change.
 
-Schema lives inside `UserPreferencesService::SCHEMA` (`src/Services/UserPreferencesService.php`). The current set:
+Each declared key carries:
 
-| Key               | Type        | Default | Used by                          |
-|-------------------|-------------|---------|----------------------------------|
-| `expandedFolders` | `int_array` | `[]`    | Sidebar tree expansion state     |
-| `allMedia`        | `bool`      | `false` | Sidebar "All Media" override toggle |
+- a **type** (e.g. boolean, bounded integer, array of integers),
+- a **default**, returned for any user who never wrote that key,
+- optional **range bounds** for numeric types.
 
-Supported type tokens: `bool`, `int_array`. (`int` and `string` are reserved for future keys; their coerce branches will be added when first needed.)
+## Coercion
 
-### Coercion rules
+Every write goes through the service's coercion step. The contract:
 
-- `bool` — `filter_var(..., FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE)`. Accepts `true`/`false`, `1`/`0`, `'true'`/`'false'`, `'yes'`/`'no'`, `'on'`/`'off'`. Rejects `null` and non-coercible strings.
-- `int_array` — root must be an array; each element is cast to int and dropped if it is non-numeric, zero, or negative; duplicates are removed. The same filter rules are mirrored in the JS layer so a round-trip is symmetric.
+- Numeric values are cast and, if the schema declares bounds, **clamped silently** into range — out-of-range input is corrected, not rejected, so an outdated client can't poison the store.
+- Collection values drop elements that can't be coerced to the declared element type.
+- Values that can't be coerced at all are **rejected**: the REST endpoint returns 400, the service's setter returns `false`. The stored map is never partially updated.
 
-A value that fails its type's coercion is rejected (the REST endpoint returns 400, the service's `set()` returns `false`). This is deliberate: preferences come from code that serialises typed values, so a mismatch is a bug, not a soft user mistake to silently fix.
+The supported type set is open-ended — new types are added to the service's coercion switch as new preferences need them.
 
 ## REST endpoints
 
-See [02_1_API_rest-endpoints.md](02_1_API_rest-endpoints.md#preferences) for the full contract. Quick reference:
+Two endpoints under `/foldsnap/v1/preferences`, both requiring `upload_files` and scoped implicitly to the current user (no user ID in the URL):
 
-- `GET  /foldsnap/v1/preferences` — full map (defaults filled in for unset keys).
-- `PUT  /foldsnap/v1/preferences/{key}` — body `{ "value": <any> }` → 200 with the coerced value, or 400 (`foldsnap_unknown_preference` / `foldsnap_invalid_preference_value`).
+- **GET** returns the full map with defaults filled in for unset keys, so the client never has to handle a missing field.
+- **PUT** on a single key writes that one preference. The response carries the coerced value actually persisted (so the client sees the effect of any clamping).
 
-Both endpoints require `upload_files` and target the current user implicitly.
+Errors use two distinct codes — one for unknown keys, one for invalid values — so the client can tell a schema-mismatch from a coercion failure. Full contract: [REST endpoints › Preferences](02_1_API_rest-endpoints.md#preferences).
+
+The GET endpoint exists for completeness but is **not used at boot**, because the same map is already on the page.
+
+## Boot path
+
+`MediaLibraryController` reads the full preferences map for the current user and ships it onto the page as a global JS variable, attached to the admin script as an inline `'before'` payload. The bundle reads that variable synchronously at module load — no fetch, no race, no flash of default state.
 
 ## Client module
 
-`template/js/preferences.js` — a single file, no sub-folders. Public API:
+`template/js/preferences.js` is the only place in the JS bundle that knows about the preferences subsystem. It owns:
 
-| Export                     | Purpose |
-|----------------------------|---------|
-| `PREF_KEYS`                | Frozen object with the canonical key strings |
-| `readCachedPreferences()`  | Synchronous read of the cache, filled with defaults. Used by the store at boot for an instant first render. |
-| `loadPreferences()`        | Async fetch from the REST endpoint. Refreshes the cache. On error, returns the cache (or defaults). |
-| `savePreference(key, val)` | Write-through cache (immediate) + per-key debounced PUT (800 ms). Server failures are swallowed silently — the cache already holds the new value, so UI state is not lost. |
-| `flushPendingSaves()`      | Forces every pending PUT to fire immediately. Test helper. |
+- a frozen map of **canonical key constants** (must match the PHP schema by string value),
+- a **synchronous read** of the localised payload, used at boot,
+- a **per-key debounced PUT** for writes (multiple updates to the same key within the debounce window collapse into one request),
+- a test helper that flushes pending writes.
 
-The store (`template/js/store/index.js`) wires the bridge in three steps:
-
-1. Hydrate synchronously from `readCachedPreferences()` so the very first render shows the user's expanded folders.
-2. Kick off `loadPreferences()` in the background; if the server map differs from the cache, dispatch a second hydrate.
-3. Subscribe to store changes and route them through `savePreference`.
+The Redux store hydrates from the synchronous read at registration time and routes subsequent changes through the debounced writer. One preference (`sidebarWidth`) bypasses the store entirely because no in-app consumer reads the live value — see [React UI Architecture › Persistence](04_1_UI_react-architecture.md#persistence) for the rationale.
 
 ## Adding a new preference
 
-Three edits:
+1. **Declare it in the PHP schema** with its type, default, and (if numeric) bounds. If the type isn't yet supported, add a coercion branch to the service.
+2. **Add the matching key constant** on the JS side so consumers reference it by name, not by string literal.
 
-1. **PHP schema** — add an entry to `UserPreferencesService::SCHEMA` with `type` and `default`.
-2. **JS key constant** — add the key to `PREF_KEYS` in `template/js/preferences.js` and to `DEFAULTS`.
-3. **Consumer wiring** — in the relevant store/component, read with `readCachedPreferences()[PREF_KEYS.X]` (boot) and write with `savePreference(PREF_KEYS.X, value)`.
-
-If the new key needs a type that the service doesn't yet support, add the branch in `UserPreferencesService::coerce()`.
+That's it. No doc edit, no REST registration, no migration: the GET/PUT endpoints already serve every declared key, and existing users without a stored value see the declared default on first read.
 
 ## Limitations
 
-- The PUT debounce is 800 ms. Closing the tab during that window means the cache holds the new value but the server doesn't see it until the next successful boot reconciles via `loadPreferences()`. Acceptable for UI state; not suitable for anything safety-critical.
-- Cross-tab sync happens at boot only (the second tab picks up the new server values when it loads `loadPreferences()`). No real-time `BroadcastChannel` wiring.
+- **Debounced writes.** Closing the tab before the debounce window elapses drops that pending write. Acceptable for transient UI state (next boot reads the previously persisted value); not suitable for preferences that must be durable on every keystroke.
+- **No cross-tab live sync.** A second tab picks up new values only when it boots. There is no `BroadcastChannel` or similar mechanism — the trade-off is intentional given the use case (UI state, not collaborative data).

@@ -75,7 +75,7 @@ class MediaLibraryControllerTests extends WP_UnitTestCase
     }
 
     /**
-     * Test enqueueAssets enqueues script and localizes data on upload screen
+     * Test enqueueAssets enqueues script and injects the data blob on upload screen
      *
      * @return void
      */
@@ -91,11 +91,15 @@ class MediaLibraryControllerTests extends WP_UnitTestCase
 
         /** @var \WP_Scripts $wp_scripts */
         global $wp_scripts;
-        $scriptData = $wp_scripts->get_data('foldsnap-admin', 'data');
+        $beforeScripts = $wp_scripts->get_data('foldsnap-admin', 'before');
 
-        $this->assertIsString($scriptData);
-        $this->assertStringContainsString('foldsnap_data', $scriptData);
-        $this->assertStringContainsString('restUrl', $scriptData);
+        $this->assertIsArray($beforeScripts);
+        $joined = implode("\n", $beforeScripts);
+        $this->assertStringContainsString('foldsnap_data', $joined);
+        $this->assertStringContainsString('restUrl', $joined);
+        $this->assertStringContainsString('preferences', $joined);
+        $this->assertStringContainsString('sidebarWidthMin', $joined);
+        $this->assertStringContainsString('sidebarWidthMax', $joined);
     }
 
     /**

@@ -65,7 +65,7 @@ The full request cycle for an admin page is driven by `AbstractSinglePageControl
    - `runActions()` — find the matching `PageAction` for `?action=…` and execute it; capture errors into `actionsError` / `errorMessage`.
 3. **`render()`** — fires `foldsnap_before_render_page_{pageSlug}`, renders the standard envelope, fires `foldsnap_render_page_content_{pageSlug}` (where concrete controllers attach their body), then `foldsnap_after_render_page_{pageSlug}`.
 
-`AbstractMenuPageController::render()` adds the `page/page_header`, `parts/messages`, body header (default `parts/admin_headers/wpbody_header`), `parts/tabs_menu_l3`, and `page/page_footer` templates around the content hook.
+`AbstractMenuPageController::render()` wraps the content hook with the standard page envelope (header, message area, body header, level-3 tabs menu, footer). The exact template slugs are defined inside the abstract controller and can be overridden by subclassing.
 
 ### Page actions (`PageAction`)
 
@@ -73,9 +73,9 @@ The full request cycle for an admin page is driven by `AbstractSinglePageControl
 
 ### Concrete controller: `MainPageController`
 
-`src/Controllers/MainPageController.php` registers a single submenu under `upload.php` (Media → FoldSnap), titled "FoldSnap", requiring `manage_options`. It hooks `foldsnap_render_page_content_foldsnap` to render `page/settings`, and overrides `pageScripts()` to enqueue the settings bundle (`assets/js/foldsnap-settings.js`) and `pageStyles()` to enqueue the matching stylesheet (`assets/css/foldsnap-settings.css`).
+`MainPageController` registers a single submenu under `upload.php` (Media → FoldSnap), gated by `manage_options`. It hooks the page-content render filter to emit its settings template, and overrides `pageScripts()` / `pageStyles()` to enqueue the matching JS bundle and stylesheet. Asset handles and template slug are encapsulated inside the controller.
 
-This is currently the **only** menu controller. The framework supports more — additional controllers register themselves through the `foldsnap_menu_pages` filter — but FoldSnap's UI lives inside the WordPress media library and reaches the React app from there, not through a dedicated plugin page.
+The framework is designed to host many menu controllers — additional ones register themselves through the `foldsnap_menu_pages` filter — but FoldSnap's primary UI lives inside the WordPress media library and reaches the React app from there, so the Settings page is a deliberately thin host for admin-only maintenance tools rather than the main entry point.
 
 ### Non-page controllers
 
@@ -133,7 +133,7 @@ After a child finishes rendering, the parent's `renderData` is restored — nest
 - The value is genuinely global (e.g. `pageTitle`, `actions`, `currentLevelSlugs`).
 - The code has no access to the `render()` call (e.g. data prepared in `setTemplateData()` or `runActions()`, both of which run before `render()`).
 
-`AbstractSinglePageController` sets these globals automatically: `pageTitle`, `currentLevelSlugs`, `currentInnerPage`, `actions`, `actionsError`, `errorMessage`, `successMessage`. `AbstractMenuPageController` adds `menuItemsL2`, `menuItemsL3`, `currentSubMenuObj`.
+The abstract controllers set a handful of globals automatically as part of `run()`/`render()`: page identity (title, level slugs, inner page), the action dispatch results (success/error messages, the `actions` map), and — for menu controllers — the resolved sub-menu shape. Concrete controllers don't push these themselves; they consume them through `$tplMng->getDataValue*()` getters. The exact key names are declared inside the base controllers.
 
 ### Templates must not contain business logic
 

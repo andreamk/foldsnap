@@ -41,8 +41,10 @@ class UserPreferencesServiceTests extends WP_UnitTestCase
     {
         $defaults = $this->service->getDefaults();
 
-        $this->assertSame([], $defaults['expandedFolders']);
+        $this->assertSame([0], $defaults['expandedFolders']);
         $this->assertFalse($defaults['allMedia']);
+        $this->assertSame(280, $defaults['sidebarWidth']);
+        $this->assertSame(0, $defaults['selectedFolderId']);
     }
 
     /**
@@ -54,6 +56,8 @@ class UserPreferencesServiceTests extends WP_UnitTestCase
     {
         $this->assertTrue($this->service->isKnownKey('expandedFolders'));
         $this->assertTrue($this->service->isKnownKey('allMedia'));
+        $this->assertTrue($this->service->isKnownKey('sidebarWidth'));
+        $this->assertTrue($this->service->isKnownKey('selectedFolderId'));
         $this->assertFalse($this->service->isKnownKey('nonexistent'));
     }
 
@@ -66,8 +70,9 @@ class UserPreferencesServiceTests extends WP_UnitTestCase
     {
         $all = $this->service->getAll($this->userId);
 
-        $this->assertSame([], $all['expandedFolders']);
+        $this->assertSame([0], $all['expandedFolders']);
         $this->assertFalse($all['allMedia']);
+        $this->assertSame(0, $all['selectedFolderId']);
     }
 
     /**
@@ -108,7 +113,7 @@ class UserPreferencesServiceTests extends WP_UnitTestCase
         $all = $this->service->getAll($this->userId);
 
         $this->assertTrue($all['allMedia']);
-        $this->assertSame([], $all['expandedFolders']);
+        $this->assertSame([0], $all['expandedFolders']);
     }
 
     /**
@@ -190,7 +195,7 @@ class UserPreferencesServiceTests extends WP_UnitTestCase
     }
 
     /**
-     * Test int_array silently filters non-numeric, zero and negative entries
+     * Test int_array silently filters non-numeric and negative entries (0 is valid: it is Root's ID)
      *
      * @return void
      */
@@ -199,7 +204,7 @@ class UserPreferencesServiceTests extends WP_UnitTestCase
         $ok = $this->service->set($this->userId, 'expandedFolders', [1, 'abc', 0, -3, '5']);
 
         $this->assertTrue($ok);
-        $this->assertSame([1, 5], $this->service->get($this->userId, 'expandedFolders'));
+        $this->assertSame([1, 0, 5], $this->service->get($this->userId, 'expandedFolders'));
     }
 
     /**
@@ -242,6 +247,97 @@ class UserPreferencesServiceTests extends WP_UnitTestCase
     }
 
     /**
+     * Test int coercion accepts a numeric value within range
+     *
+     * @return void
+     */
+    public function test_set_int_within_range_persists_as_is(): void
+    {
+        $ok = $this->service->set($this->userId, 'sidebarWidth', 320);
+
+        $this->assertTrue($ok);
+        $this->assertSame(320, $this->service->get($this->userId, 'sidebarWidth'));
+    }
+
+    /**
+     * Test int coercion clamps a value below the declared min
+     *
+     * @return void
+     */
+    public function test_set_int_below_min_is_clamped_to_min(): void
+    {
+        $ok = $this->service->set($this->userId, 'sidebarWidth', 100);
+
+        $this->assertTrue($ok);
+        $this->assertSame(200, $this->service->get($this->userId, 'sidebarWidth'));
+    }
+
+    /**
+     * Test int coercion clamps a value above the declared max
+     *
+     * @return void
+     */
+    public function test_set_int_above_max_is_clamped_to_max(): void
+    {
+        $ok = $this->service->set($this->userId, 'sidebarWidth', 9000);
+
+        $this->assertTrue($ok);
+        $this->assertSame(600, $this->service->get($this->userId, 'sidebarWidth'));
+    }
+
+    /**
+     * Test int coercion accepts numeric strings
+     *
+     * @return void
+     */
+    public function test_set_int_accepts_numeric_string(): void
+    {
+        $ok = $this->service->set($this->userId, 'sidebarWidth', '350');
+
+        $this->assertTrue($ok);
+        $this->assertSame(350, $this->service->get($this->userId, 'sidebarWidth'));
+    }
+
+    /**
+     * Test int coercion rejects non-numeric values
+     *
+     * @return void
+     */
+    public function test_set_int_with_non_numeric_returns_false(): void
+    {
+        $ok = $this->service->set($this->userId, 'sidebarWidth', 'wide');
+
+        $this->assertFalse($ok);
+        $this->assertSame(280, $this->service->get($this->userId, 'sidebarWidth'));
+    }
+
+    /**
+     * Test selectedFolderId roundtrip with Root (0)
+     *
+     * @return void
+     */
+    public function test_set_selected_folder_id_accepts_zero(): void
+    {
+        $ok = $this->service->set($this->userId, 'selectedFolderId', 0);
+
+        $this->assertTrue($ok);
+        $this->assertSame(0, $this->service->get($this->userId, 'selectedFolderId'));
+    }
+
+    /**
+     * Test selectedFolderId rejects negative IDs (clamped to min)
+     *
+     * @return void
+     */
+    public function test_set_selected_folder_id_clamps_negative(): void
+    {
+        $ok = $this->service->set($this->userId, 'selectedFolderId', -5);
+
+        $this->assertTrue($ok);
+        $this->assertSame(0, $this->service->get($this->userId, 'selectedFolderId'));
+    }
+
+    /**
      * Test that two users have independent preference storage
      *
      * @return void
@@ -253,6 +349,6 @@ class UserPreferencesServiceTests extends WP_UnitTestCase
         $this->service->set($this->userId, 'expandedFolders', [9, 9, 9]);
 
         $this->assertSame([9], $this->service->get($this->userId, 'expandedFolders'));
-        $this->assertSame([], $this->service->get($otherUserId, 'expandedFolders'));
+        $this->assertSame([0], $this->service->get($otherUserId, 'expandedFolders'));
     }
 }

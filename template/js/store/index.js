@@ -13,8 +13,7 @@ import * as selectors from './selectors';
 import * as resolvers from './resolvers';
 import controls from './controls';
 import {
-	readCachedPreferences,
-	loadPreferences,
+	getInitialPreferences,
 	savePreference,
 	PREF_KEYS,
 } from '../preferences';
@@ -29,63 +28,24 @@ const store = createReduxStore( STORE_NAME, {
 
 register( store );
 
-const arraysEqual = ( a, b ) => {
-	if ( a === b ) {
-		return true;
-	}
-	if (
-		! Array.isArray( a ) ||
-		! Array.isArray( b ) ||
-		a.length !== b.length
-	) {
-		return false;
-	}
-	for ( let i = 0; i < a.length; i++ ) {
-		if ( a[ i ] !== b[ i ] ) {
-			return false;
-		}
-	}
-	return true;
-};
-
-// Preferences bridge: sync hydrate from cache, async refresh from server,
-// subscriber mirrors changes back via debounced PUT. Window-guarded so the
-// module stays importable in unit tests.
 if ( typeof window !== 'undefined' ) {
-	const cached = readCachedPreferences();
+	if ( ! window.foldsnap_data ) {
+		throw new Error(
+			'foldsnap_data is missing — wp_add_inline_script did not run for foldsnap-admin'
+		);
+	}
+
+	const initial = getInitialPreferences();
 	dispatch( STORE_NAME ).hydrate( {
-		expandedIds: cached[ PREF_KEYS.EXPANDED_FOLDERS ],
-		allMediaActive: cached[ PREF_KEYS.ALL_MEDIA ],
+		expandedIds: initial[ PREF_KEYS.EXPANDED_FOLDERS ],
+		allMediaActive: initial[ PREF_KEYS.ALL_MEDIA ],
+		selectedFolderId: initial[ PREF_KEYS.SELECTED_FOLDER_ID ],
 	} );
 
 	let lastExpandedIds = select( STORE_NAME ).getExpandedIds?.() ?? [];
 	let lastAllMediaActive = select( STORE_NAME ).isAllMediaActive?.() ?? false;
-
-	loadPreferences()
-		.then( ( server ) => {
-			const serverExpanded = server[ PREF_KEYS.EXPANDED_FOLDERS ];
-			const serverAllMedia = server[ PREF_KEYS.ALL_MEDIA ];
-			const currentExpanded = select( STORE_NAME ).getExpandedIds() ?? [];
-			const currentAllMedia =
-				select( STORE_NAME ).isAllMediaActive() ?? false;
-			if (
-				! arraysEqual( serverExpanded, currentExpanded ) ||
-				serverAllMedia !== currentAllMedia
-			) {
-				// Adopt the server values as the new baseline BEFORE the
-				// hydrate dispatch fires the subscriber, so the subscriber
-				// doesn't echo the server's own values back as a PUT.
-				lastExpandedIds = serverExpanded;
-				lastAllMediaActive = serverAllMedia;
-				dispatch( STORE_NAME ).hydrate( {
-					expandedIds: serverExpanded,
-					allMediaActive: serverAllMedia,
-				} );
-			}
-		} )
-		.catch( () => {
-			// Network failure / REST down: keep the cache-hydrated state.
-		} );
+	let lastSelectedFolderId =
+		select( STORE_NAME ).getSelectedFolderId?.() ?? null;
 
 	subscribe( () => {
 		const expandedIds = select( STORE_NAME ).getExpandedIds?.();
@@ -101,6 +61,15 @@ if ( typeof window !== 'undefined' ) {
 		) {
 			lastAllMediaActive = allMediaActive;
 			savePreference( PREF_KEYS.ALL_MEDIA, allMediaActive );
+		}
+
+		const selectedFolderId = select( STORE_NAME ).getSelectedFolderId?.();
+		if (
+			typeof selectedFolderId === 'number' &&
+			selectedFolderId !== lastSelectedFolderId
+		) {
+			lastSelectedFolderId = selectedFolderId;
+			savePreference( PREF_KEYS.SELECTED_FOLDER_ID, selectedFolderId );
 		}
 	}, STORE_NAME );
 }
