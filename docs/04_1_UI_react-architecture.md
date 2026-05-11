@@ -37,8 +37,8 @@ The store does not hold a fully expanded tree. Children are loaded lazily, one p
 | `loadedParents`      | `number[]`                             | Parents whose first page has been fetched          |
 | `fetchingParents`    | `number[]`                             | Parents currently in flight (for de-duping)        |
 | `parentsPagination`  | `{ [parentId]: { page, totalPages } }` | Per-parent pagination cursor for "load more"       |
-| `expandedIds`        | `number[]`                             | Persisted via the preferences subsystem (server-synced, `localStorage`-cached) — see [UI Preferences](04_2_UI_preferences.md) |
-| `selectedFolderId`   | `number\|null`                         |                                                    |
+| `expandedIds`        | `number[]`                             | Persisted via the preferences subsystem (server-synced) — see [UI Preferences](04_2_UI_preferences.md) |
+| `selectedFolderId`   | `number\|null`                         | Currently selected folder; persisted via the preferences subsystem so deep-linked or restored sessions reopen on the last selection |
 | `allMediaActive`     | `boolean`                              | Bypass mode: sidebar inert, grid unfiltered        |
 | `searchQuery`        | `string`                               |                                                    |
 | `searchResults`      | `{ folder, breadcrumb }[]`             | One entry per match                                |
@@ -87,15 +87,16 @@ Direct slice access (`getFolderById`, `getChildrenOf`, `getExpandedIds`, `isFold
 
 ### Persistence
 
-`expandedIds` and `allMediaActive` are persisted through the **preferences subsystem** ([`template/js/preferences.js`](../template/js/preferences.js)), which keeps a server-side source of truth in user_meta and a `localStorage` cache for instant boot. Full design and REST contract: [UI Preferences](04_2_UI_preferences.md).
+`expandedIds`, `allMediaActive`, and `selectedFolderId` are persisted through the **preferences subsystem** ([`template/js/preferences.js`](../template/js/preferences.js)), which uses `user_meta` as the single source of truth. The full server-side map is shipped into the page at enqueue time via `wp_add_inline_script` (key `window.foldsnap_data.preferences`), so the bundle has the user's last state synchronously at module load — no fetch, no cache, no race. Full design and REST contract: [UI Preferences](04_2_UI_preferences.md).
 
-The store ([`template/js/store/index.js`](../template/js/store/index.js)) wires the bridge in three steps:
+The store ([`template/js/store/index.js`](../template/js/store/index.js)) wires the bridge in two steps:
 
-1. **Sync hydrate** at module load: `readCachedPreferences()` reads the cache and a single `HYDRATE` action seeds `expandedIds` + `allMediaActive` so the very first render reflects the user's last state.
-2. **Async reconcile**: `loadPreferences()` fetches the server map; if it differs from the cache, a second `HYDRATE` is dispatched. The subscriber's "last seen" baseline is updated *before* this dispatch so the server-supplied values are not echoed back as a redundant PUT.
-3. **Subscriber**: every store change is compared against the baseline and routed through `savePreference()` (write-through cache + per-key debounced PUT).
+1. **Hydrate** at module load: `getInitialPreferences()` reads `window.foldsnap_data.preferences` and a single `HYDRATE` action seeds `expandedIds`, `allMediaActive`, and `selectedFolderId` so the very first render reflects the user's last state.
+2. **Subscriber**: every store change is compared against a per-slice "last seen" baseline (initialized from the hydrated state, so the hydrated values themselves are never echoed back) and routed through `savePreference()` (per-key debounced PUT).
 
-`localStorage` and REST failures degrade silently — the store stays usable; the cache absorbs the new value and either the next boot or the next online PUT reconciles.
+REST failures degrade silently — the store stays usable; the next successful PUT reconciles.
+
+`sidebarWidth` is the one preference that *does not* flow through the store. `FolderSidebar` reads it directly via `getInitialPreferences()` at mount time (it only needs the initial size for `ResizableBox`) and writes it via `savePreference()` in `onResizeStop`. The asymmetry is deliberate: there is no in-app consumer for the live width value, so storing it in the Redux state would only add ceremony.
 
 `bootFromUrl` (called once from `index.js`) finishes the hydration: after selecting the URL folder and expanding its ancestor path, it walks every persisted-expanded id and fires `fetchChildrenBatch` for those whose children are not yet loaded. Without this, the chevron icon would render in its expanded state but the children list would stay empty until the user collapsed and re-expanded the row.
 
@@ -138,7 +139,13 @@ The native WordPress media grid renders Backbone-managed `<li class="attachment"
 
 When `allMediaActive` is on, the orchestrator passes `null` as the effective folder so the grid is unfiltered.
 
-URL → store bootstrap is performed by the `bootFromUrl` action (dispatched once from `index.js` before the bridge runs): it reads `foldsnap_folder_id` from `window.location.search` and selects that folder, defaulting to root (id 0) when the parameter is absent so the grid is always filtered by some folder.
+URL → store bootstrap is performed by the `bootFromUrl` action (dispatched once from `index.js` before the bridge runs). Selection priority is:
+
+1. `foldsnap_folder_id` from `window.location.search` (deep link — always wins so shared links land on the intended folder),
+2. the persisted `selectedFolderId` preference (so a returning user reopens on their last selection),
+3. root (id 0), so the grid is always filtered by some folder.
+
+If the chosen folder no longer exists (deleted by another session), `bootFromUrl` falls back to Root.
 
 ## Build pipeline
 

@@ -97,6 +97,9 @@ class MediaLibraryControllerTests extends WP_UnitTestCase
         $joined = implode("\n", $beforeScripts);
         $this->assertStringContainsString('foldsnap_data', $joined);
         $this->assertStringContainsString('restUrl', $joined);
+        $this->assertStringContainsString('preferences', $joined);
+        $this->assertStringContainsString('sidebarWidthMin', $joined);
+        $this->assertStringContainsString('sidebarWidthMax', $joined);
     }
 
     /**

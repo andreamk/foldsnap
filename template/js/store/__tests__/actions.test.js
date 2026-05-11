@@ -880,8 +880,10 @@ describe( 'bootFromUrl', () => {
 	it( 'GC drops persisted-expanded ids whose folders no longer exist', () => {
 		setLocationSearch( '' );
 		const yields = drive( bootFromUrl(), [
-			[], // re-hydrate getExpandedIds (initial)
-			[ 0, 11, 999 ], // GC getExpandedIds: 11 valid, 999 deleted
+			[ 0, 11, 999 ], // re-hydrate getExpandedIds (also reused for GC)
+			true, // isFolderLoaded(0)
+			true, // isFolderLoaded(11)
+			true, // isFolderLoaded(999)
 			folderObj( 11 ), // GC getFolderById(11) → exists
 			null, // GC getFolderById(999) → missing
 		] );

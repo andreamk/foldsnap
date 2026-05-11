@@ -618,13 +618,11 @@ export function* bootFromUrl() {
 	// user). After the batch fetch, any persisted ID still missing from
 	// foldersById is stale — drop it from the persisted set so the cache
 	// stays clean across reloads. Root (0) is always present.
-	const expandedAfterFetch = yield {
-		type: 'SELECT',
-		selector: 'getExpandedIds',
-		args: [],
-	};
+	// `expandedIds` isn't mutated by fetchChildrenBatch, so reuse the value
+	// read above instead of re-selecting.
+	const expandedAfterFetch = persistedExpanded ?? [];
 	const cleaned = [];
-	for ( const id of expandedAfterFetch ?? [] ) {
+	for ( const id of expandedAfterFetch ) {
 		if ( id === 0 ) {
 			cleaned.push( id );
 			continue;
@@ -638,7 +636,7 @@ export function* bootFromUrl() {
 			cleaned.push( id );
 		}
 	}
-	if ( cleaned.length !== ( expandedAfterFetch ?? [] ).length ) {
+	if ( cleaned.length !== expandedAfterFetch.length ) {
 		yield {
 			type: ACTION_TYPES.SET_EXPANDED_IDS,
 			ids: cleaned,

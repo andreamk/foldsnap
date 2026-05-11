@@ -29,10 +29,17 @@ const store = createReduxStore( STORE_NAME, {
 register( store );
 
 if ( typeof window !== 'undefined' ) {
+	if ( ! window.foldsnap_data ) {
+		throw new Error(
+			'foldsnap_data is missing — wp_add_inline_script did not run for foldsnap-admin'
+		);
+	}
+
 	const initial = getInitialPreferences();
 	dispatch( STORE_NAME ).hydrate( {
 		expandedIds: initial[ PREF_KEYS.EXPANDED_FOLDERS ],
 		allMediaActive: initial[ PREF_KEYS.ALL_MEDIA ],
+		selectedFolderId: initial[ PREF_KEYS.SELECTED_FOLDER_ID ],
 	} );
 
 	let lastExpandedIds = select( STORE_NAME ).getExpandedIds?.() ?? [];

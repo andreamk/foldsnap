@@ -190,6 +190,102 @@ class UserPreferencesRestControllerTests extends WP_UnitTestCase
     }
 
     /**
+     * Test PUT on int sidebarWidth within range round-trips unchanged
+     *
+     * @return void
+     */
+    public function test_put_int_sidebar_width_within_range_is_preserved(): void
+    {
+        $request = new WP_REST_Request('PUT', '/foldsnap/v1/preferences/sidebarWidth');
+        $request->set_param('value', 400);
+        $response = $this->dispatchRequest($request);
+        $data     = $response->get_data();
+
+        $this->assertSame(200, $response->get_status());
+        $this->assertSame(400, $data['value']);
+    }
+
+    /**
+     * Test PUT on int sidebarWidth below min is clamped to min
+     *
+     * @return void
+     */
+    public function test_put_int_sidebar_width_below_min_is_clamped(): void
+    {
+        $request = new WP_REST_Request('PUT', '/foldsnap/v1/preferences/sidebarWidth');
+        $request->set_param('value', 50);
+        $response = $this->dispatchRequest($request);
+        $data     = $response->get_data();
+
+        $this->assertSame(200, $response->get_status());
+        $this->assertSame(UserPreferencesService::SIDEBAR_WIDTH_MIN, $data['value']);
+    }
+
+    /**
+     * Test PUT on int sidebarWidth above max is clamped to max
+     *
+     * @return void
+     */
+    public function test_put_int_sidebar_width_above_max_is_clamped(): void
+    {
+        $request = new WP_REST_Request('PUT', '/foldsnap/v1/preferences/sidebarWidth');
+        $request->set_param('value', 9999);
+        $response = $this->dispatchRequest($request);
+        $data     = $response->get_data();
+
+        $this->assertSame(200, $response->get_status());
+        $this->assertSame(UserPreferencesService::SIDEBAR_WIDTH_MAX, $data['value']);
+    }
+
+    /**
+     * Test PUT on int with a non-numeric value returns 400
+     *
+     * @return void
+     */
+    public function test_put_int_non_numeric_value_returns_400(): void
+    {
+        $request = new WP_REST_Request('PUT', '/foldsnap/v1/preferences/sidebarWidth');
+        $request->set_param('value', 'wide');
+        $response = $this->dispatchRequest($request);
+
+        $this->assertSame(400, $response->get_status());
+        $data = $response->get_data();
+        $this->assertSame('foldsnap_invalid_preference_value', $data['code']);
+    }
+
+    /**
+     * Test PUT on selectedFolderId with 0 (Root) is preserved
+     *
+     * @return void
+     */
+    public function test_put_int_selected_folder_id_zero_root_is_preserved(): void
+    {
+        $request = new WP_REST_Request('PUT', '/foldsnap/v1/preferences/selectedFolderId');
+        $request->set_param('value', 0);
+        $response = $this->dispatchRequest($request);
+        $data     = $response->get_data();
+
+        $this->assertSame(200, $response->get_status());
+        $this->assertSame(0, $data['value']);
+    }
+
+    /**
+     * Test PUT on selectedFolderId with a negative value is clamped to 0
+     *
+     * @return void
+     */
+    public function test_put_int_selected_folder_id_negative_is_clamped_to_zero(): void
+    {
+        $request = new WP_REST_Request('PUT', '/foldsnap/v1/preferences/selectedFolderId');
+        $request->set_param('value', -5);
+        $response = $this->dispatchRequest($request);
+        $data     = $response->get_data();
+
+        $this->assertSame(200, $response->get_status());
+        $this->assertSame(0, $data['value']);
+    }
+
+    /**
      * Test that two users see independent preferences via the REST endpoint
      *
      * @return void

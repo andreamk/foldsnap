@@ -12,9 +12,10 @@ Schema lives in `UserPreferencesService::SCHEMA` (`src/Services/UserPreferencesS
 
 | Key               | Type        | Default | Used by                          |
 |-------------------|-------------|---------|----------------------------------|
-| `expandedFolders` | `int_array` | `[0]`   | Sidebar tree expansion state. Default `[0]` means Root is expanded for new users; once the user customises the list (including collapsing Root), their choice is stored verbatim. |
-| `allMedia`        | `bool`      | `false` | Sidebar "All Media" override toggle |
-| `sidebarWidth`    | `int` (200..600) | `280` | Sidebar width in pixels (clamped server-side) |
+| `expandedFolders`  | `int_array`       | `[0]`   | Sidebar tree expansion state. Default `[0]` means Root is expanded for new users; once the user customises the list (including collapsing Root), their choice is stored verbatim. |
+| `allMedia`         | `bool`            | `false` | Sidebar "All Media" override toggle |
+| `sidebarWidth`     | `int` (200..600)  | `280`   | Sidebar width in pixels (clamped server-side) |
+| `selectedFolderId` | `int` (min 0)     | `0`     | Last-selected folder so returning sessions reopen on the same folder. Overridden by the `foldsnap_folder_id` URL parameter when present. |
 
 Supported type tokens: `bool`, `int`, `int_array`. (`string` is reserved for future keys; its coerce branch will be added when first needed.)
 
@@ -37,7 +38,7 @@ Both endpoints require `upload_files` and target the current user implicitly.
 
 ## Initial values from PHP
 
-`MediaLibraryController` localises the user's complete preferences map into `window.foldsnap_data.preferences` via `wp_localize_script`. The JS bundle reads this synchronously at boot — no fetch, no cache, no race conditions.
+`MediaLibraryController` ships the user's complete preferences map into `window.foldsnap_data.preferences` via `wp_add_inline_script` (`'before'` position, body assembled with `wp_json_encode`). The JS bundle reads this synchronously at boot — no fetch, no cache, no race conditions.
 
 ## Client module
 

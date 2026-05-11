@@ -2,12 +2,14 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useDispatch, useSelect } from '@wordpress/data';
 import FolderSidebar from '../FolderSidebar';
+import { savePreference } from '../../preferences';
 
 jest.mock( '@wordpress/data', () => ( {
 	useDispatch: jest.fn(),
 	useSelect: jest.fn(),
 } ) );
 
+const capturedResize = { onResizeStop: null };
 jest.mock( '@wordpress/components', () => ( {
 	ToggleControl: ( { label, checked, onChange } ) => (
 		<div data-testid="all-media-toggle">
@@ -19,11 +21,14 @@ jest.mock( '@wordpress/components', () => ( {
 			/>
 		</div>
 	),
-	ResizableBox: ( { children, className } ) => (
-		<div className={ className } data-testid="resizable-box">
-			{ children }
-		</div>
-	),
+	ResizableBox: ( { children, className, onResizeStop } ) => {
+		capturedResize.onResizeStop = onResizeStop;
+		return (
+			<div className={ className } data-testid="resizable-box">
+				{ children }
+			</div>
+		);
+	},
 } ) );
 
 jest.mock( '../../preferences', () => ( {
@@ -77,6 +82,8 @@ describe( 'FolderSidebar', () => {
 		} );
 		setupSelect();
 		mockOnDragEnd.mockClear();
+		capturedResize.onResizeStop = null;
+		savePreference.mockClear();
 	} );
 
 	it( 'renders FolderTree inside DndContext', () => {
@@ -188,6 +195,13 @@ describe( 'FolderSidebar', () => {
 			name: 'Photos',
 			position: 3,
 		} );
+	} );
+
+	it( 'persists sidebar width on resize stop', () => {
+		render( <FolderSidebar /> );
+		expect( typeof capturedResize.onResizeStop ).toBe( 'function' );
+		capturedResize.onResizeStop( null, null, { offsetWidth: 400 } );
+		expect( savePreference ).toHaveBeenCalledWith( 'sidebarWidth', 400 );
 	} );
 
 	it( 'ignores non-folder drag types', () => {

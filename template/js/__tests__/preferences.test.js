@@ -10,13 +10,21 @@ const reloadModule = () => {
 	preferences = require( '../preferences' );
 };
 
+let originalFoldsnapData;
+
 beforeEach( () => {
 	jest.useFakeTimers();
+	originalFoldsnapData = window.foldsnap_data;
 	reloadModule();
 } );
 
 afterEach( () => {
 	jest.useRealTimers();
+	if ( originalFoldsnapData === undefined ) {
+		delete window.foldsnap_data;
+	} else {
+		window.foldsnap_data = originalFoldsnapData;
+	}
 } );
 
 describe( 'getInitialPreferences', () => {
@@ -116,5 +124,8 @@ describe( 'PREF_KEYS', () => {
 		);
 		expect( preferences.PREF_KEYS.ALL_MEDIA ).toBe( 'allMedia' );
 		expect( preferences.PREF_KEYS.SIDEBAR_WIDTH ).toBe( 'sidebarWidth' );
+		expect( preferences.PREF_KEYS.SELECTED_FOLDER_ID ).toBe(
+			'selectedFolderId'
+		);
 	} );
 } );

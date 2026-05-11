@@ -17,6 +17,10 @@ class UserPreferencesService
     /** @var string Single user_meta key holding the whole preferences map */
     private const META_KEY = 'foldsnap_opt_preferences';
 
+    public const SIDEBAR_WIDTH_MIN     = 200;
+    public const SIDEBAR_WIDTH_MAX     = 600;
+    public const SIDEBAR_WIDTH_DEFAULT = 280;
+
     /**
      * Closed schema: every preference must be declared here.
      *
@@ -35,9 +39,9 @@ class UserPreferencesService
         ],
         'sidebarWidth'     => [
             'type'    => 'int',
-            'default' => 280,
-            'min'     => 200,
-            'max'     => 600,
+            'default' => self::SIDEBAR_WIDTH_DEFAULT,
+            'min'     => self::SIDEBAR_WIDTH_MIN,
+            'max'     => self::SIDEBAR_WIDTH_MAX,
         ],
         'selectedFolderId' => [
             'type'    => 'int',
