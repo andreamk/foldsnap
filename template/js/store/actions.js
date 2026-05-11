@@ -9,15 +9,21 @@ const apiFetch = ( request ) => ( { type: 'API_FETCH', request } );
 /**
  * Seed the store with persisted UI state.
  *
- * @param {Object}   payload                  Hydration payload.
- * @param {number[]} [payload.expandedIds]    Persisted expanded folder IDs.
- * @param {boolean}  [payload.allMediaActive] Persisted "All Media" toggle.
+ * @param {Object}   payload                    Hydration payload.
+ * @param {number[]} [payload.expandedIds]      Persisted expanded folder IDs.
+ * @param {boolean}  [payload.allMediaActive]   Persisted "All Media" toggle.
+ * @param {number}   [payload.selectedFolderId] Persisted selected folder.
  * @return {Object} Action.
  */
-export const hydrate = ( { expandedIds, allMediaActive } = {} ) => ( {
+export const hydrate = ( {
+	expandedIds,
+	allMediaActive,
+	selectedFolderId,
+} = {} ) => ( {
 	type: ACTION_TYPES.HYDRATE,
 	expandedIds,
 	allMediaActive,
+	selectedFolderId,
 } );
 
 const buildChildrenPath = ( parentIds, page, perPage ) => {
@@ -553,8 +559,9 @@ export const setAllMedia = ( active ) => ( {
 } );
 
 /**
- * Bootstrap the selected folder from the URL. Reads `foldsnap_folder_id`
- * from `window.location.search`, defaulting to root (0).
+ * Bootstrap the selected folder. Priority: URL `foldsnap_folder_id` param
+ * (deep link) → persisted preference → root (0). The URL always wins so
+ * shared links route the user where they expect.
  *
  * @return {Iterable} Action generator.
  */
@@ -562,7 +569,10 @@ export function* bootFromUrl() {
 	const urlFolderId = new URLSearchParams( window.location.search ).get(
 		'foldsnap_folder_id'
 	);
-	const folderId = urlFolderId !== null ? parseInt( urlFolderId, 10 ) : 0;
+	const folderId =
+		urlFolderId !== null
+			? parseInt( urlFolderId, 10 )
+			: window.foldsnap_data.preferences.selectedFolderId ?? 0;
 	yield setSelectedFolder( folderId );
 	yield* expandPathTo( folderId );
 

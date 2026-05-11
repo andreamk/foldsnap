@@ -23,21 +23,26 @@ class UserPreferencesService
      * @var array<string, array{type: string, default: mixed, min?: int, max?: int}>
      */
     private const SCHEMA = [
-        'expandedFolders' => [
+        'expandedFolders'  => [
             'type'    => 'int_array',
             // Root (id 0) is expanded by default so the user sees the
             // top-level folders without needing to click first.
             'default' => [0],
         ],
-        'allMedia'        => [
+        'allMedia'         => [
             'type'    => 'bool',
             'default' => false,
         ],
-        'sidebarWidth'    => [
+        'sidebarWidth'     => [
             'type'    => 'int',
             'default' => 280,
             'min'     => 200,
             'max'     => 600,
+        ],
+        'selectedFolderId' => [
+            'type'    => 'int',
+            'default' => 0,
+            'min'     => 0,
         ],
     ];
 

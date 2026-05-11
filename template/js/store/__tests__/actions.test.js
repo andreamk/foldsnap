@@ -823,4 +823,52 @@ describe( 'bootFromUrl', () => {
 			folderId: 0,
 		} );
 	} );
+
+	it( 'falls back to the persisted preference when no URL param is present', () => {
+		setLocationSearch( '' );
+		window.foldsnap_data.preferences = { selectedFolderId: 7 };
+		const yields = drive( bootFromUrl(), [
+			// expandPathTo: GET /folders/7/path
+			{
+				path: [
+					{ id: 0, parent_id: 0, is_root: true },
+					{ id: 7, parent_id: 0 },
+				],
+			},
+			[], // expandPathTo getExpandedIds
+			{ folders: [] }, // expandPathTo fetchChildrenBatch
+			[], // re-hydrate getExpandedIds → empty
+		] );
+		expect( yields ).toContainEqual( {
+			type: ACTION_TYPES.SET_SELECTED_FOLDER,
+			folderId: 7,
+		} );
+		// Restore default for following tests.
+		window.foldsnap_data.preferences = {};
+	} );
+
+	it( 'URL param wins over the persisted preference', () => {
+		setLocationSearch( '?foldsnap_folder_id=42' );
+		window.foldsnap_data.preferences = { selectedFolderId: 7 };
+		const yields = drive( bootFromUrl(), [
+			{
+				path: [
+					{ id: 0, parent_id: 0, is_root: true },
+					{ id: 42, parent_id: 0 },
+				],
+			},
+			[],
+			{ folders: [] },
+			[],
+		] );
+		expect( yields ).toContainEqual( {
+			type: ACTION_TYPES.SET_SELECTED_FOLDER,
+			folderId: 42,
+		} );
+		expect( yields ).not.toContainEqual( {
+			type: ACTION_TYPES.SET_SELECTED_FOLDER,
+			folderId: 7,
+		} );
+		window.foldsnap_data.preferences = {};
+	} );
 } );

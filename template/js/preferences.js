@@ -8,6 +8,7 @@ export const PREF_KEYS = Object.freeze( {
 	EXPANDED_FOLDERS: 'expandedFolders',
 	ALL_MEDIA: 'allMedia',
 	SIDEBAR_WIDTH: 'sidebarWidth',
+	SELECTED_FOLDER_ID: 'selectedFolderId',
 } );
 
 const PREF_REST_PATH = '/foldsnap/v1/preferences';

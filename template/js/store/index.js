@@ -37,6 +37,8 @@ if ( typeof window !== 'undefined' ) {
 
 	let lastExpandedIds = select( STORE_NAME ).getExpandedIds?.() ?? [];
 	let lastAllMediaActive = select( STORE_NAME ).isAllMediaActive?.() ?? false;
+	let lastSelectedFolderId =
+		select( STORE_NAME ).getSelectedFolderId?.() ?? null;
 
 	subscribe( () => {
 		const expandedIds = select( STORE_NAME ).getExpandedIds?.();
@@ -52,6 +54,15 @@ if ( typeof window !== 'undefined' ) {
 		) {
 			lastAllMediaActive = allMediaActive;
 			savePreference( PREF_KEYS.ALL_MEDIA, allMediaActive );
+		}
+
+		const selectedFolderId = select( STORE_NAME ).getSelectedFolderId?.();
+		if (
+			typeof selectedFolderId === 'number' &&
+			selectedFolderId !== lastSelectedFolderId
+		) {
+			lastSelectedFolderId = selectedFolderId;
+			savePreference( PREF_KEYS.SELECTED_FOLDER_ID, selectedFolderId );
 		}
 	}, STORE_NAME );
 }
