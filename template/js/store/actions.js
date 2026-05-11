@@ -576,6 +576,21 @@ export function* bootFromUrl() {
 	yield setSelectedFolder( folderId );
 	yield* expandPathTo( folderId );
 
+	// Fallback to Root if the persisted/linked folder no longer exists
+	// (e.g. another user deleted it between sessions). expandPathTo above
+	// is a no-op for missing folders, so we detect by checking whether the
+	// folder ended up in the store. Root (0) is always present.
+	if ( folderId !== 0 ) {
+		const folder = yield {
+			type: 'SELECT',
+			selector: 'getFolderById',
+			args: [ folderId ],
+		};
+		if ( ! folder ) {
+			yield setSelectedFolder( 0 );
+		}
+	}
+
 	// Re-hydrate children for folders the user had previously expanded.
 	// Without this, the chevron shows "expanded" but children stay empty
 	// until the user collapses + re-expands.
@@ -597,5 +612,36 @@ export function* bootFromUrl() {
 	}
 	if ( stillNeedFetch.length > 0 ) {
 		yield* fetchChildrenBatch( stillNeedFetch );
+	}
+
+	// GC of expanded folders that no longer exist (e.g. deleted by another
+	// user). After the batch fetch, any persisted ID still missing from
+	// foldersById is stale — drop it from the persisted set so the cache
+	// stays clean across reloads. Root (0) is always present.
+	const expandedAfterFetch = yield {
+		type: 'SELECT',
+		selector: 'getExpandedIds',
+		args: [],
+	};
+	const cleaned = [];
+	for ( const id of expandedAfterFetch ?? [] ) {
+		if ( id === 0 ) {
+			cleaned.push( id );
+			continue;
+		}
+		const folder = yield {
+			type: 'SELECT',
+			selector: 'getFolderById',
+			args: [ id ],
+		};
+		if ( folder ) {
+			cleaned.push( id );
+		}
+	}
+	if ( cleaned.length !== ( expandedAfterFetch ?? [] ).length ) {
+		yield {
+			type: ACTION_TYPES.SET_EXPANDED_IDS,
+			ids: cleaned,
+		};
 	}
 }

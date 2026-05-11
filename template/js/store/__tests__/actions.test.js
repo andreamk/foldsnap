@@ -698,6 +698,8 @@ describe( 'bootFromUrl', () => {
 		} );
 	};
 
+	const folderObj = ( id ) => ( { id, name: `f${ id }` } );
+
 	it( 'fetches children for persisted-expanded folders that are not yet loaded', () => {
 		setLocationSearch( '?foldsnap_folder_id=42' );
 		const yields = drive( bootFromUrl(), [
@@ -709,26 +711,16 @@ describe( 'bootFromUrl', () => {
 					{ id: 42, parent_id: 5 },
 				],
 			},
-			// expandPathTo: SELECT getExpandedIds
-			[],
-			// expandPathTo: API_FETCH children batch
-			{
-				folders: [],
-				root_media_count: 0,
-				root_total_size: 0,
-			},
-			// re-hydrate: SELECT getExpandedIds
-			[ 11, 12 ],
-			// SELECT isFolderLoaded(11)
-			false,
-			// SELECT isFolderLoaded(12)
-			false,
-			// fetchChildrenBatch: API_FETCH
-			{
-				folders: [],
-				root_media_count: 0,
-				root_total_size: 0,
-			},
+			[], // expandPathTo getExpandedIds
+			{ folders: [] }, // expandPathTo fetchChildrenBatch
+			folderObj( 42 ), // fallback check getFolderById(42)
+			[ 11, 12 ], // re-hydrate getExpandedIds
+			false, // isFolderLoaded(11)
+			false, // isFolderLoaded(12)
+			{ folders: [] }, // fetchChildrenBatch
+			[ 11, 12 ], // GC getExpandedIds
+			folderObj( 11 ), // GC getFolderById(11)
+			folderObj( 12 ), // GC getFolderById(12)
 		] );
 		const starts = yields.filter(
 			( y ) =>
@@ -752,13 +744,12 @@ describe( 'bootFromUrl', () => {
 				],
 			},
 			[], // expandPathTo getExpandedIds
-			{
-				folders: [],
-				root_media_count: 0,
-				root_total_size: 0,
-			},
+			{ folders: [] },
+			folderObj( 42 ), // fallback check
 			[ 11 ], // re-hydrate getExpandedIds
 			true, // isFolderLoaded(11)
+			[ 11 ], // GC getExpandedIds
+			folderObj( 11 ), // GC getFolderById(11)
 		] );
 		const starts = yields.filter(
 			( y ) =>
@@ -775,29 +766,22 @@ describe( 'bootFromUrl', () => {
 	it( 'fetches only the unloaded subset when persisted-expanded folders are mixed', () => {
 		setLocationSearch( '?foldsnap_folder_id=42' );
 		const yields = drive( bootFromUrl(), [
-			// expandPathTo: GET /folders/42/path
 			{
 				path: [
 					{ id: 0, parent_id: 0, is_root: true },
 					{ id: 42, parent_id: 0 },
 				],
 			},
-			[], // expandPathTo getExpandedIds
-			{
-				folders: [],
-				root_media_count: 0,
-				root_total_size: 0,
-			},
-			// re-hydrate: persisted [11, 12]; 11 loaded, 12 not
-			[ 11, 12 ],
+			[],
+			{ folders: [] },
+			folderObj( 42 ), // fallback check
+			[ 11, 12 ], // re-hydrate
 			true, // isFolderLoaded(11)
 			false, // isFolderLoaded(12)
-			// fetchChildrenBatch: API_FETCH for [12] only
-			{
-				folders: [],
-				root_media_count: 0,
-				root_total_size: 0,
-			},
+			{ folders: [] },
+			[ 11, 12 ], // GC getExpandedIds
+			folderObj( 11 ),
+			folderObj( 12 ),
 		] );
 		const rehydrateStarts = yields.filter(
 			( y ) =>
@@ -811,8 +795,9 @@ describe( 'bootFromUrl', () => {
 	it( 'is a no-op for re-hydration when no folders are persisted-expanded', () => {
 		setLocationSearch( '' );
 		const yields = drive( bootFromUrl(), [
-			// expandPathTo no-ops because folderId === 0; no API_FETCH/SELECT consumed.
+			// folderId === 0: expandPathTo and fallback check both no-op.
 			[], // re-hydrate getExpandedIds → empty
+			[], // GC getExpandedIds → empty
 		] );
 		const starts = yields.filter(
 			( y ) => y.type === ACTION_TYPES.FETCH_CHILDREN_START
@@ -828,22 +813,22 @@ describe( 'bootFromUrl', () => {
 		setLocationSearch( '' );
 		window.foldsnap_data.preferences = { selectedFolderId: 7 };
 		const yields = drive( bootFromUrl(), [
-			// expandPathTo: GET /folders/7/path
 			{
 				path: [
 					{ id: 0, parent_id: 0, is_root: true },
 					{ id: 7, parent_id: 0 },
 				],
 			},
-			[], // expandPathTo getExpandedIds
-			{ folders: [] }, // expandPathTo fetchChildrenBatch
-			[], // re-hydrate getExpandedIds → empty
+			[],
+			{ folders: [] },
+			folderObj( 7 ), // fallback check
+			[],
+			[], // GC getExpandedIds
 		] );
 		expect( yields ).toContainEqual( {
 			type: ACTION_TYPES.SET_SELECTED_FOLDER,
 			folderId: 7,
 		} );
-		// Restore default for following tests.
 		window.foldsnap_data.preferences = {};
 	} );
 
@@ -859,6 +844,8 @@ describe( 'bootFromUrl', () => {
 			},
 			[],
 			{ folders: [] },
+			folderObj( 42 ),
+			[],
 			[],
 		] );
 		expect( yields ).toContainEqual( {
@@ -870,5 +857,38 @@ describe( 'bootFromUrl', () => {
 			folderId: 7,
 		} );
 		window.foldsnap_data.preferences = {};
+	} );
+
+	it( 'falls back to Root when the linked folder no longer exists', () => {
+		setLocationSearch( '?foldsnap_folder_id=999' );
+		const yields = drive( bootFromUrl(), [
+			{ path: [] }, // expandPathTo path GET → empty (deleted)
+			null, // fallback check getFolderById(999) → missing
+			[], // re-hydrate getExpandedIds
+			[], // GC getExpandedIds
+		] );
+		expect( yields ).toContainEqual( {
+			type: ACTION_TYPES.SET_SELECTED_FOLDER,
+			folderId: 999,
+		} );
+		expect( yields ).toContainEqual( {
+			type: ACTION_TYPES.SET_SELECTED_FOLDER,
+			folderId: 0,
+		} );
+	} );
+
+	it( 'GC drops persisted-expanded ids whose folders no longer exist', () => {
+		setLocationSearch( '' );
+		const yields = drive( bootFromUrl(), [
+			[], // re-hydrate getExpandedIds (initial)
+			[ 0, 11, 999 ], // GC getExpandedIds: 11 valid, 999 deleted
+			folderObj( 11 ), // GC getFolderById(11) → exists
+			null, // GC getFolderById(999) → missing
+		] );
+		const setExpanded = yields.find(
+			( y ) => y.type === ACTION_TYPES.SET_EXPANDED_IDS
+		);
+		expect( setExpanded ).toBeDefined();
+		expect( setExpanded.ids ).toEqual( [ 0, 11 ] );
 	} );
 } );
